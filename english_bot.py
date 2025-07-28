@@ -1,14 +1,29 @@
-# english_bot.py
 from fastapi import FastAPI, Request
-from telegram import Update, Bot
-from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
+from telegram import Update
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    ContextTypes,
+    MessageHandler,
+    CommandHandler,
+    CallbackQueryHandler,
+    filters,
+)
+
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
 from handlers.conversation import handle_start
+from handlers.conversation_callback import handle_callback_query
 
 import asyncio
 
+# Временное хранилище для пользовательских сессий (на время жизни бота)
+user_sessions = {}
+
+# FastAPI-приложение
 app = FastAPI()
-bot_app: Application = None  # глобально инициализируем позже
+
+# Telegram-приложение (бот)
+bot_app: Application = None  # будет инициализирован при запуске
 
 
 @app.on_event("startup")
@@ -16,14 +31,15 @@ async def on_startup():
     global bot_app
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Добавим обработчик входящих текстов
+    # Импорт обработчика текстовых сообщений
     from handlers.chat.chat_handler import handle_message
+
+    # Регистрируем обработчики
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CommandHandler("start", handle_start))
+    bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    # (опционально) обработчик голосовых сообщений — добавим позже
-
-    # Запускаем polling loop в фоне (не нужен, если только webhook)
+    # Инициализация приложения Telegram (нужно при использовании Webhook)
     asyncio.create_task(bot_app.initialize())
 
 
@@ -33,5 +49,6 @@ async def telegram_webhook(req: Request):
     update = Update.de_json(body, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
+
 
 
