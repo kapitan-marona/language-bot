@@ -1,8 +1,9 @@
 # english_bot.py
 from fastapi import FastAPI, Request
 from telegram import Update, Bot
-from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler, filters
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
+from handlers.conversation import handle_start
 
 import asyncio
 
@@ -18,6 +19,7 @@ async def on_startup():
     # Добавим обработчик входящих текстов
     from handlers.chat.chat_handler import handle_message
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    bot_app.add_handler(CommandHandler("start", handle_start))
 
     # (опционально) обработчик голосовых сообщений — добавим позже
 
