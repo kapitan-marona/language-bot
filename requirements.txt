@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-telegram-bot==20.3  # или актуальная версия, если проект поддерживает
+openai
+google-cloud-texttospeech
+python-dotenv
+requests
+aiohttp
+httpx
+pydub
