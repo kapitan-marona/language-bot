@@ -16,9 +16,9 @@ def get_interface_language_keyboard() -> InlineKeyboardMarkup:
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-
-    # Очищаем всю сессию, включая историю
     user_sessions[chat_id] = {}
+
+    await update.message.reply_text("⏳ Обновляю интерфейс..", reply_markup=ReplyKeyboardRemove())
 
     text = (
         "👋 Привет! Я Мэтт, и я помогу тебе выучить новый язык!\n\n"
