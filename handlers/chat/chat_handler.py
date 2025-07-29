@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
-from components.mode import MODE_SWITCH_MESSAGES
+from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 import os
 
@@ -33,10 +33,8 @@ def get_rules_by_level(level: str, interface_lang: str) -> str:
             return rules[key].get(interface_lang, rules[key]["en"])
     return rules["B1"][interface_lang]  # fallback
 
-
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
-
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -75,7 +73,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{rules}"
     )
 
-    # Обновить историю
     history.append({"role": "user", "content": user_input})
     if len(history) > MAX_HISTORY_LENGTH:
         history.pop(0)
@@ -86,13 +83,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response_text = ask_gpt(messages)
         history.append({"role": "assistant", "content": response_text})
 
+        reply_markup = get_mode_keyboard(mode)
+
         if mode == "voice":
             audio_path = synthesize_voice(response_text, lang=target_lang, level=level)
             with open(audio_path, "rb") as audio:
-                await update.message.reply_voice(voice=audio)
+                await update.message.reply_voice(voice=audio, reply_markup=reply_markup)
             os.remove(audio_path)
         else:
-            await update.message.reply_text(response_text)
+            await update.message.reply_text(response_text, reply_markup=reply_markup)
 
     except Exception as e:
         await update.message.reply_text("⚠️ Ошибка при обращении к GPT.")
