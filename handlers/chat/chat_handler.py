@@ -76,23 +76,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rules = get_rules_by_level(level, interface_lang)
     persona = get_greeting_name(interface_lang)
 
-    style_instructions = {
-        "casual": (
-            "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
-            "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
-        ),
-        "buisness": (
-            "Respond with a professional, respectful, and slightly formal tone. Avoid using emojis unless absolutely necessary. "
-            "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
-            "Do not sound robotic or overly stiff. Keep it human and clear."
-        )
-    }.get(style, "")
+    STYLE_MAP = {
+    "casual": (
+        "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
+        "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
+    ),
+    "business": (
+        "Respond with a professional, respectful, and slightly formal tone. Avoid emojis unless absolutely necessary. "
+        "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
+        "Do not sound robotic or overly stiff. Keep it human and clear."
+    )
+}
 
-    system_prompt = (
-        f"You are {persona}, a friendly assistant helping learn {target_lang}. "
-        f"User level: {level}. Style: {style}.\n"
-        f"{style_instructions}\n"
-        f"{rules}"
+style = session.get("style", "casual").lower()
+style_instructions = STYLE_MAP.get(style, STYLE_MAP["casual"])
+
+system_prompt = (
+    f"You are {persona}, a friendly assistant helping the user learn {target_lang.upper()}.\n"
+    f"Always respond ONLY in {target_lang.upper()}.\n"
+    f"User level: {level.upper()}. Style: {style}.\n"
+    f"{style_instructions}\n"
+    f"{rules}"
+)
+
+# Дополнительные инструкции, если выбран режим voice
+if mode == "voice":
+    system_prompt += (
+        "\nSpeak naturally, as if talking aloud. "
+        "Avoid emojis and formatting. Express tone with words, not symbols."
+    )
+else:
+    system_prompt += "\nWritten responses can include emojis and formatting depending on style."
+
     )
 
     history.append({"role": "user", "content": user_input})
