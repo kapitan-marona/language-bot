@@ -37,6 +37,13 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👇 Выбери язык, на котором будем общаться:"
         )
 
+        # Удаляем старые reply-кнопки, если они остались из предыдущих версий
+    await update.message.reply_text(
+        "⌨️ Подготовка...",
+        reply_markup=ReplyKeyboardRemove()
+    )
+        
+
     await update.message.reply_text(
         greeting,
         reply_markup=get_interface_language_keyboard()
