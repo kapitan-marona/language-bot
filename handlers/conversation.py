@@ -1,8 +1,7 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 
 from state.session import user_sessions
-
 
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
@@ -20,11 +19,25 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Очищаем всю сессию, включая историю
     user_sessions[chat_id] = {}
 
-    text = (
-        "👋 Привет! Я Мэтт, и я помогу тебе выучить новый язык!\n\n"
-        "🌐 Давай начнем с выбора языка интерфейса. "
-        "Не переживай — даже если это твой первый раз, я подскажу путь!\n\n"
-        "👇 Выбери язык, на котором будем общаться:"
-    )
+    # Определяем язык интерфейса по умолчанию (пока принудительно ru)
+    interface_lang = context.user_data.get("interface_lang", "ru")
 
-    await update.message.reply_text(text, reply_markup=get_interface_language_keyboard())
+    if interface_lang == "en":
+        greeting = (
+            "👋 Hi! I'm Matt — your personal language learning buddy!\n\n"
+            "🌐 Let's start by choosing your interface language.\n"
+            "No worries — even if it's your first time, I'll guide you!\n\n"
+            "👇 Choose the language we'll be chatting in:"
+        )
+    else:
+        greeting = (
+            "👋 Привет! Я Мэтт — твой помощник для изучения языков!\n\n"
+            "🌐 Давай начнем с выбора языка интерфейса.\n"
+            "Не переживай — даже если это твой первый раз, я подскажу путь!\n\n"
+            "👇 Выбери язык, на котором будем общаться:"
+        )
+
+    await update.message.reply_text(
+        greeting,
+        reply_markup=get_interface_language_keyboard()
+    )
