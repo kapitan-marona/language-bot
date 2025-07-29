@@ -1,6 +1,7 @@
 # handlers/conversation_callback.py
 from telegram import Update
 from telegram.ext import ContextTypes
+from components.style import get_intro_by_level_and_style
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES
@@ -50,6 +51,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text(greeting.get(interface_lang, greeting["en"]), reply_markup=get_mode_keyboard(mode))
 
     # 🔊 Переключение режимов
+
+    # 🧢 Стиль общения
+    elif data.startswith("style_"):
+        chosen_style = data.split("_")[1]
+        session["style"] = chosen_style
+        interface_lang = session.get("interface_lang", "en")
+        level = session.get("level", "A1")
+        intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
+        await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
     elif data.startswith("mode_"):
         new_mode = data.split("_")[1]
         session["mode"] = new_mode
