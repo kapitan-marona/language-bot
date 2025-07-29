@@ -61,5 +61,5 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         interface_lang = session.get("interface_lang", "en")
         msg = MODE_SWITCH_MESSAGES.get(new_mode, {}).get(interface_lang, "Mode changed.")
 
-        await query.message.edit_reply_markup(reply_markup=None)  # очистка кнопок
+        await query.message.edit_reply_markup(reply_markup=None)  
         await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))
