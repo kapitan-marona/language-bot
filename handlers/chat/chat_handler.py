@@ -1,9 +1,41 @@
+# handlers/chat/chat_handler.py
 from telegram import Update
 from telegram.ext import ContextTypes
-
 from components.gpt_client import ask_gpt
-from components.levels import get_rules_by_level
+from components.voice import synthesize_voice
+from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
+import os
+
+MAX_HISTORY_LENGTH = 40
+
+def get_rules_by_level(level: str, interface_lang: str) -> str:
+    rules = {
+        "A0": {
+            "en": "Use the simplest grammar and translate everything you say to English.",
+            "ru": "Используй самую простую грамматику и переводи всё, что говоришь, на русский.",
+        },
+        "A1": {
+            "en": "Use simple grammar. Translate only if asked.",
+            "ru": "Используй простую грамматику. Переводи только по просьбе.",
+        },
+        "B1": {
+            "en": "Use more advanced grammar. Only translate when requested.",
+            "ru": "Используй более сложную грамматику. Переводи только по запросу.",
+        },
+        "C1": {
+            "en": "Communicate as with a native speaker. No translation unless asked.",
+            "ru": "Общайся как с нейтивом. Не переводи без просьбы.",
+        },
+    }
+    for key in rules:
+        if level.upper().startswith(key):
+            return rules[key].get(interface_lang, rules[key]["en"])
+    return rules["B1"][interface_lang]  # fallback
+
+
+def get_greeting_name(lang: str) -> str:
+    return "Matt" if lang == "en" else "Мэтт"
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -14,56 +46,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_sessions[chat_id] = {}
 
     session = user_sessions[chat_id]
-
-    # Проверка обязательных настроек
-    required = ["interface_lang", "target_lang", "level", "style"]
-    if not all(key in session for key in required):
-        await update.message.reply_text("⚠️ Пожалуйста, сначала выбери язык, уровень и стиль общения через /start.")
-        return
+    session.setdefault("interface_lang", "en")
+    session.setdefault("target_lang", "en")
+    session.setdefault("level", "A1")
+    session.setdefault("style", "casual")
+    session.setdefault("mode", "text")
+    session.setdefault("history", [])
 
     interface_lang = session["interface_lang"]
     target_lang = session["target_lang"]
     level = session["level"]
     style = session["style"]
+    mode = session["mode"]
+    history = session["history"]
 
-    # Имя
-    bot_name = "Мэтт" if interface_lang == "ru" else "Matt"
+    rules = get_rules_by_level(level, interface_lang)
+    persona = get_greeting_name(interface_lang)
 
-    # Стиль общения
-    if style == "casual":
-        tone = (
-            "You're relaxed, playful, and cheerful. You use slang, emojis, memes, "
-            "and speak like a friendly buddy (e.g., 'mate', 'pal'). You joke often and express emotions clearly."
-        )
-    elif style == "business":
-        tone = (
-            "You're respectful, witty, and professional. You use polite and formal language, "
-            "avoid slang, and limit emojis. You maintain distance like in a business setting, "
-            "but you're not boring or robotic."
-        )
-    else:
-        tone = "Be friendly and helpful."
+    tone = {
+        "casual": "Speak like a funny, friendly mate with emojis and slang.",
+        "buisness": "Speak formally, politely, and respectfully. Minimal emojis.",
+    }[style]
 
     system_prompt = (
-        f"Your name is {bot_name}. You're a language tutor helping the user learn {target_lang.upper()}.\n"
-        f"You speak only in {target_lang.upper()}.\n"
-        f"User level: {level}. Interface language: {interface_lang.upper()}.\n"
+        f"You are {persona}, a friendly assistant helping learn {target_lang}. "
+        f"User level: {level}. Style: {style}.\n"
         f"{tone}\n"
-        f"{get_rules_by_level(level, interface_lang)}\n"
-        f"Ask questions based on user's messages. Gently correct their mistakes. Encourage them."
+        f"{rules}"
     )
 
-    # История
-    history = session.get("history", [])
+    # Обновить историю
     history.append({"role": "user", "content": user_input})
+    if len(history) > MAX_HISTORY_LENGTH:
+        history.pop(0)
 
     messages = [{"role": "system", "content": system_prompt}] + history
 
     try:
-        reply = ask_gpt(messages)
-        history.append({"role": "assistant", "content": reply})
-        session["history"] = history[-40:]
-        await update.message.reply_text(reply)
+        response_text = ask_gpt(messages)
+        history.append({"role": "assistant", "content": response_text})
+
+        if mode == "voice":
+            audio_path = synthesize_voice(response_text, lang=target_lang, level=level)
+            with open(audio_path, "rb") as audio:
+                await update.message.reply_voice(voice=audio)
+            os.remove(audio_path)
+        else:
+            await update.message.reply_text(response_text)
+
     except Exception as e:
         await update.message.reply_text("⚠️ Ошибка при обращении к GPT.")
-        print(f"[GPT ERROR]: {e}")
+        print(f"GPT error: {e}")
