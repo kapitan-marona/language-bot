@@ -5,7 +5,6 @@ from state.session import user_sessions
 
 
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
-    """Кнопки выбора языка интерфейса"""
     keyboard = [
         [
             InlineKeyboardButton("English", callback_data="lang_en"),
@@ -18,15 +17,14 @@ def get_interface_language_keyboard() -> InlineKeyboardMarkup:
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
-    # Очищаем предыдущую сессию
+    # Очищаем всю сессию, включая историю
     user_sessions[chat_id] = {}
 
     text = (
-        "🌐 Let's start by choosing the language for our interface.\n\n"
-        "⚠️ Don't worry — even if it's your first time using this language, I'm here to help! "
-        "We'll take it slow, and I'll guide you step by step.\n\n"
-        "👇 Choose your interface language:"
+        "👋 Привет! Я Мэтт, и я помогу тебе выучить новый язык!\n\n"
+        "🌐 Давай начнем с выбора языка интерфейса. "
+        "Не переживай — даже если это твой первый раз, я подскажу путь!\n\n"
+        "👇 Выбери язык, на котором будем общаться:"
     )
 
     await update.message.reply_text(text, reply_markup=get_interface_language_keyboard())
-
