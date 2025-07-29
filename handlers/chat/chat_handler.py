@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
-from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
+from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
 import os
 
@@ -58,6 +58,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = session["mode"]
     history = session["history"]
 
+    # 🔎 Обработка переключения режимов через ключевые фразы
+    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
+    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "не надо голосом"]
+    lower_input = user_input.lower()
+
+    if any(trigger in lower_input for trigger in voice_triggers):
+        session["mode"] = "voice"
+        await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode on."))
+        await update.message.reply_text("Только скажи, что хочешь вернуться в текстовый режим — и я перестану доставать тебя голосовыми 😄")
+        return
+
+    elif any(trigger in lower_input for trigger in text_triggers):
+        session["mode"] = "text"
+        await update.message.reply_text(MODE_SWITCH_MESSAGES["text"].get(interface_lang, "Text mode on."))
+        return
+
     rules = get_rules_by_level(level, interface_lang)
     persona = get_greeting_name(interface_lang)
 
@@ -83,15 +99,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response_text = ask_gpt(messages)
         history.append({"role": "assistant", "content": response_text})
 
-        reply_markup = get_mode_keyboard(mode)
-
-        if mode == "voice":
+        if session["mode"] == "voice":
             audio_path = synthesize_voice(response_text, lang=target_lang, level=level)
             with open(audio_path, "rb") as audio:
-                await update.message.reply_voice(voice=audio, reply_markup=reply_markup)
+                await update.message.reply_voice(voice=audio)
             os.remove(audio_path)
         else:
-            await update.message.reply_text(response_text, reply_markup=reply_markup)
+            await update.message.reply_text(response_text)
 
     except Exception as e:
         await update.message.reply_text("⚠️ Ошибка при обращении к GPT.")
