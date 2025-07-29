@@ -5,16 +5,8 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
 import os
-import re
-import emoji
 
 MAX_HISTORY_LENGTH = 40
-
-# Очистка текста от эмодзи и символов для озвучки
-def clean_text_for_tts(text):
-    text = emoji.replace_emoji(text, replace='')
-    text = re.sub(r"[^\w\s.,?!:;'\"()-]", "", text)
-    return text
 
 STYLE_MAP = {
     "casual": (
@@ -85,7 +77,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = session["mode"]
     history = session["history"]
 
-    # Обработка переключения режимов
     voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
     text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "не надо голосом"]
     lower_input = user_input.lower()
@@ -132,9 +123,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.append({"role": "assistant", "content": response_text})
 
         if mode == "voice":
-            cleaned_text = clean_text_for_tts(response_text)
             lang_code = LANGUAGE_CODES.get(target_lang, target_lang)
-            audio_path = synthesize_voice(cleaned_text, lang=lang_code, level=level)
+            audio_path = synthesize_voice(response_text, lang=lang_code, level=level)
             with open(audio_path, "rb") as audio:
                 await update.message.reply_voice(voice=audio)
             os.remove(audio_path)
