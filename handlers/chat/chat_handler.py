@@ -5,8 +5,36 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
 import os
+import re
+import emoji
 
 MAX_HISTORY_LENGTH = 40
+
+# Очистка текста от эмодзи и символов для озвучки
+def clean_text_for_tts(text):
+    text = emoji.replace_emoji(text, replace='')
+    text = re.sub(r"[^\w\s.,?!:;'\"()-]", "", text)
+    return text
+
+STYLE_MAP = {
+    "casual": (
+        "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
+        "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
+    ),
+    "business": (
+        "Respond with a professional, respectful, and slightly formal tone. Avoid emojis unless absolutely necessary. "
+        "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
+        "Do not sound robotic or overly stiff. Keep it human and clear."
+    )
+}
+
+LANGUAGE_CODES = {
+    "en": "en-US",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "es": "es-ES",
+    "ru": "ru-RU"
+}
 
 def get_rules_by_level(level: str, interface_lang: str) -> str:
     rules = {
@@ -53,11 +81,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_lang = session["interface_lang"]
     target_lang = session["target_lang"]
     level = session["level"]
-    style = session["style"]
+    style = session.get("style", "casual").lower()
     mode = session["mode"]
     history = session["history"]
 
-    # 🔎 Обработка переключения режимов через ключевые фразы
+    # Обработка переключения режимов
     voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
     text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "не надо голосом"]
     lower_input = user_input.lower()
@@ -75,40 +103,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rules = get_rules_by_level(level, interface_lang)
     persona = get_greeting_name(interface_lang)
+    style_instructions = STYLE_MAP.get(style, STYLE_MAP["casual"])
 
-    STYLE_MAP = {
-    "casual": (
-        "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
-        "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
-    ),
-    "business": (
-        "Respond with a professional, respectful, and slightly formal tone. Avoid emojis unless absolutely necessary. "
-        "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
-        "Do not sound robotic or overly stiff. Keep it human and clear."
+    system_prompt = (
+        f"You are {persona}, a friendly assistant helping the user learn {target_lang.upper()}.\n"
+        f"Always respond ONLY in {target_lang.upper()}.\n"
+        f"User level: {level.upper()}. Style: {style}.\n"
+        f"{style_instructions}\n"
+        f"{rules}"
     )
-}
 
-style = session.get("style", "casual").lower()
-style_instructions = STYLE_MAP.get(style, STYLE_MAP["casual"])
-
-system_prompt = (
-    f"You are {persona}, a friendly assistant helping the user learn {target_lang.upper()}.\n"
-    f"Always respond ONLY in {target_lang.upper()}.\n"
-    f"User level: {level.upper()}. Style: {style}.\n"
-    f"{style_instructions}\n"
-    f"{rules}"
-)
-
-# Дополнительные инструкции, если выбран режим voice
-if mode == "voice":
-    system_prompt += (
-        "\nSpeak naturally, as if talking aloud. "
-        "Avoid emojis and formatting. Express tone with words, not symbols."
-    )
-else:
-    system_prompt += "\nWritten responses can include emojis and formatting depending on style."
-
-    )
+    if mode == "voice":
+        system_prompt += (
+            "\nSpeak naturally, as if talking aloud. "
+            "Avoid emojis and formatting. Express tone with words, not symbols."
+        )
+    else:
+        system_prompt += "\nWritten responses can include emojis and formatting depending on style."
 
     history.append({"role": "user", "content": user_input})
     if len(history) > MAX_HISTORY_LENGTH:
@@ -120,8 +131,10 @@ else:
         response_text = ask_gpt(messages)
         history.append({"role": "assistant", "content": response_text})
 
-        if session["mode"] == "voice":
-            audio_path = synthesize_voice(response_text, lang=target_lang, level=level)
+        if mode == "voice":
+            cleaned_text = clean_text_for_tts(response_text)
+            lang_code = LANGUAGE_CODES.get(target_lang, target_lang)
+            audio_path = synthesize_voice(cleaned_text, lang=lang_code, level=level)
             with open(audio_path, "rb") as audio:
                 await update.message.reply_voice(voice=audio)
             os.remove(audio_path)
