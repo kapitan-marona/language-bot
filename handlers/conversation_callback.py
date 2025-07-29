@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.levels import get_level_keyboard, LEVEL_PROMPT
-from english_bot import user_sessions
+from state.session import user_sessions
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):

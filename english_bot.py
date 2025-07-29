@@ -13,11 +13,9 @@ from telegram.ext import (
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
 from handlers.conversation import handle_start
 from handlers.conversation_callback import handle_callback_query
+from state.session import user_sessions
 
 import asyncio
-
-# Временное хранилище для пользовательских сессий (на время жизни бота)
-user_sessions = {}
 
 # FastAPI-приложение
 app = FastAPI()
