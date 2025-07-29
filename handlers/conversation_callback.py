@@ -1,118 +1,65 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from components.gpt_client import ask_gpt
-from components.voice import synthesize_voice
-from components.mode import MODE_SWITCH_MESSAGES
+from components.levels import get_level_keyboard, LEVEL_PROMPT
+from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
+from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES
+from components.style import get_style_keyboard, get_intro_by_level_and_style, STYLE_PROMPT
 from state.session import user_sessions
-import os
 
-MAX_HISTORY_LENGTH = 40
-
-def get_rules_by_level(level: str, interface_lang: str) -> str:
-    rules = {
-        "A0": {
-            "en": "Use the simplest grammar and translate everything you say to English.",
-            "ru": "Используй самую простую грамматику и переводи всё, что говоришь, на русский.",
-        },
-        "A1": {
-            "en": "Use simple grammar. Translate only if asked.",
-            "ru": "Используй простую грамматику. Переводи только по просьбе.",
-        },
-        "B1": {
-            "en": "Use more advanced grammar. Only translate when requested.",
-            "ru": "Используй более сложную грамматику. Переводи только по запросу.",
-        },
-        "C1": {
-            "en": "Communicate as with a native speaker. No translation unless asked.",
-            "ru": "Общайся как с нейтивом. Не переводи без просьбы.",
-        },
-    }
-    for key in rules:
-        if level.upper().startswith(key):
-            return rules[key].get(interface_lang, rules[key]["en"])
-    return rules["B1"][interface_lang]  # fallback
-
-def get_greeting_name(lang: str) -> str:
-    return "Matt" if lang == "en" else "Мэтт"
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_input = update.message.text
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    data = query.data
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
 
     session = user_sessions[chat_id]
-    session.setdefault("interface_lang", "en")
-    session.setdefault("target_lang", "en")
-    session.setdefault("level", "A1")
-    session.setdefault("style", "casual")
-    session.setdefault("mode", "text")
-    session.setdefault("history", [])
 
-    interface_lang = session["interface_lang"]
-    target_lang = session["target_lang"]
-    level = session["level"]
-    style = session["style"]
-    mode = session["mode"]
-    history = session["history"]
+    # 🌐 Выбор языка интерфейса
+    if data.startswith("lang_"):
+        lang_code = data.split("_")[1]
+        session["interface_lang"] = lang_code
+        session["mode"] = "text"  # режим по умолчанию
 
-    # 🔎 Обработка переключения режимов через ключевые фразы
-    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
-    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "не надо голосом"]
-    lower_input = user_input.lower()
+        prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
+        await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
 
-    if any(trigger in lower_input for trigger in voice_triggers):
-        session["mode"] = "voice"
-        await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode on."))
-        await update.message.reply_text("Только скажи, что хочешь вернуться в текстовый режим — и я перестану доставать тебя голосовыми 😁")
-        return
+    # 🌍 Язык обучения
+    elif data.startswith("target_"):
+        target_code = data.split("_")[1]
+        session["target_lang"] = target_code
 
-    elif any(trigger in lower_input for trigger in text_triggers):
-        session["mode"] = "text"
-        await update.message.reply_text(MODE_SWITCH_MESSAGES["text"].get(interface_lang, "Text mode on."))
-        return
+        interface_lang = session.get("interface_lang", "en")
+        level_prompt = LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"])
+        await query.message.reply_text(level_prompt, reply_markup=get_level_keyboard())
 
-    rules = get_rules_by_level(level, interface_lang)
-    persona = get_greeting_name(interface_lang)
+    # 📒 Уровень
+    elif data.startswith("level_"):
+        level = data.split("_")[1]
+        session["level"] = level
 
-    style_instructions = {
-        "casual": (
-            "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
-            "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
-        ),
-        "buisness": (
-            "Respond with a professional, respectful, and slightly formal tone. Avoid using emojis unless absolutely necessary. "
-            "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
-            "Do not sound robotic or overly stiff. Keep it human and clear."
-        )
-    }.get(style, "")
+        interface_lang = session.get("interface_lang", "en")
+        prompt = STYLE_PROMPT.get(interface_lang, STYLE_PROMPT["en"])
+        await query.message.reply_text(prompt, reply_markup=get_style_keyboard())
 
-    system_prompt = (
-        f"You are {persona}, a friendly assistant helping learn {target_lang}. "
-        f"User level: {level}. Style: {style}.\n"
-        f"{style_instructions}\n"
-        f"{rules}"
-    )
+    # 🧲 Стиль общения
+    elif data.startswith("style_"):
+        chosen_style = data.split("_")[1]
+        session["style"] = chosen_style
+        interface_lang = session.get("interface_lang", "en")
+        level = session.get("level", "A1")
+        intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
+        await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
 
-    history.append({"role": "user", "content": user_input})
-    if len(history) > MAX_HISTORY_LENGTH:
-        history.pop(0)
+    # 🔊 Переключение режимов
+    elif data.startswith("mode_"):
+        new_mode = data.split("_")[1]
+        session["mode"] = new_mode
 
-    messages = [{"role": "system", "content": system_prompt}] + history
+        interface_lang = session.get("interface_lang", "en")
+        msg = MODE_SWITCH_MESSAGES.get(new_mode, {}).get(interface_lang, "Mode changed.")
 
-    try:
-        response_text = ask_gpt(messages)
-        history.append({"role": "assistant", "content": response_text})
-
-        if session["mode"] == "voice":
-            audio_path = synthesize_voice(response_text, lang=target_lang, level=level)
-            with open(audio_path, "rb") as audio:
-                await update.message.reply_voice(voice=audio)
-            os.remove(audio_path)
-        else:
-            await update.message.reply_text(response_text)
-
-    except Exception as e:
-        await update.message.reply_text("⚠️ Ошибка при обращении к GPT.")
-        print(f"GPT error: {e}")
+        await query.message.edit_reply_markup(reply_markup=None)  # очистка кнопок
+        await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))

@@ -1,4 +1,3 @@
-# handlers/chat/chat_handler.py
 from telegram import Update
 from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
@@ -66,7 +65,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if any(trigger in lower_input for trigger in voice_triggers):
         session["mode"] = "voice"
         await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode on."))
-        await update.message.reply_text("Только скажи, что хочешь вернуться в текстовый режим — и я перестану доставать тебя голосовыми 😄")
+        await update.message.reply_text("Только скажи, что хочешь вернуться в текстовый режим — и я перестану доставать тебя голосовыми 😁")
         return
 
     elif any(trigger in lower_input for trigger in text_triggers):
@@ -77,15 +76,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rules = get_rules_by_level(level, interface_lang)
     persona = get_greeting_name(interface_lang)
 
-    tone = {
-        "casual": "Speak like a funny, friendly mate with emojis and slang.",
-        "buisness": "Speak formally, politely, and respectfully. Minimal emojis.",
-    }[style]
+    style_instructions = {
+        "casual": (
+            "Be relaxed, humorous, and use casual expressions. Use emojis, memes, and playful phrases. "
+            "Sound like a cheerful buddy. Stay ultra-positive and fun, like a witty friend."
+        ),
+        "buisness": (
+            "Respond with a professional, respectful, and slightly formal tone. Avoid using emojis unless absolutely necessary. "
+            "Maintain a friendly and engaging presence — like a smart colleague or helpful mentor. "
+            "Do not sound robotic or overly stiff. Keep it human and clear."
+        )
+    }.get(style, "")
 
     system_prompt = (
         f"You are {persona}, a friendly assistant helping learn {target_lang}. "
         f"User level: {level}. Style: {style}.\n"
-        f"{tone}\n"
+        f"{style_instructions}\n"
         f"{rules}"
     )
 
