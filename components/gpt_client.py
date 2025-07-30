@@ -2,25 +2,17 @@ from openai import OpenAI
 from config.config import OPENAI_API_KEY
 from openai.types.chat import ChatCompletion
 
-# Инициализируем клиента
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
-    """
-    Отправляет список сообщений в GPT и возвращает текст ответа.
-
-    :param messages: список сообщений в формате [{"role": "user" / "assistant" / "system", "content": "текст"}]
-    :param model: имя модели (по умолчанию gpt-3.5-turbo)
-    :return: ответ GPT как строка
-    """
+# ✅ теперь асинхронная функция
+async def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
     try:
-        response: ChatCompletion = client.chat.completions.create(
+        # ✅ используем acreate
+        response: ChatCompletion = await client.chat.completions.acreate(
             model=model,
             messages=messages
         )
         return response.choices[0].message.content.strip()
-
     except Exception as e:
-        # Важно для отладки
         print(f"[GPT Error] {e}")
         return "⚠️ Ошибка при обращении к GPT."
