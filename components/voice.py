@@ -1,10 +1,10 @@
 import os
-from pathlib import Path  
+from pathlib import Path  # восстановлен импорт
 import tempfile
 from google.cloud import texttospeech
 
 # ✅ Устанавливаем путь к JSON-ключу Google TTS
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-speech-key.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "google-speech-key.json")  # читаем путь из переменной окружения
 
 # ✅ Глобальная карта скорости по уровню
 LEVEL_SPEED = {
