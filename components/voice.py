@@ -1,10 +1,12 @@
-# components/voice.py
-from pathlib import Path
-from google.cloud import texttospeech
-import tempfile
 import os
+from pathlib import Path  
+import tempfile
+from google.cloud import texttospeech
 
-# Скорость говора в зависимости от уровня
+# ✅ Устанавливаем путь к JSON-ключу Google TTS
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-speech-key.json"
+
+# ✅ Глобальная карта скорости по уровню
 LEVEL_SPEED = {
     "A0": 0.8,
     "A1": 0.85,
@@ -29,13 +31,13 @@ def synthesize_voice(text: str, lang: str, level: str) -> str:
     )
 
     synthesis_input = texttospeech.SynthesisInput(text=text)
-
     response = client.synthesize_speech(
         input=synthesis_input,
         voice=voice,
         audio_config=audio_config
     )
 
+    # ✅ Используем tempfile для безопасного сохранения
     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out:
         out.write(response.audio_content)
         return str(out.name)
