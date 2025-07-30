@@ -93,6 +93,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         os.remove(audio_path)
         user_input = transcript.strip()
+        print("📝 [Whisper] Распознанный текст:", repr(user_input))
     else:
         user_input = update.message.text
 
@@ -124,10 +125,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.pop(0)
 
     assistant_reply = await ask_gpt(system_prompt, history)
+    print("💬 [GPT] Ответ:", repr(assistant_reply))
     history.append({"role": "assistant", "content": assistant_reply})
 
     if mode == "voice":
         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
+        print("🔊 [TTS] Файл озвучки:", voice_path)
         await context.bot.send_voice(chat_id=chat_id, voice=open(voice_path, "rb"))
     else:
         await update.message.reply_text(assistant_reply)
