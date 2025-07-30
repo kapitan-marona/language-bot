@@ -1,3 +1,4 @@
+import base64
 from openai import AsyncOpenAI  # ✅ заменено с OpenAI
 from config.config import OPENAI_API_KEY
 from openai.types.chat import ChatCompletion
@@ -16,10 +17,11 @@ async def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
     """
     try:
         # ✅ асинхронный вызов
-        response: ChatCompletion = await client.chat.completions.acreate(
+        response: ChatCompletion = await client.chat.acreate(
             model=model,
             messages=messages
         )
+
         return response.choices[0].message.content.strip()
 
     except Exception as e:
