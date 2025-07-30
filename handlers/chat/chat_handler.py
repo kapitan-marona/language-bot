@@ -124,7 +124,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(history) > MAX_HISTORY_LENGTH:
         history.pop(0)
 
-    assistant_reply = await ask_gpt(system_prompt, history)
+    messages = [{"role": "system", "content": system_prompt}] + history
+    assistant_reply = await ask_gpt(messages)
     print("💬 [GPT] Ответ:", repr(assistant_reply))
     history.append({"role": "assistant", "content": assistant_reply})
 
