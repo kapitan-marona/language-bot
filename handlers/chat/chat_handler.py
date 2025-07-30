@@ -4,7 +4,9 @@ from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
+import openai
 import os
+import tempfile
 
 MAX_HISTORY_LENGTH = 40
 
@@ -57,7 +59,6 @@ def get_greeting_name(lang: str) -> str:
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_input = update.message.text
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
@@ -77,60 +78,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = session["mode"]
     history = session["history"]
 
-    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
-    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "не надо голосом"]
-    lower_input = user_input.lower()
+    # If voice message is present
+    if update.message.voice:
+        voice_file = await context.bot.get_file(update.message.voice.file_id)
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
+            await voice_file.download_to_drive(tf.name)
+            audio_path = tf.name
 
-    if any(trigger in lower_input for trigger in voice_triggers):
-        session["mode"] = "voice"
-        await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode on."))
-        await update.message.reply_text("Только скажи, что хочешь вернуться в текстовый режим — и я перестану доставать тебя голосовыми 😁")
-        return
-
-    elif any(trigger in lower_input for trigger in text_triggers):
-        session["mode"] = "text"
-        await update.message.reply_text(MODE_SWITCH_MESSAGES["text"].get(interface_lang, "Text mode on."))
-        return
-
-    rules = get_rules_by_level(level, interface_lang)
-    persona = get_greeting_name(interface_lang)
-    style_instructions = STYLE_MAP.get(style, STYLE_MAP["casual"])
-
-    system_prompt = (
-        f"You are {persona}, a friendly assistant helping the user learn {target_lang.upper()}.\n"
-        f"Always respond ONLY in {target_lang.upper()}.\n"
-        f"User level: {level.upper()}. Style: {style}.\n"
-        f"{style_instructions}\n"
-        f"{rules}"
-    )
-
-    if mode == "voice":
-        system_prompt += (
-            "\nSpeak naturally, as if talking aloud. "
-            "Avoid emojis and formatting. Express tone with words, not symbols."
-        )
+        with open(audio_path, "rb") as f:
+            transcript = openai.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="text"
+            )
+        os.remove(audio_path)
+        user_input = transcript.strip()
     else:
-        system_prompt += "\nWritten responses can include emojis and formatting depending on style."
+        user_input = update.message.text
+
+    # Mode switch triggers
+    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
+    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом"]
+
+    if user_input:
+        if any(trigger in user_input.lower() for trigger in voice_triggers):
+            session["mode"] = "voice"
+            await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"][interface_lang])
+            return
+        elif any(trigger in user_input.lower() for trigger in text_triggers):
+            session["mode"] = "text"
+            await update.message.reply_text(MODE_SWITCH_MESSAGES["text"][interface_lang])
+            return
+
+    # Update system prompt and add message to history
+    system_prompt = (
+        f"You are a language learning assistant.\n"
+        f"Speak to the user in {target_lang.upper()} only.\n"
+        f"User level: {level}.\n"
+        f"{STYLE_MAP[style]}\n"
+        f"{get_rules_by_level(level, interface_lang)}"
+    )
 
     history.append({"role": "user", "content": user_input})
     if len(history) > MAX_HISTORY_LENGTH:
         history.pop(0)
 
-    messages = [{"role": "system", "content": system_prompt}] + history
+    assistant_reply = await ask_gpt(system_prompt, history)
+    history.append({"role": "assistant", "content": assistant_reply})
 
-    try:
-        response_text = ask_gpt(messages)
-        history.append({"role": "assistant", "content": response_text})
-
-        if mode == "voice":
-            lang_code = LANGUAGE_CODES.get(target_lang, target_lang)
-            audio_path = synthesize_voice(response_text, lang=lang_code, level=level)
-            with open(audio_path, "rb") as audio:
-                await update.message.reply_voice(voice=audio)
-            os.remove(audio_path)
-        else:
-            await update.message.reply_text(response_text)
-
-    except Exception as e:
-        await update.message.reply_text("⚠️ Ошибка при обращении к GPT.")
-        print(f"GPT error: {e}")
+    if mode == "voice":
+        voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
+        await context.bot.send_voice(chat_id=chat_id, voice=open(voice_path, "rb"))
+    else:
+        await update.message.reply_text(assistant_reply)
