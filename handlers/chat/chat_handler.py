@@ -97,6 +97,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.pop(0)
 
     if mode == "voice":
+        await update.message.reply_text(assistant_reply)  # 📃 Добавлено: дублируем текст даже в голосовом режиме
         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
         print("🔊 [TTS] Файл озвучки:", voice_path)
         print("📁 Файл существует:", os.path.exists(voice_path))
