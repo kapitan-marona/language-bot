@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 
 # 🧹 Локальные модули
 from components.gpt_client import ask_gpt
-from prompt_templates import get_system_prompt  # ✨ Новый импорт system prompt
+from handlers.chat.prompt_templates import get_system_prompt  # ✨ Новый импорт system prompt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
