@@ -18,11 +18,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     session = user_sessions[chat_id]
 
-    # 🌐 Выбор языка интерфейса
+    # 🌐 Язык интерфейса
     if data.startswith("lang_"):
         lang_code = data.split("_")[1]
         session["interface_lang"] = lang_code
-        session["mode"] = "text"  # режим по умолчанию
+        session["mode"] = "text"
 
         prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
         await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
@@ -54,18 +54,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
         await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
 
-    # 🔊 Переключение режимов
+    # 🔁 Переключение режима
     elif data.startswith("mode_"):
         new_mode = data.split("_")[1]
         session["mode"] = new_mode
-        print("[callback] Переключено в режим:", new_mode)
+        print("[callback] Режим переключён на:", new_mode)
 
         interface_lang = session.get("interface_lang", "en")
         msg = MODE_SWITCH_MESSAGES.get(new_mode, {}).get(interface_lang, "Mode changed.")
 
-        try:
-            await query.message.edit_reply_markup(reply_markup=None)
-            await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))
-        except Exception as e:
-            print("[⚠️ reply_text failed]", e)
-            await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=get_mode_keyboard(new_mode))
+        await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))  # 🔁 Без удаления inline
