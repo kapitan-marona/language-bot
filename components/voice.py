@@ -1,5 +1,6 @@
 import os
 import tempfile
+import subprocess  # ✅ Добавлено
 from pathlib import Path
 from openai import OpenAI
 from config.config import OPENAI_API_KEY
@@ -9,20 +10,13 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def synthesize_voice(text: str, language_code: str, level: str) -> str:
     """
     Генерация озвучки с использованием OpenAI TTS (TTS-1).
-
-    :param text: Текст для озвучивания
-    :param language_code: Язык в формате xx-XX (используется только для логов)
-    :param level: Уровень владения языком (A0, A1, B1, ...)
-    :return: Путь к временно сохраненному аудиофайлу в формате .ogg
     """
-    # 🎯 Выбор голоса по стилю общения
     style_to_voice = {
         "casual": "alloy",
         "business": "fable"
     }
     voice = style_to_voice.get(level.lower(), "alloy")
 
-    # 🔈 Установка скорости (при поддержке API, пока OpenAI TTS не даёт контролировать speed напрямую)
     speed = {
         "A0": 0.85,
         "A1": 0.9,
@@ -46,7 +40,11 @@ def synthesize_voice(text: str, language_code: str, level: str) -> str:
             out_file.write(response.content)
             out_path = out_file.name
 
-        return out_path
+        # ✅ Перекодировка через ffmpeg
+        fixed_path = out_path.replace(".ogg", "_fixed.ogg")
+        subprocess.run(["ffmpeg", "-y", "-i", out_path, "-c:a", "libopus", fixed_path], check=True)
+        print("✅ [FFMPEG] Перекодировка завершена:", fixed_path)
+        return fixed_path
 
     except Exception as e:
         print(f"[TTS Error] Ошибка при генерации речи: {e}")
