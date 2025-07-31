@@ -1,0 +1,63 @@
+--- chat_handler.py (before)
++++ chat_handler.py (after)
+@@ -1,7 +1,7 @@
+ from telegram import Update
+ from telegram.ext import ContextTypes
+ from components.gpt_client import ask_gpt
+-from components.voice import synthesize_voice
++from components.voice import smart_synthesize_voice, convert_mp3_to_ogg
+ from components.mode import MODE_SWITCH_MESSAGES
+ from state.session import user_sessions
+ from components.levels import get_rules_by_level  # 🔁 заменили локальную функцию импортом
+
+
+--- voice.py (before)
++++ voice.py (after)
+@@ -63,3 +63,47 @@
+             continue
+ 
+     raise RuntimeError("No available TTS voice for the selected language.")
++
++
++# === OpenAI TTS integration ===
++
++import openai
++import subprocess
++
++def synthesize_voice_openai(text: str, voice: str = "alloy") -> str:
++    mp3_path = tempfile.mktemp(suffix=".mp3")
++    response = openai.audio.speech.create(
++        model="tts-1",
++        voice=voice,
++        input=text
++    )
++    with open(mp3_path, "wb") as f:
++        f.write(response.content)
++    return mp3_path
++
++def convert_mp3_to_ogg(mp3_path: str) -> str:
++    ogg_path = mp3_path.replace(".mp3", ".ogg")
++    command = [
++        "ffmpeg", "-y",
++        "-i", mp3_path,
++        "-c:a", "libopus",
++        "-b:a", "64k",
++        ogg_path
++    ]
++    subprocess.run(command, check=True)
++    return ogg_path
++
++
++# === Fallback wrapper for TTS ===
++
++
++def smart_synthesize_voice(text: str, lang: str, level: str, voice: str = "alloy") -> str:
++    try:
++        print("[TTS] Using OpenAI TTS")
++        mp3_path = synthesize_voice_openai(text, voice)
++    except Exception as e:
++        print(f"[Fallback to Google TTS] OpenAI TTS failed: {e}")
++        mp3_path = synthesize_voice(text, lang, level)
++        print("[TTS] Used Google Cloud TTS instead")
++    return mp3_path
++
