@@ -63,5 +63,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         interface_lang = session.get("interface_lang", "en")
         msg = MODE_SWITCH_MESSAGES.get(new_mode, {}).get(interface_lang, "Mode changed.")
 
-        await query.message.edit_reply_markup(reply_markup=None)  # удалим старые кнопки
-        await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))
+        try:
+            await query.message.edit_reply_markup(reply_markup=None)
+            await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))
+        except Exception as e:
+            print("[⚠️ reply_text failed]", e)
+            await context.bot.send_message(chat_id=chat_id, text=msg, reply_markup=get_mode_keyboard(new_mode))
