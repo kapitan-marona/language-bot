@@ -16,7 +16,7 @@ CREATOR_TRIGGERS = {
     ],
     "fr": [
         "qui t'a créé", "ton créateur", "ton développeur", "contacter le développeur", "laisser un avis"
-    ]
+    ],
     "sv": [
         "vem skapade dig", "din skapare", "din utvecklare", "kontakta utvecklaren", "ge feedback"
     ]
