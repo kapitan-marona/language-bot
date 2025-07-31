@@ -3,6 +3,7 @@ from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
+from components.triggers import CREATOR_TRIGGERS  # ✅ ДОБАВЛЕНО
 from state.session import user_sessions
 import openai
 import os
@@ -112,6 +113,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(MODE_SWITCH_MESSAGES["text"][interface_lang])
             return
 
+    # ✅ ОБНОВЛЕНО: Получение триггеров по языку интерфейса
+    creator_phrases = CREATOR_TRIGGERS.get(interface_lang, [])
+    if user_input and any(trigger in user_input.lower() for trigger in creator_phrases):
+        await update.message.reply_text("Меня создала marona 💡\nНаписать ей можно здесь — @marrona 😊✨")
+        return
+
     # Update system prompt and add message to history
     system_prompt = (
         f"You are a language learning assistant.\n"
@@ -121,7 +128,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{get_rules_by_level(level, interface_lang)}"
     )
 
-    # 📅 Добавлено: дополнительное пояснение для voice-режима
+    # 🗒 Добавлено: дополнительное пояснение для voice-режима
     if mode == "voice":
         system_prompt += (  # append only in voice mode
             "\nSpeak clearly and naturally.\n"
