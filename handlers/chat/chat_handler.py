@@ -1,13 +1,19 @@
+# 📦 Стандартные библиотеки
+import os
+import tempfile
+
+# 🌐 Сторонние библиотеки
+import openai
 from telegram import Update
 from telegram.ext import ContextTypes
+
+# 🧹 Локальные модули
 from components.gpt_client import ask_gpt
+from prompt_templates import get_system_prompt  # ✨ Новый импорт system prompt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
-from components.levels import get_rules_by_level  # 🔁 заменили локальную функцию импортом
-import openai
-import os
-import tempfile  
+from components.levels import get_rules_by_level
 
 
 MAX_HISTORY_LENGTH = 40
@@ -33,8 +39,7 @@ LANGUAGE_CODES = {
     "sv": "sv-SE"
 }
 
-# 🔻 Удалена старая локальная версия get_rules_by_level (была причиной неправильного перевода)
-
+# 🔻 Удалена старая локальная функция get_rules_by_level ( была причиной неправильного перевода )
 
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
@@ -94,22 +99,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(MODE_SWITCH_MESSAGES["text"][interface_lang])
             return
 
-    # Update system prompt and add message to history
-    system_prompt = (
-        f"You are a language learning assistant.\n"
-        f"Speak to the user in {target_lang.upper()} only.\n"
-        f"User level: {level}.\n"
-        f"{STYLE_MAP[style]}\n"
-        f"{get_rules_by_level(level, interface_lang)}"
-    )
+    # ✨ Новый промпт с учётом стиля
+    system_prompt = get_system_prompt(style)
 
-    history.append({"role": "user", "content": user_input})
-    if len(history) > MAX_HISTORY_LENGTH:
-        history.pop(0)
+    # ✅ Обновлённая форма сообщений
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_input}]
 
-    messages = [{"role": "system", "content": system_prompt}] + history
     assistant_reply = await ask_gpt(messages)
     print("💬 [GPT] Ответ:", repr(assistant_reply))
+
+    history.append({"role": "user", "content": user_input})
     history.append({"role": "assistant", "content": assistant_reply})
 
     if mode == "voice":
