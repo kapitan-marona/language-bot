@@ -18,7 +18,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     session = user_sessions[chat_id]
 
-    # 🌐 Язык интерфейса
     if data.startswith("lang_"):
         lang_code = data.split("_")[1]
         session["interface_lang"] = lang_code
@@ -27,7 +26,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
         await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
 
-    # 🌍 Язык обучения
     elif data.startswith("target_"):
         target_code = data.split("_")[1]
         session["target_lang"] = target_code
@@ -36,7 +34,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         level_prompt = LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"])
         await query.message.reply_text(level_prompt, reply_markup=get_level_keyboard())
 
-    # 📒 Уровень
     elif data.startswith("level_"):
         level = data.split("_")[1]
         session["level"] = level
@@ -45,7 +42,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         prompt = STYLE_PROMPT.get(interface_lang, STYLE_PROMPT["en"])
         await query.message.reply_text(prompt, reply_markup=get_style_keyboard())
 
-    # 🧲 Стиль общения
     elif data.startswith("style_"):
         chosen_style = data.split("_")[1]
         session["style"] = chosen_style
@@ -54,13 +50,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
         await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
 
-    # 🔁 Переключение режима
     elif data.startswith("mode_"):
         new_mode = data.split("_")[1]
         session["mode"] = new_mode
-        print("[callback] Режим переключён на:", new_mode)
+        print("[callback] Переключение в режим:", new_mode)
 
         interface_lang = session.get("interface_lang", "en")
         msg = MODE_SWITCH_MESSAGES.get(new_mode, {}).get(interface_lang, "Mode changed.")
 
-        await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))  # 🔁 Без удаления inline
+        # Только reply_text, без edit_reply_markup
+        await query.message.reply_text(msg, reply_markup=get_mode_keyboard(new_mode))
