@@ -1,0 +1,22 @@
+
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: ChatGPT Fix Bot <fixes@openai.com>
+Date: Wed, 31 Jul 2025 00:00:00 +0000
+Subject: [PATCH] fix: duplicate reply text in voice mode
+
+---
+ handlers/chat/chat_handler.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/handlers/chat/chat_handler.py b/handlers/chat/chat_handler.py
+index abcdef1..abcdef2 100644
+--- a/handlers/chat/chat_handler.py
++++ b/handlers/chat/chat_handler.py
+@@ def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     if mode == "voice":
++        await update.message.reply_text(assistant_reply)  # 💬 Дублируем текст
+         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
+         print("🔊 [TTS] Файл озвучки:", voice_path)
+         print("📁 Файл существует:", os.path.exists(voice_path))
+--
+2.42.0
