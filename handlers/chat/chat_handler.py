@@ -8,6 +8,10 @@ import openai
 import os
 import tempfile
 
+chat_id = update.effective_chat.id
+mode = session.get("mode", "text")  
+
+
 MAX_HISTORY_LENGTH = 40
 
 STYLE_MAP = {
@@ -132,6 +136,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if mode == "voice":
         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
         print("🔊 [TTS] Файл озвучки:", voice_path)
-        await context.bot.send_voice(chat_id=chat_id, voice=open(voice_path, "rb"))
+        print("📁 Файл существует:", os.path.exists(voice_path))
+        try:
+            with open(voice_path, "rb") as vf:
+                await context.bot.send_voice(chat_id=chat_id, voice=vf)
+        except Exception as e:
+            print(f"[Ошибка отправки голоса] {e}")
     else:
         await update.message.reply_text(assistant_reply)
