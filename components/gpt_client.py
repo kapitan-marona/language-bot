@@ -17,7 +17,7 @@ async def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
     """
     try:
         # ✅ асинхронный вызов
-        response: ChatCompletion = await client.chat.acreate(
+        response: ChatCompletion = await client.chat.completions.create(
             model=model,
             messages=messages
         )
