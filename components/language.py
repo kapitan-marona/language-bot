@@ -6,6 +6,8 @@ TARGET_LANGUAGES = {
     "ru": "🇷🇺 Русский",
     "es": "🇪🇸 Español",
     "de": "🇩🇪 Deutsch",
+    "sv": "🇸🇪 Svenska",
+    
 }
 
 # Тексты-приглашения выбрать изучаемый язык

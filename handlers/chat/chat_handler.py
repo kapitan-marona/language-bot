@@ -29,7 +29,9 @@ LANGUAGE_CODES = {
     "fr": "fr-FR",
     "de": "de-DE",
     "es": "es-ES",
-    "ru": "ru-RU"
+    "ru": "ru-RU",
+    "sv": "sv-SE"
+    
 }
 
 def get_rules_by_level(level: str, interface_lang: str) -> str:
