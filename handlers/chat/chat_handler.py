@@ -3,8 +3,8 @@ from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
-from components.triggers import CREATOR_TRIGGERS  
 from state.session import user_sessions
+from components.levels import get_rules_by_level  # 🔁 заменили локальную функцию импортом
 import openai
 import os
 import tempfile  
@@ -31,35 +31,14 @@ LANGUAGE_CODES = {
     "es": "es-ES",
     "ru": "ru-RU",
     "sv": "sv-SE"
-    
 }
 
-def get_rules_by_level(level: str, interface_lang: str) -> str:
-    rules = {
-        "A0": {
-            "en": "Use the simplest grammar and translate everything you say to English.",
-            "ru": "Используй самую простую грамматику и переводи всё, что говоришь, на русский.",
-        },
-        "A1": {
-            "en": "Use simple grammar. Translate only if asked.",
-            "ru": "Используй простую грамматику. Переводи только по просьбе.",
-        },
-        "B1": {
-            "en": "Use more advanced grammar. Only translate when requested.",
-            "ru": "Используй более сложную грамматику. Переводи только по запросу.",
-        },
-        "C1": {
-            "en": "Communicate as with a native speaker. No translation unless asked.",
-            "ru": "Общайся как с нейтивом. Не переводи без просьбы.",
-        },
-    }
-    for key in rules:
-        if level.upper().startswith(key):
-            return rules[key].get(interface_lang, rules[key]["en"])
-    return rules["B1"][interface_lang]  # fallback
+# 🔻 Удалена старая локальная версия get_rules_by_level (была причиной неправильного перевода)
+
 
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -115,12 +94,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(MODE_SWITCH_MESSAGES["text"][interface_lang])
             return
 
-    # ✅ ОБНОВЛЕНО: Получение триггеров по языку интерфейса
-    creator_phrases = CREATOR_TRIGGERS.get(interface_lang, [])
-    if user_input and any(trigger in user_input.lower() for trigger in creator_phrases):
-        await update.message.reply_text("Меня создала marona 💡\nНаписать ей можно здесь — @marrona 😊✨")
-        return
-
     # Update system prompt and add message to history
     system_prompt = (
         f"You are a language learning assistant.\n"
@@ -129,17 +102,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{STYLE_MAP[style]}\n"
         f"{get_rules_by_level(level, interface_lang)}"
     )
-
-    # 🗒 Добавлено: дополнительное пояснение для voice-режима
-    if mode == "voice":
-        system_prompt += (  # append only in voice mode
-            "\nSpeak clearly and naturally.\n"
-            "Express emotions using words like 'haha', 'cool!', 'awesome', instead of emoji.\n"
-            "Express your emotions only with words, not emojis.\n"
-            "Avoid emoji, but keep your tone fun, lively, and positive.\n"
-            "You are being synthesized into speech, so avoid symbols and formatting."
-        )
-
 
     history.append({"role": "user", "content": user_input})
     if len(history) > MAX_HISTORY_LENGTH:
@@ -157,11 +119,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             with open(voice_path, "rb") as vf:
                 await context.bot.send_voice(chat_id=chat_id, voice=vf)
-
-            # ✅ ДОБАВЛЕНО: расшифровка голосового ответа текстом для A0 и A1-A2
-            if level.upper().startswith("A0") or level.upper().startswith("A1") or level.upper().startswith("A2"):
-                await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
-
         except Exception as e:
             print(f"[Ошибка отправки голоса] {e}")
     else:
