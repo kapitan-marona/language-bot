@@ -6,10 +6,7 @@ from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
 import openai
 import os
-import tempfile
-
-chat_id = update.effective_chat.id
-mode = session.get("mode", "text")  
+import tempfile  
 
 
 MAX_HISTORY_LENGTH = 40
