@@ -45,7 +45,7 @@ async def on_startup():
     from handlers.chat.chat_handler import handle_message
 
     # Регистрируем обработчики
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CommandHandler("start", handle_start))
     bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
 
