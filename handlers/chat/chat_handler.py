@@ -97,14 +97,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         history.pop(0)
 
     if mode == "voice":
-        await update.message.reply_text(assistant_reply)  # 📃 Добавлено: дублируем текст даже в голосовом режиме
         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
         print("🔊 [TTS] Файл озвучки:", voice_path)
-        print("📁 Файл существует:", os.path.exists(voice_path))
+
         try:
             with open(voice_path, "rb") as vf:
-                await context.bot.send_voice(chat_id=chat_id, voice=vf)
+                await context.bot.send_voice(chat_id=chat_id, voice=vf)  # 🟢 Сначала аудио
         except Exception as e:
             print(f"[Ошибка отправки голоса] {e}")
-    else:
-        await update.message.reply_text(assistant_reply)
+
+        await update.message.reply_text(assistant_reply)  # 🟢 Затем текст
+
