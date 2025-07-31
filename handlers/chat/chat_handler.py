@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES
-from components.triggers import CREATOR_TRIGGERS  # ✅ ДОБАВЛЕНО
+from components.triggers import CREATOR_TRIGGERS  
 from state.session import user_sessions
 import openai
 import os
@@ -131,9 +131,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🗒 Добавлено: дополнительное пояснение для voice-режима
     if mode == "voice":
         system_prompt += (  # append only in voice mode
-            "\nSpeak clearly and naturally.\n"
-            "Express emotions using words like 'haha', 'cool!', 'awesome', instead of emoji.\n"
-            "Avoid emoji, but keep your tone fun, lively, and positive.\n"
+            "
+Speak clearly and naturally.
+"
+            "Express emotions using words like 'haha', 'cool!', 'awesome', instead of emoji.
+"
+            "Express your emotions only with words, not emojis.
+"  # ✅ ДОБАВЛЕНО
+            "Avoid emoji, but keep your tone fun, lively, and positive.
+"
             "You are being synthesized into speech, so avoid symbols and formatting."
         )
 
@@ -153,6 +159,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             with open(voice_path, "rb") as vf:
                 await context.bot.send_voice(chat_id=chat_id, voice=vf)
+
+            # ✅ ДОБАВЛЕНО: расшифровка голосового ответа текстом для A0 и A1-A2
+            if level.upper().startswith("A0") or level.upper().startswith("A1") or level.upper().startswith("A2"):
+                await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
+
         except Exception as e:
             print(f"[Ошибка отправки голоса] {e}")
     else:
