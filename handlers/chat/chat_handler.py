@@ -121,6 +121,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{get_rules_by_level(level, interface_lang)}"
     )
 
+    # 📅 Добавлено: дополнительное пояснение для voice-режима
+    if mode == "voice":
+        system_prompt += (  # append only in voice mode
+            "\nSpeak clearly and naturally.\n"
+            "Express emotions using words like 'haha', 'cool!', 'awesome', instead of emoji.\n"
+            "Avoid emoji, but keep your tone fun, lively, and positive.\n"
+            "You are being synthesized into speech, so avoid symbols and formatting."
+        )
+
     history.append({"role": "user", "content": user_input})
     if len(history) > MAX_HISTORY_LENGTH:
         history.pop(0)
