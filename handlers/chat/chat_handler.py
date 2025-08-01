@@ -11,7 +11,6 @@ from components.mode import MODE_SWITCH_MESSAGES
 from state.session import user_sessions
 from components.levels import get_rules_by_level
 
-
 MAX_HISTORY_LENGTH = 40
 
 LANGUAGE_CODES = {
@@ -82,7 +81,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # 🔧 Генерация system prompt со стилевым подходом
-    system_prompt = get_system_prompt(style)  # ✨ заменили прежнюю сборку system prompt
+    system_prompt = get_system_prompt(style, level)  # ✨ добавлен уровень
 
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_input}]
     assistant_reply = await ask_gpt(messages)
@@ -104,8 +103,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(voice_path, "rb") as vf:
                 await context.bot.send_voice(chat_id=chat_id, voice=vf)
 
-            # 🚣️ Дублируем текстом на A0 и A1-A2
-            if level in ["A0", "A1", "A2"]:  # ✨ дублирование текста при voice-режиме
+            # 🗣️ Дублируем текстом + перевод при необходимости
+            if level == "A0":
+                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n(Перевод на {interface_lang.upper()} будет добавлен позже)")  # 🔁 пока без перевода
+            elif level in ["A1", "A2"]:
                 await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
         except Exception as e:
             print(f"[Ошибка отправки голоса] {e}")
