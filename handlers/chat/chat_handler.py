@@ -1,80 +1,113 @@
-
 import os
+import tempfile
+import openai
 from telegram import Update
 from telegram.ext import ContextTypes
-from config.config import MAX_HISTORY_LENGTH
-from components.voice import transcribe_voice, synthesize_voice
-from components.language import LANGUAGE_CODES
-from components.prompts import get_system_prompt
-from services.gpt import ask_gpt
-from state.session import user_sessions
 
-# 🔁 Триггеры переключения режима
-voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
-text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом"]
+from components.gpt_client import ask_gpt
+from handlers.chat.prompt_templates import get_system_prompt  # ✨ актуализирован импорт
+from components.voice import synthesize_voice
+from components.mode import MODE_SWITCH_MESSAGES
+from state.session import user_sessions
+from components.levels import get_rules_by_level
+
+
+MAX_HISTORY_LENGTH = 40
+
+LANGUAGE_CODES = {
+    "en": "en-US",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "es": "es-ES",
+    "ru": "ru-RU",
+    "sv": "sv-SE"
+}
+
+def get_greeting_name(lang: str) -> str:
+    return "Matt" if lang == "en" else "Мэтт"
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    chat_id = message.chat_id
+    chat_id = update.effective_chat.id
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
 
     session = user_sessions[chat_id]
-    interface_lang = session.get("interface_lang", "en")
-    target_lang = session.get("target_lang", "en")
-    level = session.get("level", "A1")
-    style = session.get("style", "casual")
-    mode = session.get("mode", "text")
-    history = session.setdefault("history", [])
+    session.setdefault("interface_lang", "en")
+    session.setdefault("target_lang", "en")
+    session.setdefault("level", "A1")
+    session.setdefault("style", "casual")
+    session.setdefault("mode", "text")
+    session.setdefault("history", [])
 
-    user_input = None
+    interface_lang = session["interface_lang"]
+    target_lang = session["target_lang"]
+    level = session["level"]
+    style = session.get("style", "casual").lower()
+    mode = session["mode"]
+    history = session["history"]
 
-    # 🎙 Голосовое сообщение
-    if message.voice:
-        voice_file = await context.bot.get_file(message.voice.file_id)
-        file_path = f"temp/{chat_id}_voice.ogg"
-        await voice_file.download_to_drive(file_path)
-        transcript = transcribe_voice(file_path)
+    # 🔊 Распознавание голоса (Whisper)
+    if update.message.voice:
+        voice_file = await context.bot.get_file(update.message.voice.file_id)
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
+            await voice_file.download_to_drive(tf.name)
+            audio_path = tf.name
+
+        with open(audio_path, "rb") as f:
+            transcript = openai.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="text"
+            )
+        os.remove(audio_path)
         user_input = transcript.strip()
-        print("📝 [Whisper] Распознанный текст:", user_input)
-    elif message.text:
-        user_input = message.text.strip()
+        print("📝 [Whisper] Распознанный текст:", repr(user_input))
+    else:
+        user_input = update.message.text
 
-    if not user_input:
-        return
+    # 🚀 Триггеры на смену режима
+    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом"]
+    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом"]
 
-    lowered = user_input.lower()
-    if any(trigger in lowered for trigger in voice_triggers):
-        session["mode"] = "voice"
-        await message.reply_text("Voice mode activated.")
-        return
-    elif any(trigger in lowered for trigger in text_triggers):
-        session["mode"] = "text"
-        await message.reply_text("Text mode activated.")
-        return
+    if user_input:
+        lowered = user_input.lower()
+        if any(trigger in lowered for trigger in voice_triggers):
+            session["mode"] = "voice"
+            await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode activated."))
+            return
+        elif any(trigger in lowered for trigger in text_triggers):
+            session["mode"] = "text"
+            await update.message.reply_text(MODE_SWITCH_MESSAGES["text"].get(interface_lang, "Text mode activated."))
+            return
 
-    # 🧠 Сбор system prompt и история
+    # 🔧 Генерация system prompt со стилевым подходом
     system_prompt = get_system_prompt(style)
+
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_input}]
     assistant_reply = await ask_gpt(messages)
     print("💬 [GPT] Ответ:", repr(assistant_reply))
 
-    # 📜 Обновление истории
+    # ✅ Обновляем историю
     history.append({"role": "user", "content": user_input})
     history.append({"role": "assistant", "content": assistant_reply})
+
     if len(history) > MAX_HISTORY_LENGTH:
         history.pop(0)
 
-    # 🔁 Ответ в зависимости от режима
-    if session.get("mode") == "voice":
+    # 📤 Отправка в зависимости от режима
+    if mode == "voice":
         voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
-        if voice_path and os.path.exists(voice_path):
-            try:
-                with open(voice_path, "rb") as vf:
-                    await context.bot.send_voice(chat_id=chat_id, voice=vf)
-            except Exception as e:
-                print(f"[Ошибка отправки голоса] {e}")
-        await message.reply_text(assistant_reply)
+        print("🔊 [TTS] Файл озвучки:", voice_path)
+        print("📁 Файл существует:", os.path.exists(voice_path))
+        try:
+            with open(voice_path, "rb") as vf:
+                await context.bot.send_voice(chat_id=chat_id, voice=vf)
+
+            # 🗣️ Дублируем текстом на A0 и A1-A2
+            if level in ["A0", "A1", "A2"]:
+                await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
+        except Exception as e:
+            print(f"[Ошибка отправки голоса] {e}")
     else:
-        await message.reply_text(assistant_reply)
+        await update.message.reply_text(assistant_reply)
