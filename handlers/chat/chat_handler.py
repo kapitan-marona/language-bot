@@ -82,7 +82,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # 🔧 Генерация system prompt со стилевым подходом
-    system_prompt = get_system_prompt(style)
+    system_prompt = get_system_prompt(style)  # ✨ заменили прежнюю сборку system prompt
 
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_input}]
     assistant_reply = await ask_gpt(messages)
@@ -104,8 +104,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(voice_path, "rb") as vf:
                 await context.bot.send_voice(chat_id=chat_id, voice=vf)
 
-            # 🗣️ Дублируем текстом на A0 и A1-A2
-            if level in ["A0", "A1", "A2"]:
+            # 🚣️ Дублируем текстом на A0 и A1-A2
+            if level in ["A0", "A1", "A2"]:  # ✨ дублирование текста при voice-режиме
                 await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
         except Exception as e:
             print(f"[Ошибка отправки голоса] {e}")
