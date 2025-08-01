@@ -15,7 +15,7 @@ def synthesize_voice(text: str, language_code: str, level: str) -> str:
         "casual": "alloy",
         "business": "fable"
     }
-    voice = style_to_voice.get(level.lower(), "alloy")
+    voice = style_to_voice.get(level.lower(), "alloy")  # ✅ Выбор голоса по стилю (по умолчанию alloy)
 
     speed = {
         "A0": 0.85,
@@ -25,7 +25,7 @@ def synthesize_voice(text: str, language_code: str, level: str) -> str:
         "B2": 1.05,
         "C1": 1.1,
         "C2": 1.15,
-    }.get(level.upper(), 1.0)
+    }.get(level.upper(), 1.0)  # ✅ Выбор скорости воспроизведения в зависимости от уровня
 
     print(f"🔊 [TTS] Генерируем голос '{voice}' ({language_code}, уровень {level}, скорость {speed})")
 
@@ -40,7 +40,7 @@ def synthesize_voice(text: str, language_code: str, level: str) -> str:
             out_file.write(response.content)
             out_path = out_file.name
 
-        # ✅ Перекодировка через ffmpeg
+        # ✅ Перекодировка через ffmpeg (важно для совместимости с Telegram)
         fixed_path = out_path.replace(".ogg", "_fixed.ogg")
         subprocess.run(["ffmpeg", "-y", "-i", out_path, "-c:a", "libopus", fixed_path], check=True)
         print("✅ [FFMPEG] Перекодировка завершена:", fixed_path)
