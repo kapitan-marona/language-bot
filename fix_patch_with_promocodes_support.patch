@@ -1,11 +1,12 @@
 From cf6c2808b6fc3ea1c0604d7c358be6a5919c8bfb Mon Sep 17 00:00:00 2001
 From: Bot <bot@example.com>
 Date: Sat, 2 Aug 2025 16:41:30 +0000
-Subject: [PATCH] =?UTF-8?q?=F0=9F=A7=A0=20=D0=A4=D0=B8=D0=BD=D0=B0=D0=BB?=
- =?UTF-8?q?=D1=8C=D0=BD=D0=B0=D1=8F=20=D0=B2=D0=B5=D1=80=D1=81=D0=B8=D1=8F?=
- =?UTF-8?q?=20=D1=81=20=D0=BF=D0=BE=D0=BB=D0=BD=D0=BE=D0=B9=20=D0=BB=D0=BE?=
- =?UTF-8?q?=D0=B3=D0=B8=D0=BA=D0=BE=D0=B9,=20README=20=D0=B8=20=D0=BF?=
- =?UTF-8?q?=D1=80=D0=BE=D0=BC=D0=BE=D0=BA=D0=BE=D0=B4=D0=B0=D0=BC=D0=B8?=
+Subject: [PATCH 1/2] =?UTF-8?q?=F0=9F=A7=A0=20=D0=A4=D0=B8=D0=BD=D0=B0?=
+ =?UTF-8?q?=D0=BB=D1=8C=D0=BD=D0=B0=D1=8F=20=D0=B2=D0=B5=D1=80=D1=81=D0=B8?=
+ =?UTF-8?q?=D1=8F=20=D1=81=20=D0=BF=D0=BE=D0=BB=D0=BD=D0=BE=D0=B9=20=D0=BB?=
+ =?UTF-8?q?=D0=BE=D0=B3=D0=B8=D0=BA=D0=BE=D0=B9,=20README=20=D0=B8=20?=
+ =?UTF-8?q?=D0=BF=D1=80=D0=BE=D0=BC=D0=BE=D0=BA=D0=BE=D0=B4=D0=B0=D0=BC?=
+ =?UTF-8?q?=D0=B8?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -1390,6 +1391,48 @@ dFfp?+{(nnMHZ`y?ut+pENU=yWv@o``1OO0g?BxIe
 literal 0
 HcmV?d00001
 
+-- 
+2.39.2
+
+
+From c6f275af6641d7d2865eab1f710fdeaf4f7e8247 Mon Sep 17 00:00:00 2001
+From: Bot <bot@example.com>
+Date: Sat, 2 Aug 2025 17:09:47 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?=E2=9E=95=20=D0=94=D0=BE=D0=B1=D0=B0=D0=B2?=
+ =?UTF-8?q?=D0=BB=D0=B5=D0=BD=20=D1=84=D0=B0=D0=B9=D0=BB=20components/prom?=
+ =?UTF-8?q?ocodes.py=20=D1=81=20=D0=BB=D0=BE=D0=B3=D0=B8=D0=BA=D0=BE=D0=B9?=
+ =?UTF-8?q?=20=D0=BF=D1=80=D0=BE=D0=B2=D0=B5=D1=80=D0=BA=D0=B8=20=D0=BF?=
+ =?UTF-8?q?=D1=80=D0=BE=D0=BC=D0=BE=D0=BA=D0=BE=D0=B4=D0=BE=D0=B2?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ components/promocodes.py | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+ create mode 100644 components/promocodes.py
+
+diff --git a/components/promocodes.py b/components/promocodes.py
+new file mode 100644
+index 0000000..9ea7af3
+--- /dev/null
++++ b/components/promocodes.py
+@@ -0,0 +1,15 @@
++
++def validate_promo(code: str) -> str | None:
++    """Проверка промокода и возврат его типа (или None)."""
++    unlimited = {"0917", "4242"}
++    one_time = {"check", "homie"}
++    english_only = {"western08"}
++
++    code = code.strip().lower()
++    if code in unlimited:
++        return "unlimited"
++    elif code in one_time:
++        return "one_time"
++    elif code in english_only:
++        return "english_only"
++    return None
 -- 
 2.39.2
 

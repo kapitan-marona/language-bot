@@ -105,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # 🗣️ Дублируем текстом + перевод при необходимости
             if level == "A0":
-                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n(Перевод на {interface_lang.upper()} будет добавлен позже)")  # 🔁 пока без перевода
+                await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
             elif level in ["A1", "A2"]:
                 await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
         except Exception as e:
