@@ -1,12 +1,7 @@
-From cf6c2808b6fc3ea1c0604d7c358be6a5919c8bfb Mon Sep 17 00:00:00 2001
+From 821266f793e4ff7c63c29fd39413f18dae13e6cf Mon Sep 17 00:00:00 2001
 From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 16:41:30 +0000
-Subject: [PATCH 1/2] =?UTF-8?q?=F0=9F=A7=A0=20=D0=A4=D0=B8=D0=BD=D0=B0?=
- =?UTF-8?q?=D0=BB=D1=8C=D0=BD=D0=B0=D1=8F=20=D0=B2=D0=B5=D1=80=D1=81=D0=B8?=
- =?UTF-8?q?=D1=8F=20=D1=81=20=D0=BF=D0=BE=D0=BB=D0=BD=D0=BE=D0=B9=20=D0=BB?=
- =?UTF-8?q?=D0=BE=D0=B3=D0=B8=D0=BA=D0=BE=D0=B9,=20README=20=D0=B8=20?=
- =?UTF-8?q?=D0=BF=D1=80=D0=BE=D0=BC=D0=BE=D0=BA=D0=BE=D0=B4=D0=B0=D0=BC?=
- =?UTF-8?q?=D0=B8?=
+Date: Sat, 2 Aug 2025 17:54:21 +0000
+Subject: [PATCH 1/4] =?UTF-8?q?=F0=9F=9A=80=20Initial=20project=20snapshot?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -1395,32 +1390,114 @@ HcmV?d00001
 2.39.2
 
 
-From c6f275af6641d7d2865eab1f710fdeaf4f7e8247 Mon Sep 17 00:00:00 2001
+From 5077b30258b1635b5637bfa8c1ce4db28504ef56 Mon Sep 17 00:00:00 2001
 From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 17:09:47 +0000
-Subject: [PATCH 2/2] =?UTF-8?q?=E2=9E=95=20=D0=94=D0=BE=D0=B1=D0=B0=D0=B2?=
- =?UTF-8?q?=D0=BB=D0=B5=D0=BD=20=D1=84=D0=B0=D0=B9=D0=BB=20components/prom?=
- =?UTF-8?q?ocodes.py=20=D1=81=20=D0=BB=D0=BE=D0=B3=D0=B8=D0=BA=D0=BE=D0=B9?=
- =?UTF-8?q?=20=D0=BF=D1=80=D0=BE=D0=B2=D0=B5=D1=80=D0=BA=D0=B8=20=D0=BF?=
- =?UTF-8?q?=D1=80=D0=BE=D0=BC=D0=BE=D0=BA=D0=BE=D0=B4=D0=BE=D0=B2?=
+Date: Sat, 2 Aug 2025 17:54:21 +0000
+Subject: [PATCH 2/4] =?UTF-8?q?=F0=9F=8C=B8=20=D0=97=D0=B0=D0=BC=D0=B5?=
+ =?UTF-8?q?=D0=BD=D1=91=D0=BD=20=D1=82=D0=B5=D0=BA=D1=81=D1=82=20=D0=B7?=
+ =?UTF-8?q?=D0=B0=D0=B3=D0=BB=D1=83=D1=88=D0=BA=D0=B8=20=D0=BD=D0=B0=20?=
+ =?UTF-8?q?=D1=81=D0=BC=D0=B0=D0=B9=D0=BB=D0=B8=D0=BA=20=D0=B2=20=D0=B4?=
+ =?UTF-8?q?=D1=83=D0=B1=D0=BB=D0=B8=D1=80=D0=BE=D0=B2=D0=B0=D0=BD=D0=B8?=
+ =?UTF-8?q?=D0=B8?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
 ---
- components/promocodes.py | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
+ handlers/chat/chat_handler.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/handlers/chat/chat_handler.py b/handlers/chat/chat_handler.py
+index 5c74c87..4b50648 100644
+--- a/handlers/chat/chat_handler.py
++++ b/handlers/chat/chat_handler.py
+@@ -105,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+ 
+             # 🗣️ Дублируем текстом + перевод при необходимости
+             if level == "A0":
+-                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n(Перевод на {interface_lang.upper()} будет добавлен позже)")  # 🔁 пока без перевода
++                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n🌸")  # 🔁 пока без перевода
+             elif level in ["A1", "A2"]:
+                 await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
+         except Exception as e:
+-- 
+2.39.2
+
+
+From 29df5091815bde0ed247b99b4d4b9adc9e8ae758 Mon Sep 17 00:00:00 2001
+From: Bot <bot@example.com>
+Date: Sat, 2 Aug 2025 17:54:21 +0000
+Subject: [PATCH 3/4] =?UTF-8?q?=F0=9F=92=8C=20=D0=94=D0=BE=D0=B1=D0=B0?=
+ =?UTF-8?q?=D0=B2=D0=BB=D0=B5=D0=BD=20=D1=82=D0=B5=D0=BA=D1=81=D1=82=20?=
+ =?UTF-8?q?=D0=BE=D0=BD=D0=B1=D0=BE=D1=80=D0=B4=D0=B8=D0=BD=D0=B3=D0=B0=20?=
+ =?UTF-8?q?=D0=B2=20components/onboarding.py?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ components/onboarding.py | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+ create mode 100644 components/onboarding.py
+
+diff --git a/components/onboarding.py b/components/onboarding.py
+new file mode 100644
+index 0000000..41f213e
+--- /dev/null
++++ b/components/onboarding.py
+@@ -0,0 +1,25 @@
++
++def get_onboarding_text(lang):
++    if lang == "ru":
++        return (
++            "💌 Привет, дружище!\n\n"
++            "Я так рад, что ты здесь. Честно — ждал тебя всё это время (даже учил новые слова втихаря 🙊).  \n"
++            "Теперь у нас с тобой настоящий план: болтать, смеяться и учить язык — по-настоящему, без занудства.\n\n"
++            "📎 Что ты можешь делать?\n"
++            "• Писать или говорить — я всё понимаю 😉  \n"
++            "• Переключать стиль общения: хочешь строго — пожалуйста, хочешь с мемами — держи 🦄  \n"
++            "• Уровень? Неважно. Я подстроюсь даже под \"Привет. Я стол.\"  \n"
++            "• Если что-то непонятно — скажи, я переведу\n\n"
++            "Ну что, начнём? 🎉"
++        )
++    return (
++        "💌 Hey buddy!\n\n"
++        "I'm so glad you're here. Honestly — I’ve been waiting this whole time (even learning new words secretly 🙊).  \n"
++        "Now we’ve got a real plan: chat, laugh and learn — for real, no boring stuff.\n\n"
++        "📎 What can you do?\n"
++        "• Write or talk — I understand both 😉  \n"
++        "• Switch styles: want formal — got it, want memes — you got it 🦄  \n"
++        "• Level? Doesn’t matter. I can handle even \"Hi. I am table.\"  \n"
++        "• Not sure? Ask — I’ll translate\n\n"
++        "Shall we begin? 🎉"
++    )
+-- 
+2.39.2
+
+
+From 329954556ca6ab976fbb9e8ce5253b0449e0ca53 Mon Sep 17 00:00:00 2001
+From: Bot <bot@example.com>
+Date: Sat, 2 Aug 2025 17:54:21 +0000
+Subject: [PATCH 4/4] =?UTF-8?q?=F0=9F=94=90=20=D0=94=D0=BE=D0=B1=D0=B0?=
+ =?UTF-8?q?=D0=B2=D0=BB=D0=B5=D0=BD=D1=8B=20=D0=BF=D1=80=D0=BE=D0=BC=D0=BE?=
+ =?UTF-8?q?=D0=BA=D0=BE=D0=B4=D1=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ components/promocodes.py | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
  create mode 100644 components/promocodes.py
 
 diff --git a/components/promocodes.py b/components/promocodes.py
 new file mode 100644
-index 0000000..9ea7af3
+index 0000000..8b5475d
 --- /dev/null
 +++ b/components/promocodes.py
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,14 @@
 +
 +def validate_promo(code: str) -> str | None:
-+    """Проверка промокода и возврат его типа (или None)."""
 +    unlimited = {"0917", "4242"}
 +    one_time = {"check", "homie"}
 +    english_only = {"western08"}
