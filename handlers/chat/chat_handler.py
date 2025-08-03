@@ -101,7 +101,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = session["level"]
     mode = session["mode"]
 
-    system_prompt = get_system_prompt(interface_lang, target_lang, level, mode)
+    system_prompt = get_system_prompt(style, level, interface_lang, mode)
 
     # Исторический prompt + последнее сообщение
     prompt = [{"role": "system", "content": system_prompt}]
