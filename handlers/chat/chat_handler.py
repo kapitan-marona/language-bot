@@ -35,61 +35,85 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[chat_id]
     session.setdefault("interface_lang", "en")
     session.setdefault("target_lang", "en")
-    session.setdefault("level", "A1")
-    session.setdefault("style", "casual")
+    session.setdefault("level", "A2")
     session.setdefault("mode", "text")
-    session.setdefault("history", [])
+
+    message_text = update.message.text or ""
+
+    # --- 🔽🔽🔽  Обработка запроса про создателя/разработчика  🔽🔽🔽 ---
+    # Проверяем, не спрашивает ли пользователь "кто тебя создал", "кто твой разработчик" и т.д.
+    import re
+
+    # Список ключевых фраз на русском и английском
+    creator_triggers_ru = [
+        "кто тебя создал",
+        "кто твой создатель",
+        "кто твой разработчик",
+        "кто тебя разработал",
+        "кто тебя придумал",
+        "как ты появился",
+        "откуда ты взялся"
+    ]
+    creator_triggers_en = [
+        "who created you",
+        "who is your creator",
+        "who is your developer",
+        "who developed you",
+        "who invented you",
+        "how did you appear",
+        "where did you come from"
+    ]
+
+    # Приводим текст к нижнему регистру и убираем знаки препинания для удобства поиска
+    user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
+
+    # Определяем язык интерфейса для выбора ответа
+    lang = session.get("interface_lang", "en")
+
+    # Проверка на срабатывание одного из триггеров
+    found_trigger = False
+    if lang == "ru":
+        for trig in creator_triggers_ru:
+            if trig in user_text_norm:
+                found_trigger = True
+                break
+    else:
+        for trig in creator_triggers_en:
+            if trig in user_text_norm:
+                found_trigger = True
+                break
+
+    # Если триггер найден — отправляем специальный ответ и прекращаем дальнейшую обработку
+    if found_trigger:
+        if lang == "ru":
+            reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
+        else:
+            reply_text = "🐾 My creator is @marrona! For feedback or collaboration offers, feel free to contact her directly. 🌷"
+        await update.message.reply_text(reply_text)
+        return
+    # --- 🔼🔼🔼  Конец блока обработки  🔼🔼🔼 ---
+
+    # История переписки
+    history = session.setdefault("history", [])
 
     interface_lang = session["interface_lang"]
     target_lang = session["target_lang"]
     level = session["level"]
-    style = session.get("style", "casual").lower()
     mode = session["mode"]
-    history = session["history"]
 
-    # 🔊 Распознавание голоса (Whisper)
-    if update.message.voice:
-        voice_file = await context.bot.get_file(update.message.voice.file_id)
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
-            await voice_file.download_to_drive(tf.name)
-            audio_path = tf.name
+    system_prompt = get_system_prompt(interface_lang, target_lang, level, mode)
 
-        with open(audio_path, "rb") as f:
-            transcript = openai.audio.transcriptions.create(
-                model="whisper-1",
-                file=f,
-                response_format="text"
-            )
-        os.remove(audio_path)
-        user_input = transcript.strip()
-        print("📝 [Whisper] Распознанный текст:", repr(user_input))
-    else:
-        user_input = update.message.text
+    # Исторический prompt + последнее сообщение
+    prompt = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        prompt.append(msg)
+    prompt.append({"role": "user", "content": message_text})
 
-    # 🚀 Триггеры на смену режима
-    voice_triggers = ["скажи голосом", "включи голос", "озвучь", "произнеси", "скажи это", "как это звучит", "давай голосом", "давай в голос", "давай поболтаем"]
-    text_triggers = ["вернись к тексту", "хочу текст", "пиши", "текстом", "давай в текст", "тихий режим", "давай молча"]
+    # Генерация ответа через GPT
+    assistant_reply = await ask_gpt(prompt, interface_lang, target_lang, level)
 
-    if user_input:
-        lowered = user_input.lower()
-        if any(trigger in lowered for trigger in voice_triggers):
-            session["mode"] = "voice"
-            await update.message.reply_text(MODE_SWITCH_MESSAGES["voice"].get(interface_lang, "Voice mode activated."))
-            return
-        elif any(trigger in lowered for trigger in text_triggers):
-            session["mode"] = "text"
-            await update.message.reply_text(MODE_SWITCH_MESSAGES["text"].get(interface_lang, "Text mode activated."))
-            return
-
-    # 🔧 Генерация system prompt со стилевым подходом
-    system_prompt = get_system_prompt(style, level)  # ✨ добавлен уровень
-
-    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_input}]
-    assistant_reply = await ask_gpt(messages)
-    print("💬 [GPT] Ответ:", repr(assistant_reply))
-
-    # ✅ Обновляем историю
-    history.append({"role": "user", "content": user_input})
+    # Добавление в историю
+    history.append({"role": "user", "content": message_text})
     history.append({"role": "assistant", "content": assistant_reply})
 
     if len(history) > MAX_HISTORY_LENGTH:
