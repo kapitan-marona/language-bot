@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES
-from components.style import get_style_keyboard, get_intro_by_level_and_style, STYLE_PROMPT
+from components.style import get_style_keyboard, get_intro_by_level_and_style, STYLE_PROMPT, STYLE_LABEL_PROMPT
 from components.onboarding import get_onboarding_message  # ✨ импорт приветственного сообщения
 from state.session import user_sessions
 
