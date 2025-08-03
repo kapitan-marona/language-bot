@@ -1,5 +1,14 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+SUPPORTED_LANGUAGES = {
+    "en": "English",
+    "ru": "Русский",
+    "es": "Español",
+    "fr": "Français",
+    "de": "Deutsch",
+    "sv": "Svenska"
+}
+
 # Список доступных языков для изучения
 TARGET_LANGUAGES = {
     "en": "🇬🇧 English",
