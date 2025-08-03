@@ -17,7 +17,7 @@ TARGET_LANGUAGES = {
     "es": "🇪🇸 Español",
     "de": "🇩🇪 Deutsch",
     "sv": "🇸🇪 Svenska",
-    "fi": "Suomi"
+    "fi": "🇫🇮 Suomi"
     
 }
 
