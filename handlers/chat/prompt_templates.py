@@ -1,6 +1,6 @@
 # 🧠 Шаблоны системных инструкций (prompts) для разных стилей общения
 
-def get_system_prompt(style: str, level: str) -> str:  # ✨ добавлен уровень
+def get_system_prompt(style: str, level: str, lang: str = None, mode: str = None) -> str:  # ✨ добавлен уровень
     level_instructions = ""
     if level == "A0":
         level_instructions = (
