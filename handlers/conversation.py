@@ -12,25 +12,16 @@ def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# Универсальное "Подготовка..." (можно расширить на другие языки)
-PREPARING_MESSAGES = {
-    "ru": "⌨️ Подготовка…",
-    "en": "⌨️ Preparing…"
-}
+PREPARING_MESSAGE = "⌨️ Подготовка…\n⌨️ Preparing…"
 
-# Новое приветствие без лишней строки перед кнопками
-ONBOARDING_MESSAGES = {
-    "ru": (
-        "👋 На связи Мэтт.\n\n"
-        "🌐 Начнем с выбора языка интерфейса. Если потребуется, буду переводить непонятные слова на него. "
-        "Жми на кнопку ниже, чтобы выбрать язык. ⬇️"
-    ),
-    "en": (
-        "👋 Matt here.\n\n"
-        "🌐 Let’s start by choosing your interface language. If needed, I’ll translate tricky words into it for you. "
-        "Tap the button below to select a language. ⬇️"
-    ),
-}
+ONBOARDING_MESSAGE = (
+    "👋 На связи Мэтт. / Matt here.\n\n"
+    "🌐 Начнем с выбора языка интерфейса. Если потребуется, буду переводить непонятные слова на него. "
+    "Жми на кнопку ниже, чтобы выбрать язык. ⬇️\n\n"
+    "🌐 Let’s start by choosing your interface language. If needed, I’ll translate tricky words into it for you. "
+    "Tap the button below to select a language. ⬇️"
+)
+
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -42,13 +33,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_lang = context.user_data.get("interface_lang", "ru")
 
     # Удаляем старые reply-кнопки
-    await update.message.reply_text(
-        PREPARING_MESSAGES.get(interface_lang, PREPARING_MESSAGES["en"]),
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text(PREPARING_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
     # Новое приветствие без лишней строки — только кнопки!
-    await update.message.reply_text(
-        ONBOARDING_MESSAGES.get(interface_lang, ONBOARDING_MESSAGES["en"]),
-        reply_markup=get_interface_language_keyboard()
-    )
+    await update.message.reply_text(ONBOARDING_MESSAGE, reply_markup=get_interface_language_keyboard())
