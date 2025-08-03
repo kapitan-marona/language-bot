@@ -44,8 +44,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text(get_onboarding_message(interface_lang))
 
         # Затем предложим выбор стиля общения
-        prompt = STYLE_PROMPT.get(interface_lang, STYLE_PROMPT["en"])
-        await query.message.reply_text(prompt, reply_markup=get_style_keyboard())
+        label_prompt = STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"])
+        await query.message.reply_text(label_prompt, reply_markup=get_style_keyboard())
+
 
     elif data.startswith("style_"):
         chosen_style = data.split("_")[1]

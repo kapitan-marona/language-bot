@@ -16,13 +16,24 @@ async def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
     :return: ответ GPT как строка
     """
     try:
+        # === ЛОГГИРУЕМ ВХОДЯЩИЙ СПИСОК СООБЩЕНИЙ ===
+        print("=== GPT MESSAGES ===")
+        for m in messages:
+            print(m)
+        print("====================")
+        
         # ✅ асинхронный вызов
         response: ChatCompletion = await client.chat.completions.create(
             model=model,
             messages=messages
         )
 
-        return response.choices[0].message.content.strip()
+        # === ЛОГГИРУЕМ ОТВЕТ GPT ===
+        gpt_reply = response.choices[0].message.content.strip()
+        print("=== GPT REPLY ===")
+        print(gpt_reply)
+        print("=================")
+        return gpt_reply
 
     except Exception as e:
         print(f"[GPT Error] {e}")
