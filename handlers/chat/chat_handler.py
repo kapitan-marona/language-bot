@@ -111,7 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt.append({"role": "user", "content": message_text})
 
     # Генерация ответа через GPT
-    assistant_reply = await ask_gpt(prompt, interface_lang, target_lang, level)
+    assistant_reply = await ask_gpt(prompt, "gpt-4o")
 
     # Добавление в историю
     history.append({"role": "user", "content": message_text})
