@@ -1,10 +1,7 @@
-From 821266f793e4ff7c63c29fd39413f18dae13e6cf Mon Sep 17 00:00:00 2001
+From fdc7f9141077e8be51ecc051cdc9420b25370558 Mon Sep 17 00:00:00 2001
 From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 17:54:21 +0000
-Subject: [PATCH 1/4] =?UTF-8?q?=F0=9F=9A=80=20Initial=20project=20snapshot?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+Date: Sun, 3 Aug 2025 19:19:25 +0000
+Subject: [PATCH 1/2] Initial state
 
 ---
  .gitignore                          |  20 +++++
@@ -1390,62 +1387,69 @@ HcmV?d00001
 2.39.2
 
 
-From 5077b30258b1635b5637bfa8c1ce4db28504ef56 Mon Sep 17 00:00:00 2001
+From e87f1fbfdded6c430da0695b2f1cd0e2ee60ec2d Mon Sep 17 00:00:00 2001
 From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 17:54:21 +0000
-Subject: [PATCH 2/4] =?UTF-8?q?=F0=9F=8C=B8=20=D0=97=D0=B0=D0=BC=D0=B5?=
- =?UTF-8?q?=D0=BD=D1=91=D0=BD=20=D1=82=D0=B5=D0=BA=D1=81=D1=82=20=D0=B7?=
- =?UTF-8?q?=D0=B0=D0=B3=D0=BB=D1=83=D1=88=D0=BA=D0=B8=20=D0=BD=D0=B0=20?=
- =?UTF-8?q?=D1=81=D0=BC=D0=B0=D0=B9=D0=BB=D0=B8=D0=BA=20=D0=B2=20=D0=B4?=
- =?UTF-8?q?=D1=83=D0=B1=D0=BB=D0=B8=D1=80=D0=BE=D0=B2=D0=B0=D0=BD=D0=B8?=
- =?UTF-8?q?=D0=B8?=
+Date: Sun, 3 Aug 2025 19:19:25 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?=F0=9F=97=A3=EF=B8=8F=20=D0=94=D0=BE=D0=B1?=
+ =?UTF-8?q?=D0=B0=D0=B2=D0=BB=D0=B5=D0=BD=20=D1=84=D0=B8=D0=BD=D1=81=D0=BA?=
+ =?UTF-8?q?=D0=B8=D0=B9=20=D1=8F=D0=B7=D1=8B=D0=BA=20=D0=B8=20=D1=83=D1=82?=
+ =?UTF-8?q?=D0=BE=D1=87=D0=BD=D0=B5=D0=BD=D0=B8=D0=B5=20=D0=BF=D1=80=D0=BE?=
+ =?UTF-8?q?=20=D0=B0=D0=BA=D1=86=D0=B5=D0=BD=D1=82=20=D0=B2=20=D0=BE=D0=BD?=
+ =?UTF-8?q?=D0=B1=D0=BE=D1=80=D0=B4=D0=B8=D0=BD=D0=B3=D0=B5?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
 ---
- handlers/chat/chat_handler.py | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/handlers/chat/chat_handler.py b/handlers/chat/chat_handler.py
-index 5c74c87..4b50648 100644
---- a/handlers/chat/chat_handler.py
-+++ b/handlers/chat/chat_handler.py
-@@ -105,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
- 
-             # 🗣️ Дублируем текстом + перевод при необходимости
-             if level == "A0":
--                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n(Перевод на {interface_lang.upper()} будет добавлен позже)")  # 🔁 пока без перевода
-+                await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n🌸")  # 🔁 пока без перевода
-             elif level in ["A1", "A2"]:
-                 await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
-         except Exception as e:
--- 
-2.39.2
-
-
-From 29df5091815bde0ed247b99b4d4b9adc9e8ae758 Mon Sep 17 00:00:00 2001
-From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 17:54:21 +0000
-Subject: [PATCH 3/4] =?UTF-8?q?=F0=9F=92=8C=20=D0=94=D0=BE=D0=B1=D0=B0?=
- =?UTF-8?q?=D0=B2=D0=BB=D0=B5=D0=BD=20=D1=82=D0=B5=D0=BA=D1=81=D1=82=20?=
- =?UTF-8?q?=D0=BE=D0=BD=D0=B1=D0=BE=D1=80=D0=B4=D0=B8=D0=BD=D0=B3=D0=B0=20?=
- =?UTF-8?q?=D0=B2=20components/onboarding.py?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
----
- components/onboarding.py | 25 +++++++++++++++++++++++++
- 1 file changed, 25 insertions(+)
+ components/language.py   | 31 ++++++++-----------------------
+ components/onboarding.py | 27 +++++++++++++++++++++++++++
+ 2 files changed, 35 insertions(+), 23 deletions(-)
  create mode 100644 components/onboarding.py
 
+diff --git a/components/language.py b/components/language.py
+index 3d94bc4..c7b9c52 100644
+--- a/components/language.py
++++ b/components/language.py
+@@ -1,25 +1,10 @@
+-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+ 
+-# Список доступных языков для изучения
+-TARGET_LANGUAGES = {
+-    "en": "🇬🇧 English",
+-    "ru": "🇷🇺 Русский",
+-    "es": "🇪🇸 Español",
+-    "de": "🇩🇪 Deutsch",
+-    "sv": "🇸🇪 Svenska",
+-    
++SUPPORTED_LANGUAGES = {
++    "en": "English",
++    "ru": "Русский",
++    "es": "Español",
++    "fr": "Français",
++    "de": "Deutsch",
++    "sv": "Svenska",
++    "fi": "Suomi"
+ }
+-
+-# Тексты-приглашения выбрать изучаемый язык
+-TARGET_LANG_PROMPT = {
+-    "ru": "Какой язык ты хочешь изучать? 🌍",
+-    "en": "Which language do you want to learn? 🌍",
+-}
+-
+-# Генерация inline-кнопок для выбора target language
+-def get_target_language_keyboard() -> InlineKeyboardMarkup:
+-    keyboard = [
+-        [InlineKeyboardButton(label, callback_data=f"target_{code}")]
+-        for code, label in TARGET_LANGUAGES.items()
+-    ]
+-    return InlineKeyboardMarkup(keyboard)
 diff --git a/components/onboarding.py b/components/onboarding.py
 new file mode 100644
-index 0000000..41f213e
+index 0000000..a7170be
 --- /dev/null
 +++ b/components/onboarding.py
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,27 @@
 +
 +def get_onboarding_text(lang):
 +    if lang == "ru":
@@ -1457,6 +1461,7 @@ index 0000000..41f213e
 +            "• Писать или говорить — я всё понимаю 😉  \n"
 +            "• Переключать стиль общения: хочешь строго — пожалуйста, хочешь с мемами — держи 🦄  \n"
 +            "• Уровень? Неважно. Я подстроюсь даже под \"Привет. Я стол.\"  \n"
++            "• Мэтт — англоговорящий, и для него другие языки неродные, но он очень старается! Поэтому иногда говорит с акцентом 😅  \n"
 +            "• Если что-то непонятно — скажи, я переведу\n\n"
 +            "Ну что, начнём? 🎉"
 +        )
@@ -1468,48 +1473,10 @@ index 0000000..41f213e
 +        "• Write or talk — I understand both 😉  \n"
 +        "• Switch styles: want formal — got it, want memes — you got it 🦄  \n"
 +        "• Level? Doesn’t matter. I can handle even \"Hi. I am table.\"  \n"
++        "• Matt is an English speaker — other languages aren’t native to him, but he really tries! So sometimes there’s a little accent 😅  \n"
 +        "• Not sure? Ask — I’ll translate\n\n"
 +        "Shall we begin? 🎉"
 +    )
--- 
-2.39.2
-
-
-From 329954556ca6ab976fbb9e8ce5253b0449e0ca53 Mon Sep 17 00:00:00 2001
-From: Bot <bot@example.com>
-Date: Sat, 2 Aug 2025 17:54:21 +0000
-Subject: [PATCH 4/4] =?UTF-8?q?=F0=9F=94=90=20=D0=94=D0=BE=D0=B1=D0=B0?=
- =?UTF-8?q?=D0=B2=D0=BB=D0=B5=D0=BD=D1=8B=20=D0=BF=D1=80=D0=BE=D0=BC=D0=BE?=
- =?UTF-8?q?=D0=BA=D0=BE=D0=B4=D1=8B?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
----
- components/promocodes.py | 14 ++++++++++++++
- 1 file changed, 14 insertions(+)
- create mode 100644 components/promocodes.py
-
-diff --git a/components/promocodes.py b/components/promocodes.py
-new file mode 100644
-index 0000000..8b5475d
---- /dev/null
-+++ b/components/promocodes.py
-@@ -0,0 +1,14 @@
-+
-+def validate_promo(code: str) -> str | None:
-+    unlimited = {"0917", "4242"}
-+    one_time = {"check", "homie"}
-+    english_only = {"western08"}
-+
-+    code = code.strip().lower()
-+    if code in unlimited:
-+        return "unlimited"
-+    elif code in one_time:
-+        return "one_time"
-+    elif code in english_only:
-+        return "english_only"
-+    return None
 -- 
 2.39.2
 
