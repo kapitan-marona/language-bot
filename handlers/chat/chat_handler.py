@@ -10,7 +10,7 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from components.levels import get_rules_by_level
-from triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
+from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 
 MAX_HISTORY_LENGTH = 40
 
