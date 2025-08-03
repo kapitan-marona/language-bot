@@ -21,3 +21,14 @@ CREATOR_TRIGGERS = {
         "vem skapade dig", "din skapare", "din utvecklare", "kontakta utvecklaren", "ge feedback"
     ]
 }
+
+MODE_TRIGGERS = {
+    "voice": [
+        "голос", "голосовой", "произнеси", "озвучь", "включи голос", "переключи на голос",
+        "voice", "say it", "speak", "audio", "pronounce", "speak aloud", "talk"
+    ],
+    "text": [
+        "текст", "пиши", "написать", "только текст", "показать текст", "переключи на текст",
+        "text", "write", "show text", "type", "text only", "show as text"
+    ]
+}

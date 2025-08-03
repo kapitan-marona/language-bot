@@ -7,9 +7,10 @@ from telegram.ext import ContextTypes
 from components.gpt_client import ask_gpt
 from handlers.chat.prompt_templates import get_system_prompt  # ✨ актуализирован импорт
 from components.voice import synthesize_voice
-from components.mode import MODE_SWITCH_MESSAGES
+from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from components.levels import get_rules_by_level
+from triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 
 MAX_HISTORY_LENGTH = 40
 
@@ -40,50 +41,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message_text = update.message.text or ""
 
-    # --- 🔽🔽🔽  Обработка запроса про создателя/разработчика  🔽🔽🔽 ---
-    # Проверяем, не спрашивает ли пользователь "кто тебя создал", "кто твой разработчик" и т.д.
+    # === Универсальная обработка триггеров ===
     import re
-
-    # Список ключевых фраз на русском и английском
-    creator_triggers_ru = [
-        "кто тебя создал",
-        "кто твой создатель",
-        "кто твой разработчик",
-        "кто тебя разработал",
-        "кто тебя придумал",
-        "как ты появился",
-        "откуда ты взялся"
-    ]
-    creator_triggers_en = [
-        "who created you",
-        "who is your creator",
-        "who is your developer",
-        "who developed you",
-        "who invented you",
-        "how did you appear",
-        "where did you come from"
-    ]
-
-    # Приводим текст к нижнему регистру и убираем знаки препинания для удобства поиска
     user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
-
-    # Определяем язык интерфейса для выбора ответа
     lang = session.get("interface_lang", "en")
 
-    # Проверка на срабатывание одного из триггеров
-    found_trigger = False
-    if lang == "ru":
-        for trig in creator_triggers_ru:
-            if trig in user_text_norm:
-                found_trigger = True
-                break
-    else:
-        for trig in creator_triggers_en:
-            if trig in user_text_norm:
-                found_trigger = True
-                break
+    # --- Переключение режима по тексту (voice/text) ---
+    if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
+        session["mode"] = "voice"
+        msg = MODE_SWITCH_MESSAGES["voice"].get(lang, MODE_SWITCH_MESSAGES["voice"]["en"])
+        await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice"))
+        return
 
-    # Если триггер найден — отправляем специальный ответ и прекращаем дальнейшую обработку
+    if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["text"]):
+        session["mode"] = "text"
+        msg = MODE_SWITCH_MESSAGES["text"].get(lang, MODE_SWITCH_MESSAGES["text"]["en"])
+        await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text"))
+        return
+
+    # --- Обработка запроса про создателя/разработчика ---
+    found_trigger = False
+    for trig in CREATOR_TRIGGERS.get(lang, CREATOR_TRIGGERS["en"]):
+        if trig in user_text_norm:
+            found_trigger = True
+            break
+
     if found_trigger:
         if lang == "ru":
             reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
@@ -91,7 +73,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text = "🐾 My creator is @marrona! For feedback or collaboration offers, feel free to contact her directly. 🌷"
         await update.message.reply_text(reply_text)
         return
-    # --- 🔼🔼🔼  Конец блока обработки  🔼🔼🔼 ---
+
+    # --- Продолжаем обычную обработку ---
 
     # История переписки
     history = session.setdefault("history", [])
@@ -140,3 +123,5 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[Ошибка отправки голоса] {e}")
     else:
         await update.message.reply_text(assistant_reply)
+
+# ✨ Главное изменение: вся обработка триггеров теперь вынесена до отправки запроса в GPT и не вложена в другие циклы/блоки.
