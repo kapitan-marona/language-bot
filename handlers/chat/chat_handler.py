@@ -19,7 +19,8 @@ LANGUAGE_CODES = {
     "de": "de-DE",
     "es": "es-ES",
     "ru": "ru-RU",
-    "sv": "sv-SE"
+    "sv": "sv-SE",
+    "fi": "fi-FI"
 }
 
 def get_greeting_name(lang: str) -> str:

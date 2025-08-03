@@ -6,7 +6,8 @@ SUPPORTED_LANGUAGES = {
     "es": "Español",
     "fr": "Français",
     "de": "Deutsch",
-    "sv": "Svenska"
+    "sv": "Svenska",
+    "fi": "Suomi"
 }
 
 # Список доступных языков для изучения
@@ -16,6 +17,7 @@ TARGET_LANGUAGES = {
     "es": "🇪🇸 Español",
     "de": "🇩🇪 Deutsch",
     "sv": "🇸🇪 Svenska",
+    "fi": "Suomi"
     
 }
 
