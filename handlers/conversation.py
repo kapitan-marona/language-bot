@@ -12,6 +12,25 @@ def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
+# Универсальное "Подготовка..." (можно расширить на другие языки)
+PREPARING_MESSAGES = {
+    "ru": "⌨️ Подготовка…",
+    "en": "⌨️ Preparing…"
+}
+
+# Новое приветствие без лишней строки перед кнопками
+ONBOARDING_MESSAGES = {
+    "ru": (
+        "👋 На связи Мэтт.\n\n"
+        "🌐 Начнем с выбора языка интерфейса. Если потребуется, буду переводить непонятные слова на него. "
+        "Жми на кнопку ниже, чтобы выбрать язык. ⬇️"
+    ),
+    "en": (
+        "👋 Matt here.\n\n"
+        "🌐 Let’s start by choosing your interface language. If needed, I’ll translate tricky words into it for you. "
+        "Tap the button below to select a language. ⬇️"
+    ),
+}
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -19,32 +38,17 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Очищаем всю сессию, включая историю
     user_sessions[chat_id] = {}
 
-    # Определяем язык интерфейса по умолчанию (пока принудительно ru)
+    # Определяем язык интерфейса по умолчанию (теперь по-умолчанию "ru", но можно сменить)
     interface_lang = context.user_data.get("interface_lang", "ru")
 
-    if interface_lang == "en":
-        greeting = (
-            "👋 Hi! I'm Matt — your personal language learning buddy!\n\n"
-            "🌐 Let's start by choosing your interface language.\n"
-            "No worries — even if it's your first time, I'll guide you!\n\n"
-            "👇 Choose the language we'll be chatting in:"
-        )
-    else:
-        greeting = (
-            "👋 Привет! Я Мэтт — твой помощник для изучения языков!\n\n"
-            "🌐 Давай начнем с выбора языка интерфейса.\n"
-            "Не переживай — даже если это твой первый раз, я подскажу путь!\n\n"
-            "👇 Выбери язык, на котором будем общаться:"
-        )
-
-        # Удаляем старые reply-кнопки, если они остались из предыдущих версий
+    # Удаляем старые reply-кнопки
     await update.message.reply_text(
-        "⌨️ Подготовка...",
+        PREPARING_MESSAGES.get(interface_lang, PREPARING_MESSAGES["en"]),
         reply_markup=ReplyKeyboardRemove()
     )
-        
 
+    # Новое приветствие без лишней строки — только кнопки!
     await update.message.reply_text(
-        greeting,
+        ONBOARDING_MESSAGES.get(interface_lang, ONBOARDING_MESSAGES["en"]),
         reply_markup=get_interface_language_keyboard()
     )
