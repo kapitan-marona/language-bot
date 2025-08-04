@@ -59,13 +59,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         session["interface_lang"] = lang_code
         session["mode"] = "text"
 
-        # СПРАШИВАЕМ ТОЛЬКО ГЕНДЕР
+        # --- Если пол уже выбран, сразу продолжаем flow ---
+        from components.profile_db import get_user_gender
+        if get_user_gender(chat_id):
+            # сразу спрашиваем целевой язык
+            prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
+            await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
+            return
+
+        # --- Если не выбран — спрашиваем форму обращения ---
         gender_prompt, gender_keyboard = get_gender_prompt_and_keyboard(lang_code)
         await query.message.reply_text(
             gender_prompt,
             reply_markup=InlineKeyboardMarkup(gender_keyboard)
         )
-        return  # ← обязательно return здесь! Остальное не отправлять.
+        return
 
     elif data.startswith("target_"):
         target_code = data.split("_")[1]
