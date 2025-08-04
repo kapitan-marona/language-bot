@@ -94,4 +94,4 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         interface_lang = session.get("interface_lang", "en")
         level = session.get("level", "A1")
         intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
-        await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.
+        await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
