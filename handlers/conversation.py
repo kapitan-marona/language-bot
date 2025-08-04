@@ -1,63 +1,41 @@
-from components.language import get_language_keyboard, get_target_language_keyboard
-from components.profile_db import save_user_profile, load_user_profile
-from components.promo import check_promo_code, activate_promo  # 🟡 добавлено: для обработки промокодов
-from components.texts import PROMO_ASK, PROMO_SUCCESS, PROMO_FAIL, PROMO_ALREADY_USED  # 🟡 добавлено: тексты
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import ContextTypes
+from components.profile_db import save_user_gender, get_user_gender
+from state.session import user_sessions
 
 
-class Form:
-    native_lang = "awaiting_native_lang"
-    promo_code = "awaiting_promo_code"           # 🟡 добавлено: новое состояние для промокода
-    target_lang = "awaiting_target_lang"
-    style = "awaiting_style"
-    gender = "awaiting_gender"
+def get_interface_language_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("English", callback_data="lang_en"),
+            InlineKeyboardButton("Русский", callback_data="lang_ru"),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+PREPARING_MESSAGE = "⌨️ Подготовка…\n⌨️ Preparing…"
+
+ONBOARDING_MESSAGE = (
+    "👋 На связи Мэтт. / Matt here.\n\n"
+    "🌐 Начнем с выбора языка интерфейса. Если потребуется, буду переводить непонятные слова на него. "
+    "Жми на кнопку ниже, чтобы выбрать язык. ⬇️\n\n"
+    "🌐 Let’s start by choosing your interface language. If needed, I’ll translate tricky words into it for you. "
+    "Tap the button below to select a language. ⬇️"
+)
 
 
-async def start_onboarding(message, state):
-    await message.answer("⌨️ Подготовка... / ⌨️ Preparing...")
-    await message.answer("Выбери язык интерфейса / Choose your interface language:",
-                         reply_markup=get_language_keyboard())
-    await state.set_state(Form.native_lang)
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
 
+    # Очищаем всю сессию, включая историю
+    user_sessions[chat_id] = {}
 
-async def process_native_lang(message, state):
-    lang = message.text.lower()
-    await state.update_data(native_lang=lang)
-    user_profile = load_user_profile(message.from_user.id)
-    user_profile["native_lang"] = lang
-    save_user_profile(message.from_user.id, user_profile)
+    # Определяем язык интерфейса по умолчанию (теперь по-умолчанию "ru", но можно сменить)
+    interface_lang = context.user_data.get("interface_lang", "ru")
 
-    # 🟡 Вставка шага: запрос промокода
-    prompt = PROMO_ASK.get(lang, PROMO_ASK["en"])
-    await message.answer(prompt)
-    await state.set_state(Form.promo_code)
+    # Удаляем старые reply-кнопки
+    await update.message.reply_text(PREPARING_MESSAGE, reply_markup=ReplyKeyboardRemove())
 
+    # Новое приветствие без лишней строки — только кнопки!
+    await update.message.reply_text(ONBOARDING_MESSAGE, reply_markup=get_interface_language_keyboard())
 
-async def process_promo_code(message, state):
-    code_input = message.text.strip()
-    user_profile = load_user_profile(message.from_user.id)
-    lang = user_profile.get("native_lang", "en")
-
-    if code_input.lower() in ["нет", "no"]:
-        pass  # идем дальше
-    elif user_profile.get("promo_code_used"):
-        await message.answer(PROMO_ALREADY_USED.get(lang, PROMO_ALREADY_USED["en"]))
-    else:
-        success, result = activate_promo(user_profile, code_input)
-        if success:
-            save_user_profile(message.from_user.id, user_profile)
-            await message.answer(PROMO_SUCCESS.get(lang, PROMO_SUCCESS["en"]))
-        else:
-            await message.answer(PROMO_FAIL.get(lang, PROMO_FAIL["en"]))
-
-    await state.update_data(promo_checked=True)
-    await message.answer("Выбери язык, который хочешь изучать / Choose the language you want to learn:",
-                         reply_markup=get_target_language_keyboard(lang, user_profile))  # 🟡 передаём профиль
-    await state.set_state(Form.target_lang)
-
-
-# 🟡 добавлено: адаптер для команды /start
-async def handle_start(update, context):
-    message = update.message
-    user_id = message.from_user.id
-    state = context.chat_data  # или свой state-менеджер, если не FSM
-    await start_onboarding(message, state)
