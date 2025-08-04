@@ -1,5 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
+from components.profile_db import save_user_gender
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES
@@ -12,6 +13,24 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     chat_id = query.message.chat_id
     data = query.data
+
+    async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    data = query.data
+
+    # -- Логика выбора формы обращения --
+    if data in ["gender_male", "gender_female", "gender_friend"]:
+        gender_map = {
+            "gender_male": "male",
+            "gender_female": "female",
+            "gender_friend": "friend"
+        }
+        save_user_gender(chat_id, gender_map[data])
+        await query.message.reply_text("Форма обращения сохранена! / Address form saved!")
+        return  # После ответа ничего больше не делаем
+
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
