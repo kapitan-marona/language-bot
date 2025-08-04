@@ -53,3 +53,11 @@ async def process_promo_code(message, state):
     await message.answer("Выбери язык, который хочешь изучать / Choose the language you want to learn:",
                          reply_markup=get_target_language_keyboard(lang, user_profile))  # 🟡 передаём профиль
     await state.set_state(Form.target_lang)
+
+
+# 🟡 добавлено: адаптер для команды /start
+async def handle_start(update, context):
+    message = update.message
+    user_id = message.from_user.id
+    state = context.chat_data  # или свой state-менеджер, если не FSM
+    await start_onboarding(message, state)
