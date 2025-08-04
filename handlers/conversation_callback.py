@@ -34,26 +34,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     chat_id = query.message.chat_id
     data = query.data
 
-    # -- Логика выбора формы обращения --
-    if data in ["gender_male", "gender_female", "gender_friend"]:
-        gender_map = {
-            "gender_male": "male",
-            "gender_female": "female",
-            "gender_friend": "friend"
-        }
-        save_user_gender(chat_id, gender_map[data])
-
-        # После выбора гендера — спрашиваем целевой язык
-        interface_lang = user_sessions[chat_id].get("interface_lang", "en")
-        prompt = TARGET_LANG_PROMPT.get(interface_lang, TARGET_LANG_PROMPT["en"])
-        await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
-        return
-
+    # Всегда! Сначала инициализируем сессию пользователя
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
-
     session = user_sessions[chat_id]
 
+    # -- Логика выбора языка интерфейса (и формы обращения, если надо) --
     if data.startswith("lang_"):
         lang_code = data.split("_")[1]
         session["interface_lang"] = lang_code
@@ -62,7 +48,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # --- Если пол уже выбран, сразу продолжаем flow ---
         from components.profile_db import get_user_gender
         if get_user_gender(chat_id):
-            # сразу спрашиваем целевой язык
             prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
             await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
             return
@@ -73,6 +58,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             gender_prompt,
             reply_markup=InlineKeyboardMarkup(gender_keyboard)
         )
+        return
+
+    # -- Логика выбора формы обращения --
+    elif data in ["gender_male", "gender_female", "gender_friend"]:
+        gender_map = {
+            "gender_male": "male",
+            "gender_female": "female",
+            "gender_friend": "friend"
+        }
+        save_user_gender(chat_id, gender_map[data])
+
+        # После выбора гендера — спрашиваем целевой язык
+        interface_lang = session.get("interface_lang", "en")
+        prompt = TARGET_LANG_PROMPT.get(interface_lang, TARGET_LANG_PROMPT["en"])
+        await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
         return
 
     elif data.startswith("target_"):
@@ -88,11 +88,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         session["level"] = level
 
         interface_lang = session.get("interface_lang", "en")
-
-        # ✨ Сначала покажем приветственное сообщение
         await query.message.reply_text(get_onboarding_message(interface_lang))
-
-        # Затем предложим выбор стиля общения
         label_prompt = STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"])
         await query.message.reply_text(label_prompt, reply_markup=get_style_keyboard())
 
