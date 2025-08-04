@@ -37,7 +37,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if stage == "awaiting_level":
             prompt = LEVEL_PROMPT.get(lang_code, LEVEL_PROMPT["en"])
             keyboard = get_level_keyboard()  # ✅ функция не принимает аргументы
-            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=InlineKeyboardMarkup(keyboard))
+            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard  # ✅ keyboard уже содержит InlineKeyboardMarkup)
 
         elif stage == "awaiting_style":
             prompt = STYLE_LABEL_PROMPT.get(lang_code, STYLE_LABEL_PROMPT["en"])
