@@ -1,14 +1,8 @@
 import sqlite3
 import os
 
-DB_PATH = '/tmp/user_profiles.db'
-
-try:
-    with open("/tmp/testfile.txt", "w") as f:
-        f.write("ok")
-    print("Файл успешно создан в /tmp/")
-except Exception as e:
-    print("Ошибка создания файла:", e)
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db')
+DB_PATH = os.path.abspath(DB_PATH)
 
 
 def init_db():

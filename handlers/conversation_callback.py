@@ -4,9 +4,10 @@ from components.profile_db import save_user_gender
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES
-from components.style import get_style_keyboard, get_intro_by_level_and_style, STYLE_PROMPT, STYLE_LABEL_PROMPT
+from components.style import get_style_keyboard, get_intro_by_level_and_style, STYLE_LABEL_PROMPT
 from components.onboarding import get_onboarding_message
 from state.session import user_sessions
+import random  # ✅ добавлено для выбора случайного шаблона
 
 def get_gender_prompt_and_keyboard(lang_code):
     if lang_code == "ru":
@@ -29,6 +30,20 @@ def get_gender_prompt_and_keyboard(lang_code):
         )
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def proceed_onboarding(chat_id, session, context):
+        stage = session.get("onboarding_stage")
+        lang_code = session.get("interface_lang", "en")
+
+        if stage == "awaiting_level":
+            prompt = LEVEL_PROMPT.get(lang_code, LEVEL_PROMPT["en"])
+            keyboard = get_level_keyboard(lang_code)
+            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=InlineKeyboardMarkup(keyboard))
+
+        elif stage == "awaiting_style":
+            prompt = STYLE_LABEL_PROMPT.get(lang_code, STYLE_LABEL_PROMPT["en"])
+            keyboard = get_style_keyboard()
+            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard)
+
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
@@ -39,66 +54,101 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         user_sessions[chat_id] = {}
     session = user_sessions[chat_id]
 
-    # -- Логика выбора языка интерфейса (и формы обращения, если надо) --
+    # ✅ Удаление старого сообщения с кнопками
+    await query.message.delete()
+
+    # ✅ Подтверждающее сообщение и переход к следующему шагу
     if data.startswith("lang_"):
         lang_code = data.split("_")[1]
         session["interface_lang"] = lang_code
-        session["mode"] = "text"
-
-        # --- Если пол уже выбран, сразу продолжаем flow ---
-        from components.profile_db import get_user_gender
-        if get_user_gender(chat_id):
-            prompt = TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"])
-            await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
-            return
-
-        # --- Если не выбран — спрашиваем форму обращения ---
-        gender_prompt, gender_keyboard = get_gender_prompt_and_keyboard(lang_code)
-        await query.message.reply_text(
-            gender_prompt,
-            reply_markup=InlineKeyboardMarkup(gender_keyboard)
-        )
-        return
-
-    # -- Логика выбора формы обращения --
-    elif data in ["gender_male", "gender_female", "gender_friend"]:
-        gender_map = {
-            "gender_male": "male",
-            "gender_female": "female",
-            "gender_friend": "friend"
-        }
-        save_user_gender(chat_id, gender_map[data])
-
-        # После выбора гендера — спрашиваем целевой язык
-        # Безопасно получаем язык, если его вдруг нет — используем "en"!
-        interface_lang = session.get("interface_lang", "en")
-        prompt = TARGET_LANG_PROMPT.get(interface_lang, TARGET_LANG_PROMPT["en"])
-        await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
-        return
-
-    elif data.startswith("target_"):
-        target_code = data.split("_")[1]
-        session["target_lang"] = target_code
-
-        interface_lang = session.get("interface_lang", "en")
-        level_prompt = LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"])
-        await query.message.reply_text(level_prompt, reply_markup=get_level_keyboard())
+        session["onboarding_stage"] = "awaiting_level"
+        await context.bot.send_message(chat_id=chat_id, text=f"Native language - {lang_code.upper()} ✅")
+        await proceed_onboarding(chat_id, session, context)
 
     elif data.startswith("level_"):
         level = data.split("_")[1]
         session["level"] = level
-
-        interface_lang = session.get("interface_lang", "en")
-        await query.message.reply_text(get_onboarding_message(interface_lang))
-        label_prompt = STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"])
-        await query.message.reply_text(label_prompt, reply_markup=get_style_keyboard())
+        session["onboarding_stage"] = "awaiting_style"
+        await context.bot.send_message(chat_id=chat_id, text=f"Level - {level} ✅")
+        await proceed_onboarding(chat_id, session, context)
 
     elif data.startswith("style_"):
-        chosen_style = data.split("_")[1]
-        session["style"] = chosen_style
-        interface_lang = session.get("interface_lang", "en")
-        level = session.get("level", "A1")
-        intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
-        await query.message.reply_text(intro)   # <<=== reply_markup убрали!
+        style = data.split("_")[1]
+        session["style"] = style
+        session["onboarding_stage"] = "completed"
+        await context.bot.send_message(chat_id=chat_id, text=f"Style - {style.capitalize()} ✅")
+        await send_localized_onboarding(chat_id, session, context)
 
+    elif data.startswith("gender_"):
+        gender = data.split("_")[1]
+        session["gender"] = gender
+        await context.bot.send_message(chat_id=chat_id, text=f"Gender - {gender.capitalize()} ✅")
 
+# ✅ Функция отправки онбординга (локализовано + вопрос)
+async def send_localized_onboarding(chat_id, session, context):
+    lang = session.get("interface_lang", "en")
+    onboarding_text = get_onboarding_message(lang)
+    await context.bot.send_message(chat_id=chat_id, text=onboarding_text)
+
+    # Переход к целевому языку + первый вопрос
+    target_lang = session.get("target_lang", "sv")  # TODO: заменить на реальный выбор пользователя
+    intro_message = {
+        "ru": f"Давай попробуем поговорить на {target_lang.upper()}!",
+        "en": f"Let's try speaking in {target_lang.upper()}!"
+    }.get(lang, f"Let's switch to {target_lang.upper()}!")
+
+    await context.bot.send_message(chat_id=chat_id, text=intro_message)
+
+    first_questions = {
+        "sv": [
+            "Hej! Hur mår du idag?",
+            "Ska vi börja prata svenska?",
+            "Vad tycker du om svenska språket?",
+            "Redo att öva svenska? 😄",
+            "Berätta lite om dig själv på svenska!"
+        ],
+        "fi": [
+            "Hei! Mitä kuuluu?",
+            "Aloitetaanko suomeksi?",
+            "Miten harjoittelet suomea?",
+            "Puhutaanpa suomea!",
+            "Kerro hieman itsestäsi suomeksi."
+        ],
+        "en": [
+            "Hi! How are you today?",
+            "Shall we start chatting in English?",
+            "What do you think about practicing English?",
+            "Are you ready for an English session? 😄",
+            "Tell me a bit about yourself in English!"
+        ],
+        "es": [
+            "¡Hola! ¿Cómo estás hoy?",
+            "¿Empezamos a hablar en español?",
+            "¿Qué opinas del idioma español?",
+            "¿Listo para practicar español? 😄",
+            "¡Cuéntame algo sobre ti en español!"
+        ],
+        "de": [
+            "Hallo! Wie geht es dir heute?",
+            "Wollen wir auf Deutsch anfangen?",
+            "Was denkst du über die deutsche Sprache?",
+            "Bereit, Deutsch zu üben? 😄",
+            "Erzähl mir etwas über dich auf Deutsch!"
+        ],
+        "fr": [
+            "Salut ! Comment tu vas aujourd'hui ?",
+            "On commence en français ?",
+            "Que penses-tu de la langue française ?",
+            "Prêt à pratiquer le français ? 😄",
+            "Parle-moi un peu de toi en français !"
+        ],
+        "ru": [
+            "Привет! Как твои дела сегодня?",
+            "Начнём говорить по-русски?",
+            "Как тебе русский язык?",
+            "Готов потренировать русский? 😄",
+            "Расскажи немного о себе по-русски!"
+        ]
+    }
+    prompt = random.choice(first_questions.get(target_lang, ["Let's begin!"]))
+    await context.bot.send_message(chat_id=chat_id, text=prompt)
