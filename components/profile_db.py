@@ -79,3 +79,12 @@ def load_user_profile(user_id):
                 "promo_activated_at": None,
                 "promo_days": None
             }
+
+
+# 🟡 добавлено: сохранить пол пользователя, если он ещё не сохранён
+
+def save_user_gender(user_id, gender):
+    profile = load_user_profile(user_id)
+    if not profile.get("gender"):
+        profile["gender"] = gender
+        save_user_profile(user_id, profile)
