@@ -17,6 +17,6 @@ def get_onboarding_message(lang: str) -> str:
             "🔔 Heads up: I’m American, so I might slip up or have an accent 😅"
         )
     }
-    return messages.get(lang, messages["en"]
+    return messages.get(lang, messages["en"])
 
     
