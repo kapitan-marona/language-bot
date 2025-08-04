@@ -34,3 +34,4 @@ def get_target_language_keyboard(lang_code: str) -> InlineKeyboardMarkup:
         for code, label in TARGET_LANGUAGES.items() if code != lang_code
     ]
     return InlineKeyboardMarkup(keyboard)
+
