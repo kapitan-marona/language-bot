@@ -8,6 +8,12 @@ LANGUAGES = [
     ("🇫🇮 Suomi", "fi"),
 ]
 
+# 🟡 восстановлено: текст выбора целевого языка
+TARGET_LANG_PROMPT = {
+    "ru": "Выбери язык, который хочешь изучать:",
+    "en": "Choose the language you want to learn:"
+}
+
 
 def get_language_keyboard():
     from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано
