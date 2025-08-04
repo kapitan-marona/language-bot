@@ -70,6 +70,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         save_user_gender(chat_id, gender_map[data])
 
         # После выбора гендера — спрашиваем целевой язык
+        # Безопасно получаем язык, если его вдруг нет — используем "en"!
         interface_lang = session.get("interface_lang", "en")
         prompt = TARGET_LANG_PROMPT.get(interface_lang, TARGET_LANG_PROMPT["en"])
         await query.message.reply_text(prompt, reply_markup=get_target_language_keyboard())
@@ -99,3 +100,4 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         level = session.get("level", "A1")
         intro = get_intro_by_level_and_style(level, chosen_style, interface_lang)
         await query.message.reply_text(intro, reply_markup=get_mode_keyboard(session.get("mode", "text")))
+
