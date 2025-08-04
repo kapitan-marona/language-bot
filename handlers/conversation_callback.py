@@ -37,7 +37,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if stage == "awaiting_level":
             prompt = LEVEL_PROMPT.get(lang_code, LEVEL_PROMPT["en"])
             keyboard = get_level_keyboard()  # ✅ функция не принимает аргументы
-            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard)  # ✅ keyboard уже содержит InlineKeyboardMarkup)
+            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard  # ✅ keyboard уже содержит InlineKeyboardMarkup)
 
         elif stage == "awaiting_style":
             prompt = STYLE_LABEL_PROMPT.get(lang_code, STYLE_LABEL_PROMPT["en"])
@@ -81,8 +81,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data.startswith("style_"):
         style = data.split("_")[1]
         session["style"] = style
-        session["onboarding_stage"] = "completed"
+        session["onboarding_stage"] = "awaiting_target_lang"
         await context.bot.send_message(chat_id=chat_id, text=f"Style - {style.capitalize()} ✅")
+
+        # ✅ Переход к выбору изучаемого языка
+        lang = session.get("interface_lang", "en")
+        prompt = TARGET_LANG_PROMPT.get(lang, TARGET_LANG_PROMPT["en"])
+        keyboard = get_target_language_keyboard(lang)
+        await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data.startswith("target_"):
+        target_lang = data.split("_")[1]
+        session["target_lang"] = target_lang
+        session["onboarding_stage"] = "completed"
+        await context.bot.send_message(chat_id=chat_id, text=f"Target language - {target_lang.upper()} ✅")
         await send_localized_onboarding(chat_id, session, context)
 
     elif data.startswith("gender_"):
