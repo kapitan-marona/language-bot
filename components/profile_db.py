@@ -1,7 +1,15 @@
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db')
+DB_PATH = '/tmp/user_profiles.db'
+
+try:
+    with open("/tmp/testfile.txt", "w") as f:
+        f.write("ok")
+    print("Файл успешно создан в /tmp/")
+except Exception as e:
+    print("Ошибка создания файла:", e)
+
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -16,6 +24,7 @@ def init_db():
     conn.close()
 
 def save_user_gender(chat_id, gender):
+    print(f"[SAVE] chat_id={chat_id}, gender={gender}, DB_PATH={DB_PATH}")
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute('''
