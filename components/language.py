@@ -1,37 +1,34 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup 
+LANGUAGES = [
+    ("🇬🇧 English", "en"),
+    ("🇪🇸 Español", "es"),
+    ("🇩🇪 Deutsch", "de"),
+    ("🇷🇺 Русский", "ru"),
+    ("🇫🇷 Français", "fr"),
+    ("🇸🇪 Svenska", "sv"),
+    ("🇫🇮 Suomi", "fi"),
+]
 
-SUPPORTED_LANGUAGES = {
-    "en": "English",
-    "ru": "Русский",
-    "es": "Español",
-    "fr": "Français",
-    "de": "Deutsch",
-    "sv": "Svenska",
-    "fi": "Suomi"
-}
 
-# Список доступных языков для изучения
-TARGET_LANGUAGES = {
-    "en": "🇬🇧 English",
-    "ru": "🇷🇺 Русский",
-    "es": "🇪🇸 Español",
-    "fr": "🇫🇷 Français",
-    "de": "🇩🇪 Deutsch",
-    "sv": "🇸🇪 Svenska",
-    "fi": "🇫🇮 Suomi"
-}
+def get_language_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    for name, code in LANGUAGES:
+        keyboard.add(KeyboardButton(name))
+    return keyboard
 
-# Тексты-приглашения выбрать изучаемый язык
-TARGET_LANG_PROMPT = {
-    "ru": "Какой язык ты хочешь изучать? 🌍",
-    "en": "Which language do you want to learn? 🌍",
-}
 
-# Генерация inline-кнопок для выбора target language
-def get_target_language_keyboard(lang_code: str) -> InlineKeyboardMarkup:
-    keyboard = [
-        [InlineKeyboardButton(label, callback_data=f"target_{code}")]
-        for code, label in TARGET_LANGUAGES.items() if code != lang_code
-    ]
-    return InlineKeyboardMarkup(keyboard)
+def get_target_language_keyboard(native_lang_code, user_profile=None):
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 
+    allowed_langs = LANGUAGES
+
+    # 🟡 если промокод ограничивает — фильтруем только английский
+    if user_profile and user_profile.get("promo_type") == "english_only":
+        allowed_langs = [(name, code) for name, code in LANGUAGES if code == "en"]
+
+    # 🟡 исключаем родной язык из списка
+    for name, code in allowed_langs:
+        if code != native_lang_code:
+            keyboard.add(KeyboardButton(name))
+    return keyboard
