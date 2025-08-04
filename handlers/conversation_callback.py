@@ -37,7 +37,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if stage == "awaiting_level":
             prompt = LEVEL_PROMPT.get(lang_code, LEVEL_PROMPT["en"])
             keyboard = get_level_keyboard()  # ✅ функция не принимает аргументы
-            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard)  # ✅ keyboard уже содержит InlineKeyboardMarkup)
+            await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=keyboard  # ✅ keyboard уже содержит InlineKeyboardMarkup)
 
         elif stage == "awaiting_style":
             prompt = STYLE_LABEL_PROMPT.get(lang_code, STYLE_LABEL_PROMPT["en"])
@@ -95,6 +95,12 @@ async def send_localized_onboarding(chat_id, session, context):
     lang = session.get("interface_lang", "en")
     onboarding_text = get_onboarding_message(lang)
     await context.bot.send_message(chat_id=chat_id, text=onboarding_text)
+
+    # ✅ Персональное приветствие на основе уровня и стиля
+    level = session.get("level", "A1")
+    style = session.get("style", "casual")
+    intro = get_intro_by_level_and_style(level, style, lang)
+    await context.bot.send_message(chat_id=chat_id, text=intro)
 
     # Переход к целевому языку + первый вопрос
     target_lang = session.get("target_lang", "sv")  # TODO: заменить на реальный выбор пользователя
