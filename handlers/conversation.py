@@ -3,26 +3,6 @@ from telegram.ext import ContextTypes
 from components.profile_db import save_user_gender, get_user_gender
 from state.session import user_sessions
 
-GENDER_QUESTION = (
-    "Спрошу форму обращения к тебе сразу, чтобы избежать неловких ситуаций 😅\n"
-    "I’ll ask how to address you right away to avoid any awkward moments 😅"
-)
-
-def get_gender_keyboard() -> InlineKeyboardMarkup:
-    keyboard = [
-        [
-            InlineKeyboardButton("муж", callback_data="gender_male"),
-            InlineKeyboardButton("жен", callback_data="gender_female"),
-            InlineKeyboardButton("друг", callback_data="gender_friend"),
-        ],
-        [
-            InlineKeyboardButton("male", callback_data="gender_male"),
-            InlineKeyboardButton("female", callback_data="gender_female"),
-            InlineKeyboardButton("friend", callback_data="gender_friend"),
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
 
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
