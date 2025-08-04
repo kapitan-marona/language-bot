@@ -14,12 +14,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     chat_id = query.message.chat_id
     data = query.data
 
-    async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat_id = query.message.chat_id
-    data = query.data
-
     # -- Логика выбора формы обращения --
     if data in ["gender_male", "gender_female", "gender_friend"]:
         gender_map = {
@@ -30,7 +24,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         save_user_gender(chat_id, gender_map[data])
         await query.message.reply_text("Форма обращения сохранена! / Address form saved!")
         return  # После ответа ничего больше не делаем
-
 
     if chat_id not in user_sessions:
         user_sessions[chat_id] = {}
@@ -65,7 +58,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Затем предложим выбор стиля общения
         label_prompt = STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"])
         await query.message.reply_text(label_prompt, reply_markup=get_style_keyboard())
-
 
     elif data.startswith("style_"):
         chosen_style = data.split("_")[1]
