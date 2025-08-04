@@ -14,6 +14,7 @@ TARGET_LANG_PROMPT = {
     "en": "Choose the language you want to learn:"
 }
 
+SUPPORTED_LANGUAGES = [code for _, code in LANGUAGES]
 
 def get_language_keyboard():
     from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано

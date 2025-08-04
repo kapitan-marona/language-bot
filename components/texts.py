@@ -1,36 +1,69 @@
-TEXTS = {
-    "promo_ask": {
-        "ru": "🔑 У тебя есть промокод?\n\nЕсли да — просто отправь его сюда.\nЕсли нет — напиши \"нет\", и поехали дальше!",
-        "en": "🔑 Do you have a promo code?\n\nIf yes — just send it here.\nIf not — type \"no\" and let's move on!"
-    },
-    "promo_success": {
-        "ru": "Промокод успешно активирован! 💚",
-        "en": "Promo code successfully activated! 💚"
-    },
-    "promo_fail": {
-        "ru": "Проверь промокод — что-то не сработало. ⚠️",
-        "en": "Please check the promo code — something went wrong. ⚠️"
-    },
-    "promo_already_used": {
-        "ru": "Ты уже активировал промокод ранее.",
-        "en": "You've already used a promo code."
-    },
-    "choose_target": {
-        "ru": "Выбери язык, который хочешь изучать:",
-        "en": "Choose the language you want to learn:"
-    }
+LANGUAGES = [
+    ("🇬🇧 English", "en"),
+    ("🇪🇸 Español", "es"),
+    ("🇩🇪 Deutsch", "de"),
+    ("🇷🇺 Русский", "ru"),
+    ("🇫🇷 Français", "fr"),
+    ("🇸🇪 Svenska", "sv"),
+    ("🇫🇮 Suomi", "fi"),
+]
+
+# 🟡 восстановлено: текст выбора целевого языка
+TARGET_LANG_PROMPT = {
+    "ru": "🌍 Выбери язык, который хочешь изучать:",
+    "en": "🌍 Choose the language you want to learn:"
+}
+
+# 🟡 восстановлено: список поддерживаемых языков
+SUPPORTED_LANGUAGES = [code for _, code in LANGUAGES]
+
+# 🟡 восстановлено: тексты для промокодов
+PROMO_ASK = {
+    "ru": "У тебя есть промокод?\n👉 Введи его или напиши 'нет'",
+    "en": "Do you have a promo code?\n👉 Enter it or type 'no'"
+}
+
+PROMO_SUCCESS = {
+    "ru": "Промокод успешно активирован! 💚",
+    "en": "Promo code successfully activated! 💚"
+}
+
+PROMO_FAIL = {
+    "ru": "Проверь промокод, почему-то не работает ⚠️",
+    "en": "Something’s wrong with the promo code ⚠️"
+}
+
+PROMO_ALREADY_USED = {
+    "ru": "Промокод уже был активирован ранее ☝️",
+    "en": "This promo code has already been activated ☝️"
+}
+
+STYLE_LABEL_PROMPT = {
+    "ru": "Какой стиль тебе ближе? 😎",
+    "en": "Which style fits you best? 😎"
 }
 
 
-def t(key, lang):
-    """
-    Возвращает текст по ключу и языку, с fallback на английский.
-    """
-    return TEXTS.get(key, {}).get(lang, TEXTS.get(key, {}).get("en", ""))
+def get_language_keyboard():
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    for name, code in LANGUAGES:
+        keyboard.add(KeyboardButton(name))
+    return keyboard
 
 
-# 🟡 Для совместимости с существующими переменными:
-PROMO_ASK = TEXTS["promo_ask"]
-PROMO_SUCCESS = TEXTS["promo_success"]
-PROMO_FAIL = TEXTS["promo_fail"]
-PROMO_ALREADY_USED = TEXTS["promo_already_used"]
+def get_target_language_keyboard(native_lang_code, user_profile=None):
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton  # может быть адаптировано
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+
+    allowed_langs = LANGUAGES
+
+    # 🟡 если промокод ограничивает — фильтруем только английский
+    if user_profile and user_profile.get("promo_type") == "english_only":
+        allowed_langs = [(name, code) for name, code in LANGUAGES if code == "en"]
+
+    # 🟡 исключаем родной язык из списка
+    for name, code in allowed_langs:
+        if code != native_lang_code:
+            keyboard.add(KeyboardButton(name))
+    return keyboard
