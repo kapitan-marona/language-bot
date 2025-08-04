@@ -59,6 +59,3 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Новое приветствие без лишней строки — только кнопки!
     await update.message.reply_text(ONBOARDING_MESSAGE, reply_markup=get_interface_language_keyboard())
 
-    gender = get_user_gender(chat_id)
-    if not gender:
-        await update.message.reply_text(GENDER_QUESTION, reply_markup=get_gender_keyboard())
