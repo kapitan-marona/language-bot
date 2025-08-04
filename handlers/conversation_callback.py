@@ -36,7 +36,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         if stage == "awaiting_level":
             prompt = LEVEL_PROMPT.get(lang_code, LEVEL_PROMPT["en"])
-            keyboard = get_level_keyboard(lang_code)
+            keyboard = get_level_keyboard()  # ✅ функция не принимает аргументы
             await context.bot.send_message(chat_id=chat_id, text=prompt, reply_markup=InlineKeyboardMarkup(keyboard))
 
         elif stage == "awaiting_style":
@@ -62,7 +62,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         lang_code = data.split("_")[1]
         session["interface_lang"] = lang_code
         session["onboarding_stage"] = "awaiting_level"
-        await context.bot.send_message(chat_id=chat_id, text=f"Native language - {lang_code.upper()} ✅")
+        await context.bot.send_message(
+    chat_id=chat_id,
+    text={
+        "ru": f"Родной язык — {lang_code.upper()} ✅",
+        "en": f"Native language — {lang_code.upper()} ✅"
+    }.get(lang_code, f"Native language — {lang_code.upper()} ✅")
+)
         await proceed_onboarding(chat_id, session, context)
 
     elif data.startswith("level_"):
