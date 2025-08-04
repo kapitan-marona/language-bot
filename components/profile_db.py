@@ -41,6 +41,7 @@ def get_user_gender(chat_id):
     cur.execute('SELECT gender FROM user_profiles WHERE chat_id=?', (chat_id,))
     row = cur.fetchone()
     conn.close()
+    print(f"[GET] chat_id={chat_id}, result={row}, DB_PATH={DB_PATH}")
     return row[0] if row else None
 
 # Важно! Вызови init_db() ОДИН раз при старте бота (например, в точке входа, до запуска polling/webhook)
