@@ -9,6 +9,7 @@ from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.prompt_templates import (
     PREPARING_MESSAGE, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 )
+from components.mode.py import get_mode_keyboard
 
 import random
 
@@ -140,4 +141,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await level_callback(update, context)
     elif data.startswith("style:"):
         await style_callback(update, context)
-    # Можно добавить дополнительные этапы, если потребуется!
+    elif data == "mode:voice":
+        chat_id = query.message.chat_id
+        session = user_sessions.setdefault(chat_id, {})
+        session["mode"] = "voice"
+        lang = session.get("interface_lang", "ru")
+        await query.edit_message_text(
+            text="🔊 Теперь отвечаю голосом" if lang == "ru" else "🔊 Now I'll reply with voice",
+            reply_markup=get_mode_keyboard("voice", lang)
+        )
+    elif data == "mode:text":
+        chat_id = query.message.chat_id
+
+

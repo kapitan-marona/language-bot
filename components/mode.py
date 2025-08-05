@@ -12,16 +12,21 @@ MODE_SWITCH_MESSAGES = {
 }
 
 
-def get_mode_keyboard(current_mode="text", lang_code="en"):
+def get_mode_keyboard(current_mode: str, lang_code="ru"):
     """
-    Клавиатура для выбора режима общения (voice/text).
+    current_mode: "voice" или "text"
+    lang_code: "ru" или "en"
     """
     if current_mode == "voice":
-        button = InlineKeyboardButton(
-            "⌨️ Текст / Text", callback_data="mode:text"
-        )
+        # Кнопка для возврата к тексту
+        button_text = "⌨️ Вернуться к тексту" if lang_code == "ru" else "⌨️ Switch to text"
+        callback_data = "mode:text"
     else:
-        button = InlineKeyboardButton(
-            "🔊 Голос / Voice", callback_data="mode:voice"
-        )
-    return InlineKeyboardMarkup([[button]])
+        button_text = "🔊 Вернуться к аудио" if lang_code == "ru" else "🔊 Switch to voice"
+        callback_data = "mode:voice"
+
+    keyboard = [
+        [InlineKeyboardButton(button_text, callback_data=callback_data)]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
