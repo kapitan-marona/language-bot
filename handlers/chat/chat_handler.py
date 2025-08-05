@@ -66,19 +66,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # === Универсальная обработка триггеров ===
         user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
-        lang = session.get("interface_lang", "en")
+        interface_lang = session.get("interface_lang", "en")
 
         # --- Переключение режима по тексту (voice/text) ---
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
             session["mode"] = "voice"
             msg = MODE_SWITCH_MESSAGES["voice"].get(interface_lang, MODE_SWITCH_MESSAGES["voice"]["en"])
-            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice"))
+            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice", interface_lang))
             return
 
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["text"]):
             session["mode"] = "text"
             msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
-            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text"))
+            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
         # --- Обработка запроса про создателя/разработчика ---
@@ -89,7 +89,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
 
         if found_trigger:
-            if lang == "ru":
+            if interface_lang == "ru":
                 reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
             else:
                 reply_text = "🐾 My creator is @marrona! For feedback or collaboration offers, feel free to contact her directly. 🌷"
@@ -98,7 +98,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # --- Переписка с GPT ---
         history = session.setdefault("history", [])
-        interface_lang = session["interface_lang"]
         target_lang = session["target_lang"]
         level = session["level"]
         mode = session["mode"]
