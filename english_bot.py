@@ -16,13 +16,14 @@ from telegram.ext import (
 )
 
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
+from components.profile_db import init_db
 from handlers.conversation import handle_start
 from handlers.conversation_callback import handle_callback_query
 
-# Инициализация базы данных профилей (один раз при запуске)
+# ✅ Инициализация базы данных профилей (один раз при запуске)
 init_db()
 
-# Декодирование Google credentials (если используешь Google TTS/STT где-то)
+# ✅ Расшифровка GOOGLE_APPLICATION_CREDENTIALS_BASE64 на старте
 encoded = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_BASE64")
 if encoded:
     decoded = base64.b64decode(encoded)
@@ -34,7 +35,7 @@ if encoded:
 app = FastAPI()
 
 # Telegram-приложение (бот)
-bot_app: Application = None  # будет инициализирован на старте
+bot_app: Application = None  # будет инициализирован при запуске
 
 @app.on_event("startup")
 async def on_startup():

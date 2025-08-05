@@ -1,20 +1,18 @@
 import os
 import time
 import random
+import re
 from telegram import Update
 from telegram.ext import ContextTypes
-
-from components.levels import get_level_keyboard, LEVEL_PROMPT
-from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
-from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
-
 
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
-from handlers.chat.system_prompts import get_system_prompt  # <-- только для system prompt!
+from handlers.chat.system_prompts import get_system_prompt  # <-- system prompt для GPT
+from components.levels import get_rules_by_level
+from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 
 MAX_HISTORY_LENGTH = 40
 RATE_LIMIT_SECONDS = 1.5
@@ -29,7 +27,10 @@ LANGUAGE_CODES = {
     "fi": "fi-FI"
 }
 
-# --- Функция онбординга: приветствие + инструкции + кнопки ---
+def get_greeting_name(lang: str) -> str:
+    return "Matt" if lang == "en" else "Мэтт"
+
+# --- Онбординг ---
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
@@ -65,13 +66,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.setdefault("style", "casual")
         message_text = update.message.text or ""
 
-        # --- Переключение режима (voice/text) и триггеры ---
-        import re
+        # === Универсальная обработка триггеров ===
         user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
         lang = session.get("interface_lang", "en")
 
-        from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
-
+        # --- Переключение режима по тексту (voice/text) ---
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
             session["mode"] = "voice"
             msg = MODE_SWITCH_MESSAGES["voice"].get(lang, MODE_SWITCH_MESSAGES["voice"]["en"])
@@ -84,11 +83,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text"))
             return
 
+        # --- Обработка запроса про создателя/разработчика ---
         found_trigger = False
         for trig in CREATOR_TRIGGERS.get(lang, CREATOR_TRIGGERS["en"]):
             if trig in user_text_norm:
                 found_trigger = True
                 break
+
         if found_trigger:
             if lang == "ru":
                 reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
@@ -97,7 +98,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply_text)
             return
 
-        # --- Система общения с GPT ---
+        # --- Переписка с GPT ---
         history = session.setdefault("history", [])
         interface_lang = session["interface_lang"]
         target_lang = session["target_lang"]
@@ -107,7 +108,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # --- Формируем system prompt ---
         system_prompt = get_system_prompt(style, level, interface_lang, target_lang, mode)
-
         prompt = [{"role": "system", "content": system_prompt}]
         for msg in history:
             prompt.append(msg)
@@ -140,4 +140,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
         print(f"[ОШИБКА в handle_message]: {e}")
-

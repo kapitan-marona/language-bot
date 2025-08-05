@@ -1,65 +1,99 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 from state.session import user_sessions
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 
-from components.levels import get_level_keyboard, LEVEL_PROMPT
-from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
-from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
+# Импорт всех текстов из prompt_templates или texts.py
+from handlers.chat.prompt_templates import (
+    START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS, ONBOARDING_MESSAGE
+)
 
 import random
 
-# Клавиатуры для языков, уровней, стиля
-def get_interface_language_keyboard():
-    langs = [
-        [InlineKeyboardButton("Русский", callback_data="lang:ru"), InlineKeyboardButton("English", callback_data="lang:en")]
-    ]
-    return InlineKeyboardMarkup(langs)
+# Список поддерживаемых языков (и для интерфейса, и для изучения)
+SUPPORTED_LANGUAGES = [
+    ("🇷🇺 Русский", "ru"),
+    ("🇬🇧 English", "en"),
+    ("🇫🇷 Français", "fr"),
+    ("🇪🇸 Español", "es"),
+    ("🇩🇪 Deutsch", "de"),
+    ("🇸🇪 Svenska", "sv"),
+    ("🇫🇮 Suomi", "fi"),
+]
 
-def get_target_language_keyboard():
-    langs = [
-        [InlineKeyboardButton("English", callback_data="target:en"),
-         InlineKeyboardButton("Español", callback_data="target:es"),
-         InlineKeyboardButton("Français", callback_data="target:fr")],
-        [InlineKeyboardButton("Deutsch", callback_data="target:de"),
-         InlineKeyboardButton("Svenska", callback_data="target:sv"),
-         InlineKeyboardButton("Suomi", callback_data="target:fi")],
-        [InlineKeyboardButton("Русский", callback_data="target:ru")]
+def get_interface_language_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(name, callback_data=f"interface_lang:{code}")]
+        for name, code in SUPPORTED_LANGUAGES
     ]
-    return InlineKeyboardMarkup(langs)
+    return InlineKeyboardMarkup(keyboard)
 
-def get_level_keyboard():
-    levels = [
-        [InlineKeyboardButton("A1", callback_data="level:A1"),
-         InlineKeyboardButton("A2", callback_data="level:A2"),
-         InlineKeyboardButton("B1", callback_data="level:B1"),
-         InlineKeyboardButton("B2", callback_data="level:B2")],
-        [InlineKeyboardButton("C1", callback_data="level:C1"),
-         InlineKeyboardButton("C2", callback_data="level:C2")]
+def get_target_language_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(name, callback_data=f"target_lang:{code}")]
+        for name, code in SUPPORTED_LANGUAGES
     ]
-    return InlineKeyboardMarkup(levels)
+    return InlineKeyboardMarkup(keyboard)
 
-def get_style_keyboard():
-    styles = [
-        [InlineKeyboardButton("Casual", callback_data="style:casual")]
-    ]
-    return InlineKeyboardMarkup(styles)
+PREPARING_MESSAGE = {
+    "ru": "⌨️ Подготовка…",
+    "en": "⌨️ Preparing…"
+}
 
-# Запуск онбординга: /start
-async def start_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    session.clear()  # Чистим старую сессию, если была
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Выбери язык интерфейса / Choose interface language:",
+    # Сброс всей сессии пользователя
+    user_sessions[chat_id] = {}
+    # Определяем язык по умолчанию
+    interface_lang = context.user_data.get("interface_lang", "ru")
+    await update.message.reply_text(
+        PREPARING_MESSAGE.get(interface_lang, PREPARING_MESSAGE["en"]),
+        reply_markup=ReplyKeyboardRemove()
+    )
+    # Приветствие и выбор языка
+    await update.message.reply_text(
+        ONBOARDING_MESSAGE,
         reply_markup=get_interface_language_keyboard()
     )
 
-# Обработка нажатий на кнопки
-async def conversation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def interface_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang_code = query.data.split(":")[1]
     chat_id = query.message.chat_id
-    data = query.data
-    session = user_sessions.setdefault(ch_
+    session = user_sessions.setdefault(chat_id, {})
+    session["interface_lang"] = lang_code
+    session["onboarding_stage"] = "awaiting_target_lang"
+    # Показываем выбор языка для изучения
+    await query.edit_message_text(
+        text="🌍 Выбери язык для изучения:" if lang_code == "ru" else "🌍 Choose a language to learn:",
+        reply_markup=get_target_language_keyboard()
+    )
+
+# После выбора target_lang вызывается следующее
+async def target_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang_code = query.data.split(":")[1]
+    chat_id = query.message.chat_id
+    session = user_sessions.setdefault(chat_id, {})
+    session["target_lang"] = lang_code
+    session["onboarding_stage"] = "awaiting_level"
+    # Показываем выбор уровня (ты можешь импортировать get_level_keyboard)
+    from components.levels import get_level_keyboard
+    await query.edit_message_text(
+        text="Выбери свой уровень:" if session["interface_lang"] == "ru" else "Choose your level:",
+        reply_markup=get_level_keyboard(session["interface_lang"])
+    )
+
+# Дальше стиль общения, далее финальный онбординг
+async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    session = user_sessions.setdefault(chat_id, {})
+    interface_lang = session.get("interface_lang", "en")
+    target_lang = session.get("target_lang", interface_lang)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
+    )
+    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
+    await context.bot.send_message(chat_id=chat_id, text=question)
