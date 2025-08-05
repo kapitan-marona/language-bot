@@ -54,6 +54,7 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
 
 # --- OK-кнопка ---
 async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("НАЖАТА КНОПКА OK")
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
