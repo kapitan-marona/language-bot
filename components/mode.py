@@ -11,10 +11,6 @@ MODE_SWITCH_MESSAGES = {
     }
 }
 
-MODE_PROMPT = {
-    "ru": "💬 Выбери режим общения:",
-    "en": "💬 Choose communication mode:"
-}
 
 def get_mode_keyboard(current_mode="text", lang_code="en"):
     """

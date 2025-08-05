@@ -2,62 +2,43 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 
-# Импорт всех текстов из prompt_templates или texts.py
-from handlers.chat.prompt_templates import (
-    START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
-)
+from components.language import get_target_language_keyboard, LANGUAGES, TARGET_LANG_PROMPT
+from components.levels import get_level_keyboard, LEVEL_PROMPT
+from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 
-from components.levels import get_level_keyboard
-from components.style import get_style_keyboard
+from handlers.chat.prompt_templates import (
+    PREPARING_MESSAGE, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
+)
 
 import random
 
-# Список поддерживаемых языков (и для интерфейса, и для изучения)
-SUPPORTED_LANGUAGES = [
-    ("🇷🇺 Русский", "ru"),
-    ("🇬🇧 English", "en"),
-    ("🇫🇷 Français", "fr"),
-    ("🇪🇸 Español", "es"),
-    ("🇩🇪 Deutsch", "de"),
-    ("🇸🇪 Svenska", "sv"),
-    ("🇫🇮 Suomi", "fi"),
-]
-
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton(name, callback_data=f"interface_lang:{code}")]
-        for name, code in SUPPORTED_LANGUAGES
+        [
+            InlineKeyboardButton("Русский", callback_data="interface_lang:ru"),
+            InlineKeyboardButton("English", callback_data="interface_lang:en"),
+        ],
+        # Добавь сюда больше языков, если потребуется
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_target_language_keyboard() -> InlineKeyboardMarkup:
-    keyboard = [
-        [InlineKeyboardButton(name, callback_data=f"target_lang:{code}")]
-        for name, code in SUPPORTED_LANGUAGES
-    ]
-    return InlineKeyboardMarkup(keyboard)
+def get_ok_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🆗 OK", callback_data="onboarding_ok")]])
 
-PREPARING_MESSAGE = {
-    "ru": "⌨️ Подготовка…",
-    "en": "⌨️ Preparing…"
-}
-
+# --- /start ---
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    # Сброс всей сессии пользователя
     user_sessions[chat_id] = {}
-    # Определяем язык по умолчанию
-    interface_lang = context.user_data.get("interface_lang", "ru")
     await update.message.reply_text(
-        PREPARING_MESSAGE.get(interface_lang, PREPARING_MESSAGE["en"]),
+        PREPARING_MESSAGE.get("ru"),
         reply_markup=ReplyKeyboardRemove()
     )
-    # Приветствие и выбор языка
     await update.message.reply_text(
-        ONBOARDING_MESSAGE,
+        "Выбери язык интерфейса / Choose interface language:",
         reply_markup=get_interface_language_keyboard()
     )
 
+# --- Выбор языка интерфейса ---
 async def interface_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -65,14 +46,25 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
-    session["onboarding_stage"] = "awaiting_target_lang"
-    # Показываем выбор языка для изучения
+    session["onboarding_stage"] = "awaiting_ok"
     await query.edit_message_text(
-        text="🌍 Выбери язык для изучения:" if lang_code == "ru" else "🌍 Choose a language to learn:",
+        text=START_MESSAGE.get(lang_code, START_MESSAGE["en"]),
+        reply_markup=get_ok_keyboard()
+    )
+
+# --- OK-кнопка ---
+async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    session = user_sessions.setdefault(chat_id, {})
+    lang_code = session.get("interface_lang", "ru")
+    await query.edit_message_text(
+        text=TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"]),
         reply_markup=get_target_language_keyboard()
     )
 
-# После выбора target_lang вызывается следующее
+# --- Выбор языка для изучения ---
 async def target_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -81,13 +73,13 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     session = user_sessions.setdefault(chat_id, {})
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
-    # Показываем выбор уровня (ты можешь импортировать get_level_keyboard)
-    from components.levels import get_level_keyboard
+    interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
-        text="Выбери свой уровень:" if session["interface_lang"] == "ru" else "Choose your level:",
-        reply_markup=get_level_keyboard(session["interface_lang"])
+        text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
+        reply_markup=get_level_keyboard(interface_lang)
     )
 
+# --- Выбор уровня ---
 async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -96,13 +88,13 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
     session["level"] = level
     session["onboarding_stage"] = "awaiting_style"
-    # Показываем выбор стиля общения
+    interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
-        text="Выбери стиль общения:" if session["interface_lang"] == "ru" else "Choose your communication style:",
-        reply_markup=get_style_keyboard(session["interface_lang"])
+        text=STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"]),
+        reply_markup=get_style_keyboard(interface_lang)
     )
 
-# После выбора стиля — завершающий онбординг
+# --- Выбор стиля общения ---
 async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -111,18 +103,35 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
     session["style"] = style
     session["onboarding_stage"] = "complete"
-    # Приветствие от Мэтта и первый вопрос
     await onboarding_final(update, context)
 
-# Дальше стиль общения, далее финальный онбординг
+# --- Финальное приветствие и вовлекающий вопрос ---
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
+    chat_id = update.effective_chat.id if hasattr(update, "effective_chat") else update.callback_query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
     )
     question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
     await context.bot.send_message(chat_id=chat_id, text=question)
+
+# --- Обработчик callback'ов ---
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+
+    if data.startswith("interface_lang:"):
+        await interface_language_callback(update, context)
+    elif data == "onboarding_ok":
+        await onboarding_ok_callback(update, context)
+    elif data.startswith("target_lang:"):
+        await target_language_callback(update, context)
+    elif data.startswith("level:"):
+        await level_callback(update, context)
+    elif data.startswith("style:"):
+        await style_callback(update, context)
+    # Можно добавить дополнительные этапы, если потребуется!

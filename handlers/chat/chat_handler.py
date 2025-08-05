@@ -9,9 +9,7 @@ from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
-from handlers.chat.prompt_templates import get_system_prompt    # <-- system prompt для GPT
-from components.levels import get_rules_by_level
+from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 
 MAX_HISTORY_LENGTH = 40

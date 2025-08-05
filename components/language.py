@@ -1,31 +1,29 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# Все поддерживаемые языки (можно расширять)
+# Языки для изучения (и их флаги)
 LANGUAGES = {
-    "en": "English 🇬🇧",
-    "es": "Español 🇪🇸",
-    "de": "Deutsch 🇩🇪",
-    "fr": "Français 🇫🇷",
-    "sv": "Svenska 🇸🇪",
-    "fi": "Suomi 🇫🇮",
-    "ru": "Русский 🇷🇺",
+    "ru": "🇷🇺 Русский",
+    "en": "🇬🇧 English",
+    "fr": "🇫🇷 Français",
+    "es": "🇪🇸 Español",
+    "de": "🇩🇪 Deutsch",
+    "sv": "🇸🇪 Svenska",
+    "fi": "🇫🇮 Suomi"
 }
 
-# Текст для запроса языка
 TARGET_LANG_PROMPT = {
     "ru": "🌍 Выбери язык для изучения:",
     "en": "🌍 Choose a language to learn:"
 }
 
-def get_target_language_keyboard(lang_code="en"):
+def get_target_language_keyboard():
     """
-    Возвращает InlineKeyboardMarkup с поддерживаемыми языками.
+    Возвращает InlineKeyboardMarkup с поддерживаемыми языками (по 2 в ряд).
     """
     buttons = []
     row = []
     for code, label in LANGUAGES.items():
-        row.append(InlineKeyboardButton(label, callback_data=f"target_{code}"))
-        # Делаем по две кнопки в ряд
+        row.append(InlineKeyboardButton(label, callback_data=f"target_lang:{code}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
