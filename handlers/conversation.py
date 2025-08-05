@@ -4,7 +4,7 @@ from state.session import user_sessions
 
 # Импорт всех текстов из prompt_templates или texts.py
 from handlers.chat.prompt_templates import (
-    START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS, ONBOARDING_MESSAGE
+    START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 )
 
 import random
