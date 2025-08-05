@@ -10,7 +10,7 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
-from handlers.chat.system_prompts import get_system_prompt  # <-- system prompt для GPT
+from handlers.chat.prompt_templates import get_system_prompt    # <-- system prompt для GPT
 from components.levels import get_rules_by_level
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 
