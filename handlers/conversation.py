@@ -152,5 +152,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
     elif data == "mode:text":
         chat_id = query.message.chat_id
+        session = user_sessions.setdefault(chat_id, {})
+        session["mode"] = "text"
+        lang = session.get("interface_lang", "ru")
+        await query.edit_message_text(
+            text="⌨️ Теперь отвечаю текстом" if lang == "ru" else "⌨️ Now I'll reply with text",
+            reply_markup=get_mode_keyboard("text", lang)
+        )
+
 
 
