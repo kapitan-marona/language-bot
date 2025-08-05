@@ -145,19 +145,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         chat_id = query.message.chat_id
         session = user_sessions.setdefault(chat_id, {})
         session["mode"] = "voice"
-        lang = session.get("interface_lang", "ru")
+        interface_lang = session.get("interface_lang", "ru")
         await query.edit_message_text(
-            text="🔊 Теперь отвечаю голосом" if lang == "ru" else "🔊 Now I'll reply with voice",
-            reply_markup=get_mode_keyboard("voice", lang)
+            text="🔊 Теперь отвечаю голосом" if interface_lang == "ru" else "🔊 Now I'll reply with voice",
+            reply_markup=get_mode_keyboard("voice", interface_lang)
         )
     elif data == "mode:text":
         chat_id = query.message.chat_id
         session = user_sessions.setdefault(chat_id, {})
         session["mode"] = "text"
-        lang = session.get("interface_lang", "ru")
+        interface_lang = session.get("interface_lang", "ru")
         await query.edit_message_text(
-            text="⌨️ Теперь отвечаю текстом" if lang == "ru" else "⌨️ Now I'll reply with text",
-            reply_markup=get_mode_keyboard("text", lang)
+            text="⌨️ Теперь отвечаю текстом" if interface_lang == "ru" else "⌨️ Now I'll reply with text",
+            reply_markup=get_mode_keyboard("text", interface_lang)
         )
 
 
