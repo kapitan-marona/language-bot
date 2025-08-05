@@ -7,6 +7,9 @@ from handlers.chat.prompt_templates import (
     START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 )
 
+from components.levels import get_level_keyboard
+from components.style import get_style_keyboard
+
 import random
 
 # Список поддерживаемых языков (и для интерфейса, и для изучения)
@@ -84,6 +87,32 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
         text="Выбери свой уровень:" if session["interface_lang"] == "ru" else "Choose your level:",
         reply_markup=get_level_keyboard(session["interface_lang"])
     )
+
+async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    level = query.data.split(":")[1]
+    chat_id = query.message.chat_id
+    session = user_sessions.setdefault(chat_id, {})
+    session["level"] = level
+    session["onboarding_stage"] = "awaiting_style"
+    # Показываем выбор стиля общения
+    await query.edit_message_text(
+        text="Выбери стиль общения:" if session["interface_lang"] == "ru" else "Choose your communication style:",
+        reply_markup=get_style_keyboard(session["interface_lang"])
+    )
+
+# После выбора стиля — завершающий онбординг
+async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    style = query.data.split(":")[1]
+    chat_id = query.message.chat_id
+    session = user_sessions.setdefault(chat_id, {})
+    session["style"] = style
+    session["onboarding_stage"] = "complete"
+    # Приветствие от Мэтта и первый вопрос
+    await onboarding_final(update, context)
 
 # Дальше стиль общения, далее финальный онбординг
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
