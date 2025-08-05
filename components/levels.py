@@ -1,58 +1,50 @@
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 LEVELS = {
-    "A0": "Starter",
-    "A1": "Beginner",
-    "A2": "Beginner",
-    "B1": "Intermediate",
-    "B2": "Intermediate",
-    "C1": "Advanced",
-    "C2": "Advanced",
+    "A0": "A0 (Starter)",
+    "A1": "A1 (Beginner)",
+    "A2": "A2 (Elementary)",
+    "B1": "B1 (Intermediate)",
+    "B2": "B2 (Upper Intermediate)",
+    "C1": "C1 (Advanced)",
+    "C2": "C2 (Proficient)",
 }
-
-
-def get_level_keyboard() -> InlineKeyboardMarkup:
-    keyboard = [
-        [InlineKeyboardButton("🟢 A0 — Starter", callback_data="level_A0")],
-        [InlineKeyboardButton("🟢 A1–A2 — Beginner", callback_data="level_A1A2")],
-        [InlineKeyboardButton("🟡 B1–B2 — Intermediate", callback_data="level_B1B2")],
-        [InlineKeyboardButton("🔵 C1–C2 — Advanced", callback_data="level_C1C2")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
 
 LEVEL_PROMPT = {
-    "en": "📊 Now choose your current level of the language you're learning:",
-    "ru": "📊 А теперь выбери уровень владения изучаемым языком:",
-    "sv": "📊 Välj nu din nuvarande språknivå:"  # ✅ поддержка шведского осталась
+    "ru": "🔢 Выбери свой уровень:",
+    "en": "🔢 Choose your level:"
 }
 
-
-def get_rules_by_level(level: str, interface_lang: str) -> str:
+def get_level_keyboard(lang_code="en"):
     """
-    Инструкции GPT в зависимости от уровня владения и языка интерфейса (родного языка пользователя).
-    Бот всегда должен переводить на родной язык — язык интерфейса, выбранный на старте.
+    Возвращает InlineKeyboardMarkup для выбора уровня.
     """
-    lang = interface_lang.upper()
+    levels_row1 = [
+        InlineKeyboardButton("A0", callback_data="level:A0"),
+        InlineKeyboardButton("A1", callback_data="level:A1"),
+        InlineKeyboardButton("A2", callback_data="level:A2"),
+    ]
+    levels_row2 = [
+        InlineKeyboardButton("B1", callback_data="level:B1"),
+        InlineKeyboardButton("B2", callback_data="level:B2"),
+        InlineKeyboardButton("C1", callback_data="level:C1"),
+        InlineKeyboardButton("C2", callback_data="level:C2"),
+    ]
+    return InlineKeyboardMarkup([levels_row1, levels_row2])
 
-    if level == "A0":
-        return (
-            f"Use the simplest possible grammar and short phrases. "
-            f"Translate everything you say into {lang}."
-        )
-    elif level in ["A1", "A2", "A1A2"]:
-        return (
-            f"Use simple grammar and short paragraphs. "
-            f"Translate into {lang} only when the user asks."
-        )
-    elif level in ["B1", "B2", "B1B2"]:
-        return (
-            f"Use more advanced grammar and full sentences. "
-            f"Translate only if explicitly requested."
-        )
-    elif level in ["C1", "C2", "C1C2"]:
-        return (
-            f"Communicate fluently as with a native speaker. "
-            f"Translate only on request."
-        )
-    return ""
+LEVEL_RULES = {
+    "A0": (
+        "Пиши на родном языке пользователя. Добавляй в конце 1-2 очень простых, коротких фразы или отдельные слова на изучаемом языке. "
+        "Фразы на изучаемом языке должны быть переведены и подписаны транслитерацией (если возможно). Поддерживай, не пугая новыми словами."
+    ),
+    "A1": "Используй простые короткие предложения.",
+    "A2": "Используй чуть больше слов, но избегай сложной грамматики.",
+    "B1": "Используй расширенный словарный запас и простые обороты.",
+    "B2": "Говори бегло, но избегай слишком сложных тем.",
+    "C1": "Используй сложные выражения и идиомы.",
+    "C2": "Полная свобода: идиомы, профессиональный язык.",
+}
+
+def get_rules_by_level(level):
+    return LEVEL_RULES.get(level, "")
+

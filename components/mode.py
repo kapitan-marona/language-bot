@@ -1,28 +1,31 @@
-# components/mode.py
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
-def get_mode_keyboard(current_mode: str) -> InlineKeyboardMarkup:
-    if current_mode == "voice":
-        label = "💬 Text Mode"
-        data = "mode_text"
-    else:
-        label = "🎷 Voice Mode"
-        data = "mode_voice"
-
-    keyboard = [[InlineKeyboardButton(label, callback_data=data)]]
-    return InlineKeyboardMarkup(keyboard)
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 MODE_SWITCH_MESSAGES = {
     "voice": {
-        "en": "👌 I'll send you voice messages now.",
-        "ru": "👌 Теперь я буду отвечать голосом.",
+        "en": "🔊 Switched to voice mode. Send me an audio message!",
+        "ru": "🔊 Готов слушать твои аудиосообщения!"
     },
     "text": {
-        "en": "👍 Back to text replies.",
-        "ru": "👍 Возвращаюсь к текстовым ответам.",
-    },
-    "prompt": {
-        "en": "Would you like me to speak? You can switch to Voice Mode 🎷.",
-        "ru": "Хочешь, чтобы я заговорил? Переключись в голосовой режим 🎷.",
-    },
+        "en": "⌨️ Switched to text mode. Send me a text!",
+        "ru": "⌨️ Теперь можно писать текстом!"
+    }
 }
+
+MODE_PROMPT = {
+    "ru": "💬 Выбери режим общения:",
+    "en": "💬 Choose communication mode:"
+}
+
+def get_mode_keyboard(current_mode="text", lang_code="en"):
+    """
+    Клавиатура для выбора режима общения (voice/text).
+    """
+    if current_mode == "voice":
+        button = InlineKeyboardButton(
+            "⌨️ Текст / Text", callback_data="mode:text"
+        )
+    else:
+        button = InlineKeyboardButton(
+            "🔊 Голос / Voice", callback_data="mode:voice"
+        )
+    return InlineKeyboardMarkup([[button]])

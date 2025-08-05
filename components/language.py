@@ -1,37 +1,34 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-SUPPORTED_LANGUAGES = {
-    "en": "English",
-    "ru": "Русский",
-    "es": "Español",
-    "fr": "Français",
-    "de": "Deutsch",
-    "sv": "Svenska",
-    "fi": "Suomi"
+# Все поддерживаемые языки (можно расширять)
+LANGUAGES = {
+    "en": "English 🇬🇧",
+    "es": "Español 🇪🇸",
+    "de": "Deutsch 🇩🇪",
+    "fr": "Français 🇫🇷",
+    "sv": "Svenska 🇸🇪",
+    "fi": "Suomi 🇫🇮",
+    "ru": "Русский 🇷🇺",
 }
 
-# Список доступных языков для изучения
-TARGET_LANGUAGES = {
-    "en": "🇬🇧 English",
-    "ru": "🇷🇺 Русский",
-    "es": "🇪🇸 Español",
-    "fr": "🇫🇷 Français",
-    "de": "🇩🇪 Deutsch",
-    "sv": "🇸🇪 Svenska",
-    "fi": "🇫🇮 Suomi"
-}
-
-# Тексты-приглашения выбрать изучаемый язык
+# Текст для запроса языка
 TARGET_LANG_PROMPT = {
-    "ru": "Какой язык ты хочешь изучать? 🌍",
-    "en": "Which language do you want to learn? 🌍",
+    "ru": "🌍 Выбери язык для изучения:",
+    "en": "🌍 Choose a language to learn:"
 }
 
-# Генерация inline-кнопок для выбора target language
-def get_target_language_keyboard(lang_code: str) -> InlineKeyboardMarkup:
-    keyboard = [
-        [InlineKeyboardButton(label, callback_data=f"target_{code}")]
-        for code, label in TARGET_LANGUAGES.items() if code != lang_code
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
+def get_target_language_keyboard(lang_code="en"):
+    """
+    Возвращает InlineKeyboardMarkup с поддерживаемыми языками.
+    """
+    buttons = []
+    row = []
+    for code, label in LANGUAGES.items():
+        row.append(InlineKeyboardButton(label, callback_data=f"target_{code}"))
+        # Делаем по две кнопки в ряд
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)

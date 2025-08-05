@@ -1,33 +1,22 @@
 import os
 import tempfile
-import subprocess  # ✅ Добавлено
-from pathlib import Path
+import subprocess
 from openai import OpenAI
 from config.config import OPENAI_API_KEY
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-def synthesize_voice(text: str, language_code: str, level: str) -> str:
+def synthesize_voice(text: str, language_code: str, style: str = "casual", level: str = "A2") -> str:
     """
-    Генерация озвучки с использованием OpenAI TTS (TTS-1).
+    Генерирует озвучку с использованием OpenAI TTS (TTS-1), с выбором голоса по стилю.
     """
     style_to_voice = {
-        "casual": "alloy",
-        "business": "fable"
+        "casual": "alloy",        # 😎 Cool — разговорный стиль
+        "business": "fable"       # 🤓 Бизнес/деловой стиль
     }
-    voice = style_to_voice.get(level.lower(), "alloy")  # ✅ Выбор голоса по стилю (по умолчанию alloy)
+    voice = style_to_voice.get(style.lower(), "alloy")  # Выбор голоса по стилю, default = alloy
 
-    speed = {
-        "A0": 0.85,
-        "A1": 0.9,
-        "A2": 0.95,
-        "B1": 1.0,
-        "B2": 1.05,
-        "C1": 1.1,
-        "C2": 1.15,
-    }.get(level.upper(), 1.0)  # ✅ Выбор скорости воспроизведения в зависимости от уровня
-
-    print(f"🔊 [TTS] Генерируем голос '{voice}' ({language_code}, уровень {level}, скорость {speed})")
+    print(f"🔊 [TTS] Генерируем голос '{voice}' ({language_code}, стиль {style})")
 
     try:
         response = client.audio.speech.create(
@@ -35,12 +24,11 @@ def synthesize_voice(text: str, language_code: str, level: str) -> str:
             voice=voice,
             input=text
         )
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out_file:
             out_file.write(response.content)
             out_path = out_file.name
 
-        # ✅ Перекодировка через ffmpeg (важно для совместимости с Telegram)
+        # Перекодировка через ffmpeg (важно для Telegram)
         fixed_path = out_path.replace(".ogg", "_fixed.ogg")
         subprocess.run(["ffmpeg", "-y", "-i", out_path, "-c:a", "libopus", fixed_path], check=True)
         print("✅ [FFMPEG] Перекодировка завершена:", fixed_path)

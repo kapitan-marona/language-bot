@@ -1,40 +1,28 @@
-import base64
-from openai import AsyncOpenAI  # ✅ заменено с OpenAI
-from config.config import OPENAI_API_KEY
-from openai.types.chat import ChatCompletion
+import openai
+import os
 
-# ✅ используем асинхронный клиент
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+# Получаем API-ключ из переменных окружения, это безопаснее
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
 
-# ✅ теперь асинхронная функция
-async def ask_gpt(messages: list, model: str = "gpt-3.5-turbo") -> str:
+# Основная функция для работы с GPT
+async def ask_gpt(messages, model="gpt-3.5-turbo"):
     """
-    Отправляет список сообщений в GPT и возвращает текст ответа.
+    Делает асинхронный запрос к OpenAI GPT API.
 
-    :param messages: список сообщений в формате [{"role": "user" / "assistant" / "system", "content": "текст"}]
-    :param model: имя модели (по умолчанию gpt-3.5-turbo)
-    :return: ответ GPT как строка
+    :param messages: List[Dict], формат истории сообщений для ChatCompletion.
+    :param model: str, модель GPT (по умолчанию gpt-3.5-turbo, для экономии; gpt-4o — если хочешь лучше).
+    :return: str, сгенерированный ответ.
     """
     try:
-        # === ЛОГГИРУЕМ ВХОДЯЩИЙ СПИСОК СООБЩЕНИЙ ===
-        print("=== GPT MESSAGES ===")
-        for m in messages:
-            print(m)
-        print("====================")
-        
-        # ✅ асинхронный вызов
-        response: ChatCompletion = await client.chat.completions.create(
+        response = await openai.ChatCompletion.acreate(
             model=model,
-            messages=messages
+            messages=messages,
+            temperature=0.7,
+            max_tokens=700,
         )
-
-        # === ЛОГГИРУЕМ ОТВЕТ GPT ===
-        gpt_reply = response.choices[0].message.content.strip()
-        print("=== GPT REPLY ===")
-        print(gpt_reply)
-        print("=================")
-        return gpt_reply
-
+        return response.choices[0].message["content"].strip()
     except Exception as e:
-        print(f"[GPT Error] {e}")
-        return "⚠️ Ошибка при обращении к GPT."
+        print(f"[GPT ERROR]: {e}")
+        return "⚠️ Ошибка генерации ответа. Попробуйте еще раз!"
+
