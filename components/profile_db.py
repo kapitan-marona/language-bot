@@ -1,31 +1,56 @@
-import json
+import sqlite3
 import os
 
-PROFILE_DB_PATH = "data/profiles.json"  # путь к файлу профилей, поправь под себя
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db')
+DB_PATH = os.path.abspath(DB_PATH)
 
-def _load_profiles():
-    """Загрузить все профили из файла."""
-    if not os.path.exists(PROFILE_DB_PATH):
-        return {}
-    with open(PROFILE_DB_PATH, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return {}
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            chat_id INTEGER PRIMARY KEY,
+            name TEXT,
+            interface_lang TEXT,
+            target_lang TEXT,
+            level TEXT,
+            style TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-def _save_profiles(profiles):
-    """Сохранить все профили в файл."""
-    with open(PROFILE_DB_PATH, "w", encoding="utf-8") as f:
-        json.dump(profiles, f, ensure_ascii=False, indent=2)
+def save_user_profile(chat_id, name=None, interface_lang=None, target_lang=None, level=None, style=None):
+    """Сохраняет или обновляет профиль пользователя."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('''
+        INSERT INTO user_profiles (chat_id, name, interface_lang, target_lang, level, style)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET
+            name=excluded.name,
+            interface_lang=excluded.interface_lang,
+            target_lang=excluded.target_lang,
+            level=excluded.level,
+            style=excluded.style
+    ''', (chat_id, name, interface_lang, target_lang, level, style))
+    conn.commit()
+    conn.close()
 
-def save_user_name(chat_id, name):
-    """Сохранить имя пользователя."""
-    profiles = _load_profiles()
-    profiles[str(chat_id)] = profiles.get(str(chat_id), {})
-    profiles[str(chat_id)]["name"] = name
-    _save_profiles(profiles)
-
-def get_user_name(chat_id):
-    """Получить имя пользователя."""
-    profiles = _load_profiles()
-    return profiles.get(str(chat_id), {}).get("name", None)
+def get_user_profile(chat_id):
+    """Возвращает словарь с профилем пользователя."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM user_profiles WHERE chat_id=?', (chat_id,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "chat_id": row[0],
+        "name": row[1],
+        "interface_lang": row[2],
+        "target_lang": row[3],
+        "level": row[4],
+        "style": row[5],
+    }
