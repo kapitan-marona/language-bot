@@ -16,7 +16,6 @@ from telegram.ext import (
 )
 
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
-from components.profile_db import init_db
 from handlers.conversation import handle_start
 from handlers.conversation_callback import handle_callback_query
 
