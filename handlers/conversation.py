@@ -105,7 +105,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["style"] = style
     session["onboarding_stage"] = "complete"
     # Просто убираем кнопки (редактируем сообщение, оставляя его пустым)
-    await query.edit_message_text(text=" ")
+    await query.edit_message_text(text=" Отличный выбор🌷 ")
     # Сразу отправляем приветствие от Мэтта и первый вопрос
     await onboarding_final(update, context)
 
