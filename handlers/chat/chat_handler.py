@@ -71,19 +71,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # --- Переключение режима по тексту (voice/text) ---
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
             session["mode"] = "voice"
-            msg = MODE_SWITCH_MESSAGES["voice"].get(lang, MODE_SWITCH_MESSAGES["voice"]["en"])
+            msg = MODE_SWITCH_MESSAGES["voice"].get(interface_lang, MODE_SWITCH_MESSAGES["voice"]["en"])
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice"))
             return
 
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["text"]):
             session["mode"] = "text"
-            msg = MODE_SWITCH_MESSAGES["text"].get(lang, MODE_SWITCH_MESSAGES["text"]["en"])
+            msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text"))
             return
 
         # --- Обработка запроса про создателя/разработчика ---
         found_trigger = False
-        for trig in CREATOR_TRIGGERS.get(lang, CREATOR_TRIGGERS["en"]):
+        for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
             if trig in user_text_norm:
                 found_trigger = True
                 break

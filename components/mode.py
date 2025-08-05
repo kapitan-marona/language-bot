@@ -28,3 +28,4 @@ def get_mode_keyboard(current_mode, interface_lang):
             )]
         ])
 
+
