@@ -9,7 +9,7 @@ from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.prompt_templates import (
     PREPARING_MESSAGE, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 )
-from components.mode.py import get_mode_keyboard
+from components.mode import get_mode_keyboard
 
 import random
 
