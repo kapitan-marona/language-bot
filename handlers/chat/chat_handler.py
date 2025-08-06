@@ -3,7 +3,8 @@ import time
 import random
 import re
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CommandHandler
+from config.config import ADMINS
 
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
@@ -24,6 +25,35 @@ LANGUAGE_CODES = {
     "sv": "sv-SE",
     "fi": "fi-FI"
 }
+
+
+async def admin_command(update: Update, context):
+    chat_id = update.effective_chat.id
+    session = user_sessions.setdefault(chat_id, {})
+    
+    # Проверяем, админ ли пользователь
+    if session.get("is_admin") or chat_id in ADMINS:
+        # Можно добавить любые “секретные” действия!
+        await update.message.reply_text(
+            "👑 Вы в админском режиме! Вот несколько секретных функций:\n"
+            "- /users — статистика пользователей (например)\n"
+            "- /reset — сбросить настройки бота\n"
+            "- /test — запустить тестовую фичу"
+        )
+    else:
+        await update.message.reply_text("⛔️")
+
+
+async def users_command(update: Update, context):
+    chat_id = update.effective_chat.id
+    session = user_sessions.setdefault(chat_id, {})
+    if session.get("is_admin") or chat_id in ADMINS:
+        user_count = len(user_sessions)
+        await update.message.reply_text(f"В системе зарегистрировано {user_count} пользователей.")
+    else:
+        await update.message.reply_text("⛔️")
+
+
 
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
@@ -137,3 +167,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
         print(f"[ОШИБКА в handle_message]: {e}")
+
+# Далее внизу файла (или там, где ты регистрируешь команды)
+
+application.add_handler(CommandHandler("admin", admin_command))
+application.add_handler(CommandHandler("users", users_command))
+

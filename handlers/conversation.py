@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
-from config import ADMINS
+from config.config import ADMINS
 from state.session import user_sessions
 
 from components.language import get_target_language_keyboard, LANGUAGES, TARGET_LANG_PROMPT
@@ -17,6 +17,10 @@ from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL
 from components.mode import get_mode_keyboard
 
 import random
+
+import os
+print("cwd", os.getcwd())
+print("sys.path", sys.path)
 
 
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
@@ -44,6 +48,19 @@ def get_level_guide_keyboard(interface_lang):
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
+
+    # --- Проверка на админа ---
+    if chat_id in ADMINS:
+        session["is_admin"] = True
+        session["onboarding_stage"] = "admin"
+        await update.message.reply_text(
+            "👑 Привет, админ! У тебя полный доступ. Можешь тестировать любые функции.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        # Можно сразу отправлять тестовые команды, если захочешь.
+        return
+
+    # Обычный онбординг для пользователей
     session["onboarding_stage"] = "awaiting_language"
     await update.message.reply_text(
         PREPARING_MESSAGE.get("ru"),
