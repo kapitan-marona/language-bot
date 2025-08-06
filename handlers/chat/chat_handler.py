@@ -169,7 +169,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[ОШИБКА в handle_message]: {e}")
 
 # Далее внизу файла (или там, где ты регистрируешь команды)
-
-application.add_handler(CommandHandler("admin", admin_command))
-application.add_handler(CommandHandler("users", users_command))
-
