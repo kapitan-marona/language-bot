@@ -17,7 +17,7 @@ from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL
 from components.mode import get_mode_keyboard
 
 import random
-
+import sys
 import os
 print("cwd", os.getcwd())
 print("sys.path", sys.path)
