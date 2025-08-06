@@ -7,12 +7,16 @@ from components.language import get_target_language_keyboard, LANGUAGES, TARGET_
 from handlers.chat.prompt_templates import (
     PREPARING_MESSAGE, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 )
-from components.style import get_style_keyboard, STYLE_LABEL_PROMPT, LEVEL_PROMPT
+from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
+
 from components.levels import get_level_keyboard, LEVEL_PROMPT
-from handlers.chat.levels_text import get_levels_guide,  LEVEL_PROMPT, LEVELS_GUIDE_BUTTON, LEVELS_GUIDE_CLOSE_BUTTON
+
+from handlers.chat.levels_text import get_levels_guide, LEVELS_GUIDE_BUTTON, LEVELS_GUIDE_CLOSE_BUTTON
+
 from components.mode import get_mode_keyboard
 
 import random
+
 
 def get_interface_language_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
