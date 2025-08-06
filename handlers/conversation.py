@@ -11,7 +11,7 @@ from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 
-from handlers.chat.levels_text import get_levels_guide, LEVELS_GUIDE_BUTTON, LEVELS_GUIDE_CLOSE_BUTTON
+from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
 
 from components.mode import get_mode_keyboard
 
@@ -32,18 +32,11 @@ def get_ok_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("🆗 OK", callback_data="onboarding_ok")]])
 
 
-def get_levels_guide_keyboard(interface_lang):
+def get_level_guide_keyboard(interface_lang):
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(LEVELS_GUIDE_CLOSE_BUTTON[interface_lang], callback_data="close_levels_guide")]
+        [InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON[interface_lang], callback_data="close_level_guide")]
     ])
-
-def get_levels_guide_keyboard(interface_lang):
-    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(LEVELS_GUIDE_CLOSE_BUTTON[interface_lang], callback_data="close_levels_guide")]
-    ])
-
 
 
 # --- /start ---
@@ -119,20 +112,20 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # --- Справка по уровням ---
-async def levels_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
-        text=get_levels_guide(interface_lang),
+        text=get_level_guide(interface_lang),
         parse_mode="Markdown",
-        reply_markup=get_levels_guide_keyboard(interface_lang)
+        reply_markup=get_level_guide_keyboard(interface_lang)
     )
 
 # --- Закрыть справку ---
-async def close_levels_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
@@ -140,7 +133,7 @@ async def close_levels_guide_callback(update: Update, context: ContextTypes.DEFA
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text="Выберите свой уровень:" if interface_lang == "ru" else "Choose your level:",
-        reply_markup=get_levels_keyboard(interface_lang)
+        reply_markup=get_level_keyboard(interface_lang)
     )
 
 
@@ -154,7 +147,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["style"] = style
     session["onboarding_stage"] = "complete"
     # Просто убираем кнопки (редактируем сообщение, оставляя его пустым)
-    await query.edit_message_text(text=" Отличный выбор🌷 ")
+    await query.edit_message_text(text=" Отличный выбор 🌷 ")
     # Сразу отправляем приветствие от Мэтта и первый вопрос
     await onboarding_final(update, context)
 
@@ -187,8 +180,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await target_language_callback(update, context)
     elif data.startswith("level:"):
         await level_callback(update, context)
-    elif data == "levels_guide":
-        await levels_guide_callback(update, context)
+    elif data == "level_guide":
+        await level_guide_callback(update, context)
     elif data.startswith("style:"):
         await style_callback(update, context)
     elif data == "mode:voice":

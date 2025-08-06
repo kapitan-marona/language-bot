@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from handlers.chat.levels_text import get_levels_guide
-from handlers.chat.levels_text import LEVELS_GUIDE_BUTTON
+from handlers.chat.levels_text import get_level_guide
+from handlers.chat.levels_text import LEVEL_GUIDE_BUTTON
 
 LEVELS = {
     "A0": "A0 (Starter)",
@@ -17,11 +17,11 @@ LEVEL_PROMPT = {
     "en": "🔢 Choose your level:"
 }
 
-from handlers.chat.levels_text import LEVELS_GUIDE_BUTTON
+from handlers.chat.levels_text import LEVEL_GUIDE_BUTTON
 
 def get_level_keyboard(lang_code="en"):
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-    print(f"LEVELS_GUIDE_BUTTON type: {type(LEVELS_GUIDE_BUTTON)} value: {LEVELS_GUIDE_BUTTON}")
+    print(f"LEVEL_GUIDE_BUTTON type: {type(LEVEL_GUIDE_BUTTON)} value: {LEVEL_GUIDE_BUTTON}")
     levels_row1 = [
         InlineKeyboardButton("A0", callback_data="level:A0"),
         InlineKeyboardButton("A1", callback_data="level:A1"),
@@ -35,8 +35,8 @@ def get_level_keyboard(lang_code="en"):
     ]
     levels_guide_row = [
         InlineKeyboardButton(
-            LEVELS_GUIDE_BUTTON.get(lang_code, LEVELS_GUIDE_BUTTON["en"]),
-            callback_data="levels_guide"
+            LEVEL_GUIDE_BUTTON.get(lang_code, LEVEL_GUIDE_BUTTON["en"]),
+            callback_data="level_guide"
         )
     ]
     return InlineKeyboardMarkup([levels_row1, levels_row2, levels_guide_row])
@@ -62,7 +62,7 @@ def get_level_keyboard(lang_code="en"):
         InlineKeyboardButton("C2", callback_data="level:C2"),
     ]
     levels_guide_row = [
-        InlineKeyboardButton(LEVELS_GUIDE_BUTTON[lang_code], callback_data="levels_guide")
+        InlineKeyboardButton(LEVEL_GUIDE_BUTTON[lang_code], callback_data="level_guide")
     ]
     return InlineKeyboardMarkup([levels_row1, levels_row2, levels_guide_row])
 
