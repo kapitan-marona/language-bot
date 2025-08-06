@@ -42,16 +42,22 @@ async def on_startup():
     global bot_app
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Импорт обработчика чата только тут (чтобы избежать циклических импортов)
-    from handlers.chat.chat_handler import handle_message
+    # Импортировать обработчики только тут (во избежание циклических импортов)
+    from handlers.chat.chat_handler import handle_message, admin_command, users_command
+    from handlers.conversation import handle_start, handle_callback_query
 
-    # Регистрируем обработчики
+    # Регистрируем основные обработчики
     bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
     bot_app.add_handler(CommandHandler("start", handle_start))
     bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    # Telegram Application инициализация (Webhook-режим)
+    # --- Регистрируем команды для админа
+    bot_app.add_handler(CommandHandler("admin", admin_command))
+    bot_app.add_handler(CommandHandler("users", users_command))
+
+    # Инициализация Telegram Application (Webhook-режим)
     asyncio.create_task(bot_app.initialize())
+
 
 @app.post(f"/{WEBHOOK_SECRET_PATH}")
 async def telegram_webhook(req: Request):
