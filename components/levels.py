@@ -42,13 +42,8 @@ def get_level_keyboard(lang_code="en"):
     return InlineKeyboardMarkup([levels_row1, levels_row2, levels_guide_row])
 
 
-
-
 def get_rules_by_level(level):
     return LEVEL_RULES.get(level, "")
-
-# Кнопка для справки по уровням
-LEVELS_GUIDE_BUTTON = "❓ Какой у меня уровень?"
 
 def get_level_keyboard(lang_code="en"):
     """
