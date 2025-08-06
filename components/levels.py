@@ -21,6 +21,7 @@ from handlers.chat.levels_text import LEVELS_GUIDE_BUTTON
 
 def get_level_keyboard(lang_code="en"):
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    print(f"LEVELS_GUIDE_BUTTON type: {type(LEVELS_GUIDE_BUTTON)} value: {LEVELS_GUIDE_BUTTON}")
     levels_row1 = [
         InlineKeyboardButton("A0", callback_data="level:A0"),
         InlineKeyboardButton("A1", callback_data="level:A1"),
