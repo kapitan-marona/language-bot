@@ -49,7 +49,8 @@ def get_levels_guide_keyboard(interface_lang):
 # --- /start ---
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_sessions[chat_id] = {}
+    session = user_sessions.setdefault(chat_id, {})
+    session["onboarding_stage"] = "awaiting_language"
     await update.message.reply_text(
         PREPARING_MESSAGE.get("ru"),
         reply_markup=ReplyKeyboardRemove()
@@ -58,6 +59,7 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выбери язык интерфейса / Choose interface language:",
         reply_markup=get_interface_language_keyboard()
     )
+
 
 # --- Выбор языка интерфейса ---
 async def interface_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,6 +187,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await target_language_callback(update, context)
     elif data.startswith("level:"):
         await level_callback(update, context)
+    elif data == "levels_guide":
+        await levels_guide_callback(update, context)
     elif data.startswith("style:"):
         await style_callback(update, context)
     elif data == "mode:voice":
