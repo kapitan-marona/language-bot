@@ -159,6 +159,8 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
 
+    print(f"[onboarding_final] interface_lang={interface_lang} session={session}")
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
