@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from state.session import user_sessions
 
 from components.language import get_target_language_keyboard, LANGUAGES, TARGET_LANG_PROMPT
-from components.levels import get_level_keyboard, LEVEL_PROMPT, get_levels_guide
+from handlers.chat.levels_text import get_level_keyboard, LEVEL_PROMPT, get_levels_guide
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 
 from handlers.chat.prompt_templates import (

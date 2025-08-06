@@ -1,5 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from handlers.levels_text import get_levels_guide
+from handlers.chat.levels_text import get_levels_guide
 from handlers.chat.levels_text import LEVELS_GUIDE_BUTTON
 
 LEVELS = {
