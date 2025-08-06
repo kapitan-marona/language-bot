@@ -1,6 +1,6 @@
 # levels_texts.py
 
-LEVELS_DESCRIPTIONS = {
+LEVEL_DESCRIPTIONS = {
     "ru": {
         "A0": (
             "🦸‍♂️ **A0 — Смельчак**\n"
@@ -82,9 +82,9 @@ LEVEL_GUIDE_CLOSE_BUTTON = {
     "ru": "👍 Понятно",
     "en": "👍 Got it"
 }
-def get_levels_guide(lang="ru"):
-    text = LEVELS_GUIDE_HEADER.get(lang, LEVELS_GUIDE_HEADER["ru"]) + "\n\n"
-    for level, desc in LEVELS_DESCRIPTIONS.get(lang, LEVELS_DESCRIPTIONS["ru"]).items():
+def get_level_guide(lang="ru"):
+    text = LEVEL_GUIDE_HEADER.get(lang, LEVEL_GUIDE_HEADER["ru"]) + "\n\n"
+    for level, desc in LEVEL_DESCRIPTIONS.get(lang, LEVEL_DESCRIPTIONS["ru"]).items():
         text += desc + "\n\n"
     return text.strip()
 
