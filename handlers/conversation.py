@@ -167,7 +167,7 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=chat_id, text=question)
 
 # --- Обработчик callback'ов ---
-async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     print(f"callback data: {update.callback_query.data}")
     query = update.callback_query
     data = query.data
@@ -182,6 +182,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await level_callback(update, context)
     elif data == "level_guide":
         await level_guide_callback(update, context)
+    elif data == "close_level_guide":
+        await close_level_guide_callback(update, context)
     elif data.startswith("style:"):
         await style_callback(update, context)
     elif data == "mode:voice":
