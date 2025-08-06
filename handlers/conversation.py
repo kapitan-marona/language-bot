@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
+from config import ADMINS
 from state.session import user_sessions
 
 from components.language import get_target_language_keyboard, LANGUAGES, TARGET_LANG_PROMPT
