@@ -33,9 +33,15 @@ def get_level_keyboard(lang_code="en"):
         InlineKeyboardButton("C2", callback_data="level:C2"),
     ]
     levels_guide_row = [
-        InlineKeyboardButton(LEVELS_GUIDE_BUTTON[lang_code], callback_data="levels_guide")
+        InlineKeyboardButton(
+            LEVELS_GUIDE_BUTTON.get(lang_code, LEVELS_GUIDE_BUTTON["en"]),
+            callback_data="levels_guide"
+        )
     ]
     return InlineKeyboardMarkup([levels_row1, levels_row2, levels_guide_row])
+
+
+
 
 def get_rules_by_level(level):
     return LEVEL_RULES.get(level, "")
