@@ -19,6 +19,16 @@ from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
 from components.profile_db import init_db
 from handlers.conversation import handle_start, handle_callback_query
 
+from handlers.commands.admin import admin_command
+from handlers.commands.user import users_command, user_command
+from handlers.commands.reset import reset_command
+from handlers.commands.test import test_command
+from handlers.commands.broadcast import broadcast_command
+from handlers.commands.promo import promo_command
+from handlers.commands.stats import stats_command
+from handlers.commands.debug import session_command
+from handlers.commands.help import help_command
+
 
 # ✅ Инициализация базы данных профилей (один раз при запуске)
 init_db()
@@ -43,7 +53,7 @@ async def on_startup():
     bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # Импортировать обработчики только тут (во избежание циклических импортов)
-    from handlers.chat.chat_handler import handle_message, admin_command, users_command
+    from handlers.chat.chat_handler import handle_message
     from handlers.conversation import handle_start, handle_callback_query
 
     # Регистрируем основные обработчики
@@ -54,6 +64,14 @@ async def on_startup():
     # --- Регистрируем команды для админа
     bot_app.add_handler(CommandHandler("admin", admin_command))
     bot_app.add_handler(CommandHandler("users", users_command))
+    bot_app.add_handler(CommandHandler("user", user_command))
+    bot_app.add_handler(CommandHandler("reset", reset_command))
+    bot_app.add_handler(CommandHandler("test", test_command))
+    bot_app.add_handler(CommandHandler("broadcast", broadcast_command))
+    bot_app.add_handler(CommandHandler("promo", promo_command))
+    bot_app.add_handler(CommandHandler("stats", stats_command))
+    bot_app.add_handler(CommandHandler("session", session_command))
+    bot_app.add_handler(CommandHandler("help", help_command))
 
     # Инициализация Telegram Application (Webhook-режим)
     asyncio.create_task(bot_app.initialize())

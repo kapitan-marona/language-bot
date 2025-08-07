@@ -26,35 +26,6 @@ LANGUAGE_CODES = {
     "fi": "fi-FI"
 }
 
-
-async def admin_command(update: Update, context):
-    chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    
-    # Проверяем, админ ли пользователь
-    if session.get("is_admin") or chat_id in ADMINS:
-        # Можно добавить любые “секретные” действия!
-        await update.message.reply_text(
-            "👑 Вы в админском режиме! Вот несколько секретных функций:\n"
-            "- /users — статистика пользователей (например)\n"
-            "- /reset — сбросить настройки бота\n"
-            "- /test — запустить тестовую фичу"
-        )
-    else:
-        await update.message.reply_text("⛔️")
-
-
-async def users_command(update: Update, context):
-    chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    if session.get("is_admin") or chat_id in ADMINS:
-        user_count = len(user_sessions)
-        await update.message.reply_text(f"В системе зарегистрировано {user_count} пользователей.")
-    else:
-        await update.message.reply_text("⛔️")
-
-
-
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
 
