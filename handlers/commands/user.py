@@ -1,5 +1,6 @@
 from config.config import ADMINS
 from state.session import user_sessions
+from components.onboarding import send_onboarding
 
 async def users_command(update, context):
     chat_id = update.effective_chat.id
@@ -9,8 +10,6 @@ async def users_command(update, context):
     else:
         await update.message.reply_text("⛔️")
 
-
-from handlers.onboarding import handle_start  # если функция называется именно так
 
 async def user_command(update: Update, context):
     chat_id = update.effective_chat.id

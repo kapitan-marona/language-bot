@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from handlers.chat.levels_text import get_level_guide
-from handlers.chat.levels_text import LEVEL_GUIDE_BUTTON
+from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON
+
 
 LEVELS = {
     "A0": "A0 (Starter)",
@@ -16,8 +16,6 @@ LEVEL_PROMPT = {
     "ru": "🔢 Выбери свой уровень:",
     "en": "🔢 Choose your level:"
 }
-
-from handlers.chat.levels_text import LEVEL_GUIDE_BUTTON
 
 def get_level_keyboard(lang_code="en"):
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
