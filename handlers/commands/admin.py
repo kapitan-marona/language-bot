@@ -1,4 +1,4 @@
-from config import ADMINS
+from config.config import ADMINS
 from state.session import user_sessions
 
 async def admin_command(update, context):

@@ -1,4 +1,4 @@
-from config import ADMINS
+from config.config import ADMINS
 
 async def stats_command(update, context):
     chat_id = update.effective_chat.id
