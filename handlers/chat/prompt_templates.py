@@ -6,39 +6,43 @@ PREPARING_MESSAGE = {
 
 START_MESSAGE = {
     'ru': (
-        "Привет! Ты попал(а) в Talktome — место, где изучение иностранного языка происходит само по себе. "
-        "Сейчас я помогу тебе выбрать язык, уровень и стиль общения, а позже — познакомлю с Мэттом."
+        "👋 Привет! Добро пожаловать в Talktome — пространство, где прокачивать языки легко и интересно.\n\n"
+        "Сейчас я помогу тебе выбрать язык, уровень и стиль общения. "
+        "А чуть позже познакомлю тебя с Мэттом — твоим AI-другом для реального общения!"
     ),
     'en': (
-        "Welcome to Language Bot — a fun and easy place to improve your foreign language skills with AI. "
-        "I'll help you choose your language, level, and style, and later you'll meet Matt!"
+        "👋 Welcome! You’ve just joined Talktome — a place where learning languages is simple and fun.\n\n"
+        "I’ll help you pick your language, level, and conversation style. "
+        "And soon you’ll meet Matt — your AI buddy for real conversations!"
     )
 }
 
 # Приветствие от Мэтта (после онбординга) на разных языках
 MATT_INTRO = {
     'ru': (
-        "👋 Привет! Я Мэтт — твой бро, друг-американец, с которым можно обсудить что угодно и углубиться в иностранный язык. "
-        "Я поддержу тебя на каждом этапе и помогу разобраться с грамматическими выкрутасами. "
-        "Ты всегда можешь переключить режим с текстового на голосовой и обменяться аудио-сообщениями, но помни: я американец, так что могу говорить с акцентом как у Хантера Дуэйна 😆\n\n"
-        "Ну что, начнем?"
+        "👋 Привет! Я Мэтт — твой американский друг для разговорной практики.\n\n"
+        "Можем болтать о чём угодно, а если что-то будет непонятно — я всегда объясню. "
+        "Готов поддержать тебя на каждом этапе и помочь с любыми трудностями в языке!\n\n"
+        "Кстати, ты можешь свободно переключаться между текстом и голосом. Только имей в виду: мой акцент стопроцентно американский 😆\n\n"
+        "Ну что, начинаем?"
     ),
     'en': (
-        "👋 Hi! I’m Matt — your bro, American friend to chat about anything and dive into your new language. "
-        "I’ll help you at every step and make grammar less scary. "
-        "You can always switch from text to voice messages and send audio, but remember: I’m an American, so I might have a Hunter Duane accent 😆\n\n"
-        "Ready to start?"
+        "👋 Hey! I’m Matt — your American friend for language practice.\n\n"
+        "We can chat about anything, and I’ll always explain if something isn’t clear. "
+        "I’m here to support you and make every step easy and fun!\n\n"
+        "By the way, you can switch between text and voice messages anytime. Just remember: my accent is totally American 😆\n\n"
+        "So, are you ready to start?"
     )
 }
 
 # Вовлекающие вопросы на изучаемых языках
 INTRO_QUESTIONS = {
     'en': [
-        "If you could have any superpower, what would it be and why?",
-        "What's your perfect way to spend a day off?",
-        "If you could travel anywhere, where would you go?",
-        "What's one thing you want to learn this year?",
-        "What's the most interesting thing you've read or watched recently?"
+        "If you could have any superpower, what would you choose and why?",
+        "What’s your ideal way to spend a day off?",
+        "If you could visit any place in the world, where would you go?",
+        "What’s one thing you’re excited to learn this year?",
+        "What’s the most interesting thing you’ve read or watched lately?"
     ],
     'es': [
         "Si pudieras tener un superpoder, ¿cuál sería y por qué?",
@@ -77,10 +81,10 @@ INTRO_QUESTIONS = {
     ],
     'ru': [
         "Если бы у тебя была суперсила, какая бы это была и почему?",
-        "Как ты бы провёл(а) идеальный выходной день?",
-        "Если бы мог(ла) поехать куда угодно, куда бы отправился(ась)?",
+        "Каким был бы твой идеальный день?",
+        "Если бы можно было поехать куда угодно прямо сейчас, каким было бы твое место назначения?",
         "Чему ты хочешь научиться в этом году?",
-        "Что самое интересное ты читал(а) или смотрел(а) в последнее время?"
+        "Какой фильм был самым интересным за последнее время?"
     ]
 }
 
