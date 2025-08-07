@@ -1,3 +1,5 @@
+from telegram import Update
+from telegram.ext import ContextTypes
 from config.config import ADMINS
 from state.session import user_sessions
 from components.onboarding import send_onboarding

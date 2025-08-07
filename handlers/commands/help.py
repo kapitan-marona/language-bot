@@ -1,3 +1,6 @@
+from telegram import Update
+from telegram.ext import ContextTypes
+
 async def help_command(update, context):
     await update.message.reply_text(
         "Доступные команды:\n"

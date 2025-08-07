@@ -1,3 +1,5 @@
+from telegram import Update
+from telegram.ext import ContextTypes
 from config.config import ADMINS
 
 async def stats_command(update, context):
