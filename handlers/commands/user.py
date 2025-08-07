@@ -21,4 +21,4 @@ async def user_command(update: Update, context):
 
     await update.message.reply_text("Теперь ты обычный пользователь. Запускаем онбординг! 👤")
     # Вызываем обычный онбординг
-    await handle_start(update, context)
+    await send_onboarding(update, context)
