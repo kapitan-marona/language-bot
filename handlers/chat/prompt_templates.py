@@ -4,6 +4,12 @@ PREPARING_MESSAGE = {
     "en": "⌨️ Preparing…"
 }
 
+INTERFACE_LANG_PROMPT = {
+    'ru': "🌐 Выбери язык интерфейса:",
+    'en': "🌐 Choose interface language:"
+}
+
+
 START_MESSAGE = {
     'ru': (
         "👋 Привет! Добро пожаловать в Talktome — пространство, где прокачивать языки легко и интересно.\n\n"
@@ -119,6 +125,8 @@ def get_system_prompt(style, level, interface_lang, target_lang, mode):
             f"ALWAYS duplicate everything you say in the user's native language ({interface_lang}), with simple explanations. "
             f"Always check if the user understands; give more explanation in their native language if they're confused. "
             f"NEVER criticize, always encourage, and keep all sentences short and simple."
+            f"Always respond with one question or statement only. Never repeat or rephrase the same question in a single message."
+
         )
     elif level == "A1":
         level_rules = (
@@ -127,6 +135,7 @@ def get_system_prompt(style, level, interface_lang, target_lang, mode):
             f"Always give explanations in the user's native language ({interface_lang}) if something is unclear. "
             f"Check for understanding, and always support and encourage. "
             f"Don't overload the user with complex grammar or vocabulary."
+            f"Always respond with one question or statement only. Never repeat or rephrase the same question in a single message."
         )
     elif level == "A2":
         level_rules = (
