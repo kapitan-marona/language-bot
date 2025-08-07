@@ -17,8 +17,8 @@ from telegram.ext import (
 
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
 from components.profile_db import init_db
-from handlers.conversation import handle_start, handle_callback_query
-
+from components.onboarding import send_onboarding, handle_callback_query
+from handlers.conversation_callback import handle_callback_query
 from handlers.commands.admin import admin_command
 from handlers.commands.user import users_command, user_command
 from handlers.commands.reset import reset_command
@@ -54,13 +54,10 @@ async def on_startup():
 
     # Импортировать обработчики только тут (во избежание циклических импортов)
     from handlers.chat.chat_handler import handle_message
-    from handlers.conversation import handle_start, handle_callback_query
-
     # Регистрируем основные обработчики
     bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
-    bot_app.add_handler(CommandHandler("start", handle_start))
+    bot_app.add_handler(CommandHandler("start", send_onboarding))
     bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
-
     # --- Регистрируем команды для админа
     bot_app.add_handler(CommandHandler("admin", admin_command))
     bot_app.add_handler(CommandHandler("users", users_command))
@@ -72,7 +69,6 @@ async def on_startup():
     bot_app.add_handler(CommandHandler("stats", stats_command))
     bot_app.add_handler(CommandHandler("session", session_command))
     bot_app.add_handler(CommandHandler("help", help_command))
-
     # Инициализация Telegram Application (Webhook-режим)
     asyncio.create_task(bot_app.initialize())
 

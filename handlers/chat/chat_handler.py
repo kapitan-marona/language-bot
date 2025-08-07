@@ -29,20 +29,6 @@ LANGUAGE_CODES = {
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
 
-# --- Онбординг ---
-async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    interface_lang = session.get("interface_lang", "ru")
-    await context.bot.send_message(chat_id=chat_id, text=START_MESSAGE.get(interface_lang, START_MESSAGE['en']))
-    # Здесь твой вызов кнопок (выбора языка, уровня, стиля)
-    # Например: await send_language_level_style_prompt(update, context)
-    # После завершения онбординга — приветствие и вовлекающий вопрос:
-    await context.bot.send_message(chat_id=chat_id, text=MATT_INTRO.get(interface_lang, MATT_INTRO['en']))
-    target_lang = session.get("target_lang", interface_lang)
-    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS['en']))
-    await context.bot.send_message(chat_id=chat_id, text=question)
-
 # --- Главный message handler ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -139,4 +125,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
         print(f"[ОШИБКА в handle_message]: {e}")
 
-# Далее внизу файла (или там, где ты регистрируешь команды)

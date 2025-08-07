@@ -9,21 +9,15 @@ async def users_command(update, context):
     else:
         await update.message.reply_text("⛔️")
 
-async def user_command(update, context):
+
+from handlers.onboarding import handle_start  # если функция называется именно так
+
+async def user_command(update: Update, context):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["is_admin"] = False
-    await update.message.reply_text("Теперь ты обычный пользователь.")
+    session["onboarding_stage"] = "awaiting_language"  # Сбросить стадию, чтобы всё началось заново
 
-
-from handlers.chat.chat_handler import send_onboarding  # Импортируй функцию онбординга
-
-async def user_command(update, context):
-    chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    session["is_admin"] = False
-    await update.message.reply_text("Теперь ты обычный пользователь.")
-
-    # --- Запустить онбординг после смены роли
-    # если у тебя есть send_onboarding, используй его; если нет — handle_start
-    await send_onboarding(update, context)
+    await update.message.reply_text("Теперь ты обычный пользователь. Запускаем онбординг! 👤")
+    # Вызываем обычный онбординг
+    await handle_start(update, context)
