@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 
+from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
 from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT, LANGUAGES
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
@@ -29,15 +30,21 @@ def get_level_guide_keyboard(lang):
     ])
 
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
+from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
+
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["onboarding_stage"] = "awaiting_language"
+
+    # На первом шаге по умолчанию язык интерфейса русский
+    lang = 'ru'
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Выбери язык интерфейса / Choose interface language:",
+        text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
         reply_markup=get_interface_language_keyboard()
     )
+
 
 # --- ШАГ 2. Выбран язык — стартовое сообщение и кнопка OK ---
 async def interface_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
