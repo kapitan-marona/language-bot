@@ -17,7 +17,7 @@ from telegram.ext import (
 
 from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
 from components.profile_db import init_db
-from components.onboarding import send_onboarding, handle_callback_query
+from components.onboarding import send_onboarding
 from handlers.conversation_callback import handle_callback_query
 from handlers.commands.admin import admin_command
 from handlers.commands.user import users_command, user_command
