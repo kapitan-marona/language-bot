@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from handlers.onboarding import (
+from components.onboarding import (
     interface_language_callback,
     onboarding_ok_callback,
     target_language_callback,
