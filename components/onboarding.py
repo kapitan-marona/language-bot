@@ -76,10 +76,10 @@ def get_style_keyboard(lang_code):
 
 # === ОБРАБОТЧИКИ ===
 
-async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
-    
+
     # Если админ в спец-режиме — напомнить о /user
     if session.get("is_admin", False) and session.get("onboarding_stage") == "admin":
         await context.bot.send_message(
@@ -93,6 +93,11 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=chat_id,
         text=START_MESSAGE.get(session.get("interface_lang", "ru"), START_MESSAGE['en'])
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Выбери язык интерфейса / Choose interface language:",
+        reply_markup=get_interface_language_keyboard()
     )
 
 
