@@ -41,22 +41,30 @@ def get_interface_language_keyboard():
     # твоя функция генерации клавиатуры
     ...
 
+from telegram import Update
+from telegram.ext import ContextTypes
+from state.session import user_sessions
+from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
+
+# Импортируй функцию клавиатуры!
+from onboarding import get_interface_language_keyboard  # путь может быть другим (у тебя есть эта функция)
+
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Обработчик команды /start: полностью сбрасывает сессию пользователя
-    и запускает онбординг заново.
+    Обработчик /start: сбрасывает сессию пользователя и запускает онбординг заново,
+    выводя клавиатуру выбора языка интерфейса.
     """
     chat_id = update.effective_chat.id
 
     # --- СБРОС СЕССИИ ---
     if chat_id in user_sessions:
-        del user_sessions[chat_id]  # полностью удаляем старую сессию
+        del user_sessions[chat_id]
 
-    # --- СОЗДАЁМ НОВУЮ СЕССИЮ ---
+    # --- НОВАЯ СЕССИЯ ---
     user_sessions[chat_id] = {
         "onboarding_stage": "awaiting_language"
     }
-    lang = 'ru'  # по умолчанию интерфейс на русском
+    lang = 'ru'  # или 'en' если нужен английский интерфейс по умолчанию
 
     await context.bot.send_message(
         chat_id=chat_id,
