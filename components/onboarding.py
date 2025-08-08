@@ -30,9 +30,13 @@ def get_level_guide_keyboard(lang):
     ])
 
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
-
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+
+    # --- СБРОС СТАРОЙ СЕССИИ ---
+    user_sessions.pop(chat_id, None)  # безопасно удаляет сессию, если она есть
+
+    # --- ДАЛЕЕ ТВОЯ ИСХОДНАЯ ЛОГИКА ---
     session = user_sessions.setdefault(chat_id, {})
     session["onboarding_stage"] = "awaiting_language"
 
