@@ -4,6 +4,8 @@ import random
 import re
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
+import tempfile
+import openai
 from config.config import ADMINS
 
 from components.gpt_client import ask_gpt
@@ -49,10 +51,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.setdefault("level", "A2")
         session.setdefault("mode", "text")
         session.setdefault("style", "casual")
-        message_text = update.message.text or ""
 
-        # === Универсальная обработка триггеров ===
-        user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
+        # === ВОТ ЗДЕСЬ! ===
+        # --- Обработка: если пришёл голос, распознаём через Whisper ---
+        if update.message.voice:
+            voice_file = await context.bot.get_file(update.message.voice.file_id)
+            with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
+                await voice_file.download_to_drive(tf.name)
+                audio_path = tf.name
+
+            try:
+                with open(audio_path, "rb") as f:
+                    transcript = openai.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=f,
+                        response_format="text"
+                    )
+                user_input = transcript.strip()
+                print("📝 [Whisper] Распознанный текст:", repr(user_input))
+            except Exception as e:
+                await context.bot.send_message(chat_id=chat_id, text="❗️Ошибка распознавания голоса. Попробуй ещё раз.")
+                print(f"[Whisper Error]: {e}")
+                user_input = ""
+            finally:
+                os.remove(audio_path)
+        else:
+            # Обычный текст
+            user_input = update.message.text or ""
+
+        # --- Если пустой текст — сообщаем пользователю и выходим ---
+        if not user_input.strip():
+            await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
+            return
+
+        # === ДАЛЬШЕ ПО КОДУ ВСЁ, КАК БЫЛО, только вместо message_text используем user_input ===
+
+        user_text_norm = re.sub(r'[^\w\s]', '', user_input.lower())
         interface_lang = session.get("interface_lang", "en")
 
         # --- Переключение режима по тексту (voice/text) ---
@@ -68,39 +102,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
-        # --- Обработка запроса про создателя/разработчика ---
-        found_trigger = False
-        for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
-            if trig in user_text_norm:
-                found_trigger = True
-                break
-
-        if found_trigger:
-            if interface_lang == "ru":
-                reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
-            else:
-                reply_text = "🐾 My creator is @marrona! For feedback or collaboration offers, feel free to contact her directly. 🌷"
-            await update.message.reply_text(reply_text)
-            return
-
-        # --- Переписка с GPT ---
-        history = session.setdefault("history", [])
-        target_lang = session["target_lang"]
-        level = session["level"]
-        mode = session["mode"]
-        style = session["style"]
-
-        # --- Формируем system prompt ---
+        # --- PROMPT для GPT ---
         system_prompt = get_system_prompt(style, level, interface_lang, target_lang, mode)
         prompt = [{"role": "system", "content": system_prompt}]
         for msg in history:
             prompt.append(msg)
-        prompt.append({"role": "user", "content": message_text})
+        prompt.append({"role": "user", "content": user_input})
 
         assistant_reply = await ask_gpt(prompt, "gpt-4o")
 
         # --- История переписки ---
-        history.append({"role": "user", "content": message_text})
+        history.append({"role": "user", "content": user_input})
         history.append({"role": "assistant", "content": assistant_reply})
         if len(history) > MAX_HISTORY_LENGTH:
             history.pop(0)
@@ -112,7 +124,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with open(voice_path, "rb") as vf:
                     await context.bot.send_voice(chat_id=chat_id, voice=vf)
                 if level == "A0":
-                    await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n 💌")
+                    await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
                 elif level in ["A1", "A2"]:
                     await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
             except Exception as e:
@@ -124,4 +136,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
         print(f"[ОШИБКА в handle_message]: {e}")
-

@@ -28,7 +28,7 @@ MODE_TRIGGERS = {
         "voice", "say it", "speak", "audio", "pronounce", "speak aloud", "talk"
     ],
     "text": [
-        "текст", "пиши", "написать", "только текст", "показать текст", "переключи на текст",
-        "text", "write", "show text", "type", "text only", "show as text"
+        "пиши текстовые сообщения", "текстовый режим", "давай текстом", "переключи на текст",
+        "write text messages", "text mode", "type mode", "talk to me in text", "switch text"
     ]
 }
