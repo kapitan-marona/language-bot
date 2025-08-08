@@ -50,22 +50,12 @@ from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
 from onboarding import get_interface_language_keyboard  # путь может быть другим (у тебя есть эта функция)
 
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Обработчик /start: сбрасывает сессию пользователя и запускает онбординг заново,
-    выводя клавиатуру выбора языка интерфейса.
-    """
     chat_id = update.effective_chat.id
+    session = user_sessions.setdefault(chat_id, {})
+    session["onboarding_stage"] = "awaiting_language"
 
-    # --- СБРОС СЕССИИ ---
-    if chat_id in user_sessions:
-        del user_sessions[chat_id]
-
-    # --- НОВАЯ СЕССИЯ ---
-    user_sessions[chat_id] = {
-        "onboarding_stage": "awaiting_language"
-    }
-    lang = 'ru'  # или 'en' если нужен английский интерфейс по умолчанию
-
+    # На первом шаге по умолчанию язык интерфейса русский
+    lang = 'ru'
     await context.bot.send_message(
         chat_id=chat_id,
         text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
