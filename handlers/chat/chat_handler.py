@@ -36,6 +36,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
 
+    # === ВСТАВКА: если ждём промокод, отдаём в обработчик промокода и выходим ===
+    try:
+        stage = session.get("onboarding_stage")
+    except Exception:
+        stage = None
+
+    if stage == "awaiting_promo":
+        # локальный импорт, чтобы не плодить глобальные зависимости
+        from components.onboarding import promo_code_message
+        return await promo_code_message(update, context)
+    # === КОНЕЦ ВСТАВКИ ===
+
     # --- RATE LIMITING ---
     now = time.time()
     last_time = session.get("last_message_time", 0)
@@ -43,6 +55,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text="⏳ Погоди, думаю 🙂")
         return
     session["last_message_time"] = now
+
+    # ...ниже оставляешь твой исходный код без изменений...
 
     try:
         # --- session defaults ---

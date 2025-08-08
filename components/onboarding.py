@@ -59,9 +59,9 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
+    # ВАЖНО: НЕ передаем ReplyKeyboardRemove() в edit_message_text — Telegram ожидает inline-клавиатуру
     await query.edit_message_text(
-        text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]),
-        reply_markup=ReplyKeyboardRemove()
+        text=PROMO_ASK.get(lang_code, PROMO_ASK["en"])
     )
 
 # --- ШАГ 3. Обработка промокода от пользователя (или отказ) ---
