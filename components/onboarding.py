@@ -32,18 +32,38 @@ def get_level_guide_keyboard(lang):
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
 from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
 
-async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    session = user_sessions.setdefault(chat_id, {})
-    session["onboarding_stage"] = "awaiting_language"
+from telegram import Update
+from telegram.ext import ContextTypes
+from state.session import user_sessions
+from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
 
-    # На первом шаге по умолчанию язык интерфейса русский
-    lang = 'ru'
+def get_interface_language_keyboard():
+    # твоя функция генерации клавиатуры
+    ...
+
+async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик команды /start: полностью сбрасывает сессию пользователя
+    и запускает онбординг заново.
+    """
+    chat_id = update.effective_chat.id
+
+    # --- СБРОС СЕССИИ ---
+    if chat_id in user_sessions:
+        del user_sessions[chat_id]  # полностью удаляем старую сессию
+
+    # --- СОЗДАЁМ НОВУЮ СЕССИЮ ---
+    user_sessions[chat_id] = {
+        "onboarding_stage": "awaiting_language"
+    }
+    lang = 'ru'  # по умолчанию интерфейс на русском
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
         reply_markup=get_interface_language_keyboard()
     )
+
 
 
 # --- ШАГ 2. Выбран язык — стартовое сообщение и кнопка OK ---

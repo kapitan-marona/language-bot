@@ -2,6 +2,7 @@ import os
 import time
 import random
 import re
+import tempfile
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 from config.config import ADMINS
@@ -43,13 +44,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["last_message_time"] = now
 
     try:
-        # --- session defaults ---
-        session.setdefault("interface_lang", "en")
-        session.setdefault("target_lang", "en")
-        session.setdefault("level", "A2")
-        session.setdefault("mode", "text")
-        session.setdefault("style", "casual")
-        message_text = update.message.text or ""
+        if update.message.voice:
+            voice_file = await context.bot.get_file(update.message.voice.file_id)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp_voice:
+                await voice_file.download_to_drive(tmp_voice.name)
+                voice_path = tmp_voice.name
+
+            recognized_text = recognize_voice(voice_path, session.get("interface_lang", "en"))
+            print(f"[ASR] '{recognized_text}'")  # лог для отладки
+
+            if not recognized_text:
+                await context.bot.send_message(chat_id=chat_id, text="Не удалось распознать голос 😔 Попробуй ещё раз!")
+                return
+            message_text = recognized_text
+        else:
+            message_text = update.message.text or ""
 
         # === Универсальная обработка триггеров ===
         user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
