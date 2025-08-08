@@ -7,7 +7,7 @@ from components.language import get_target_language_keyboard, TARGET_LANG_PROMPT
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
+from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTERFACE_LANG_PROMPT, INTRO_QUESTIONS
 
 import random
 
@@ -30,24 +30,6 @@ def get_level_guide_keyboard(lang):
     ])
 
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
-from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
-
-from telegram import Update
-from telegram.ext import ContextTypes
-from state.session import user_sessions
-from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
-
-def get_interface_language_keyboard():
-    # твоя функция генерации клавиатуры
-    ...
-
-from telegram import Update
-from telegram.ext import ContextTypes
-from state.session import user_sessions
-from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT
-
-# Импортируй функцию клавиатуры!
-from onboarding import get_interface_language_keyboard  # путь может быть другим (у тебя есть эта функция)
 
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -61,7 +43,6 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
         reply_markup=get_interface_language_keyboard()
     )
-
 
 
 # --- ШАГ 2. Выбран язык — стартовое сообщение и кнопка OK ---
