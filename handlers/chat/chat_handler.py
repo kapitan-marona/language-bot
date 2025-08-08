@@ -2,13 +2,12 @@ import os
 import time
 import random
 import re
-import tempfile
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CommandHandler
 from config.config import ADMINS
 
 from components.gpt_client import ask_gpt
-from components.voice import synthesize_voice, recognize_voice  # не забудь импорт!
+from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
@@ -35,18 +34,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
 
-    defaults = {
-        "interface_lang": "en",
-        "target_lang": "en",
-        "level": "A2",
-        "mode": "text",
-        "style": "casual",
-    }
-    for k, v in defaults.items():
-        session.setdefault(k, v)
-
-    print("SESSION DEBUG:", session)  # временно
-
     # --- RATE LIMITING ---
     now = time.time()
     last_time = session.get("last_message_time", 0)
@@ -56,22 +43,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["last_message_time"] = now
 
     try:
-        # --- Обработка голосовых сообщений ---
-        if getattr(update.message, "voice", None):
-            voice_file = await context.bot.get_file(update.message.voice.file_id)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp_voice:
-                await voice_file.download_to_drive(tmp_voice.name)
-                voice_path = tmp_voice.name
-
-            recognized_text = recognize_voice(voice_path, session.get("interface_lang", "en"))
-            print(f"[ASR] '{recognized_text}'")  # лог для отладки
-
-            if not recognized_text:
-                await context.bot.send_message(chat_id=chat_id, text="Не удалось распознать голос 😔 Попробуй ещё раз!")
-                return
-            message_text = recognized_text
-        else:
-            message_text = update.message.text or ""
+        # --- session defaults ---
+        session.setdefault("interface_lang", "en")
+        session.setdefault("target_lang", "en")
+        session.setdefault("level", "A2")
+        session.setdefault("mode", "text")
+        session.setdefault("style", "casual")
+        message_text = update.message.text or ""
 
         # === Универсальная обработка триггеров ===
         user_text_norm = re.sub(r'[^\w\s]', '', message_text.lower())
@@ -146,3 +124,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
         print(f"[ОШИБКА в handle_message]: {e}")
+
