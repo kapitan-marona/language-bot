@@ -1,9 +1,4 @@
 # Приветствие при /start на разных языках
-PREPARING_MESSAGE = {
-    "ru": "⌨️ Подготовка…",
-    "en": "⌨️ Preparing…"
-}
-
 INTERFACE_LANG_PROMPT = {
     'ru': "🌐 Выбери язык интерфейса:",
     'en': "🌐 Choose interface language:"
@@ -22,6 +17,13 @@ START_MESSAGE = {
         "And soon you’ll meet Matt — your AI buddy for real conversations!"
     )
 }
+
+
+TARGET_LANG_PROMPT = {
+    "ru": "🌍 Выбери язык для изучения:",
+    "en": "🌍 Choose a language to learn:"
+}
+
 
 # Приветствие от Мэтта (после онбординга) на разных языках
 MATT_INTRO = {
