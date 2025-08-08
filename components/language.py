@@ -1,4 +1,4 @@
-from promo import restrict_target_languages_if_needed
+from components.promo import restrict_target_languages_if_needed
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
