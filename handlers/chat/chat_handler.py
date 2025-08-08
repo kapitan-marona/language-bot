@@ -2,10 +2,10 @@ import os
 import time
 import random
 import re
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
 import tempfile
 import openai
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
 from config.config import ADMINS
 
 from components.gpt_client import ask_gpt
@@ -52,9 +52,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.setdefault("mode", "text")
         session.setdefault("style", "casual")
 
-        # === ВОТ ЗДЕСЬ! ===
-        # --- Обработка: если пришёл голос, распознаём через Whisper ---
+        # --- Получаем все значения из сессии для универсального доступа ---
+        interface_lang = session["interface_lang"]
+        target_lang = session["target_lang"]
+        level = session["level"]
+        mode = session["mode"]
+        style = session["style"]
+
+        # === ОБРАБОТКА ВХОДЯЩЕГО СООБЩЕНИЯ: текст или голос ===
+        # Если пришёл голос — распознаём его, иначе работаем с текстом
         if update.message.voice:
+            # --- Распознавание голоса через Whisper ---
             voice_file = await context.bot.get_file(update.message.voice.file_id)
             with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
                 await voice_file.download_to_drive(tf.name)
@@ -76,7 +84,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             finally:
                 os.remove(audio_path)
         else:
-            # Обычный текст
+            # --- Обычный текст ---
             user_input = update.message.text or ""
 
         # --- Если пустой текст — сообщаем пользователю и выходим ---
@@ -84,10 +92,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
             return
 
-        # === ДАЛЬШЕ ПО КОДУ ВСЁ, КАК БЫЛО, только вместо message_text используем user_input ===
-
+        # === Универсальная обработка триггеров ===
         user_text_norm = re.sub(r'[^\w\s]', '', user_input.lower())
-        interface_lang = session.get("interface_lang", "en")
 
         # --- Переключение режима по тексту (voice/text) ---
         if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
@@ -102,7 +108,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
-        # --- PROMPT для GPT ---
+        # --- Обработка запроса про создателя/разработчика ---
+        found_trigger = False
+        for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
+            if trig in user_text_norm:
+                found_trigger = True
+                break
+
+        if found_trigger:
+            if interface_lang == "ru":
+                reply_text = "🐾 Мой создатель — @marrona! Для обратной связи и предложений к сотрудничеству обращайся прямо к ней. 🌷"
+            else:
+                reply_text = "🐾 My creator is @marrona! For feedback or collaboration offers, feel free to contact her directly. 🌷"
+            await update.message.reply_text(reply_text)
+            return
+
+        # --- Переписка с GPT ---
+        history = session.setdefault("history", [])
+
+        # --- Формируем system prompt ---
         system_prompt = get_system_prompt(style, level, interface_lang, target_lang, mode)
         prompt = [{"role": "system", "content": system_prompt}]
         for msg in history:
@@ -124,7 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with open(voice_path, "rb") as vf:
                     await context.bot.send_voice(chat_id=chat_id, voice=vf)
                 if level == "A0":
-                    await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
+                    await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n 💌")
                 elif level in ["A1", "A2"]:
                     await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
             except Exception as e:
