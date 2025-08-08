@@ -247,11 +247,22 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id if hasattr(update, "effective_chat") else update.callback_query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
+
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
-    )
+
+    # 1) Текст приветствия и вопрос
+    intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
     question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
+
+    # 2) Отправляем пользователю
+    await context.bot.send_message(chat_id=chat_id, text=intro_text)
     await context.bot.send_message(chat_id=chat_id, text=question)
+
+    # 3) ВАЖНО: записываем обе реплики в историю как ответы ассистента
+    history = session.setdefault("history", [])
+    history.append({"role": "assistant", "content": intro_text})
+    history.append({"role": "assistant", "content": question})
+
+    # (по желанию) можно отметить, что онбординг завершён
+    session["onboarding_stage"] = "complete"

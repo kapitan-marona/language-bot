@@ -96,14 +96,52 @@ INTRO_QUESTIONS = {
     ]
 }
 
+
+def build_soft_correction_block(style: str, level: str, interface_lang: str, target_lang: str) -> str:
+    """
+    Mild Correction Policy (Variant 3), concise and style/level-aware.
+    All wording is in English to keep prompts consistent.
+    We show the corrected sentence on the FIRST line in quotes — not bold — to avoid Telegram Markdown issues.
+    """
+    if style == "business":
+        tone_line = (
+            "Tone: professional and neutral. Formulations are precise, no emotional markers, no judgments."
+        )
+    else:
+        tone_line = (
+            "Tone: friendly and natural, without didactic teaching vibes."
+        )
+
+    if level in ("A0", "A1"):
+        level_lines = (
+            f"If the user's intent is unclear, ask ONE short clarifying question in the interface language ({interface_lang}). "
+            f"If the intent is clear, provide a minimally corrected version on the FIRST line in quotes, then continue with the main answer. "
+            "Use very simple A1-level phrases and avoid complex grammar. Correct only what blocks understanding; no theory or rules."
+        )
+    else:
+        level_lines = (
+            "If the user's intent is unclear, ask ONE short clarifying question. "
+            "If the intent is clear, provide a minimally corrected version on the FIRST line in quotes, and optionally a neutral alternative. "
+            "Correct only what blocks understanding; no theory or terminology."
+        )
+
+    block = (
+        "Mild Correction Policy (Variant 3): "
+        f"{tone_line} "
+        f"{level_lines} "
+        f"The main answer must be in the target language ({target_lang})."
+    )
+    return block
+
+
 def get_system_prompt(style, level, interface_lang, target_lang, mode):
     """
-    Возвращает system prompt для GPT-ассистента Matt.
-    Matt — не репетитор, а дружелюбный собеседник из Америки. Он объясняет непонятные слова по ходу общения.
-    Настроение и стиль подачи зависят от стиля и уровня пользователя.
+    Returns system prompt for GPT assistant Matt.
+    Matt is not a tutor but a friendly conversation partner from the USA.
+    The mood and delivery depend on user's chosen style and level.
     """
 
-    # Описание по стилям общения
+    # Style description
     if style == "business":
         mood = (
             "You are Matt — a witty, friendly, but respectful business partner and mentor from the USA. "
@@ -119,7 +157,7 @@ def get_system_prompt(style, level, interface_lang, target_lang, mode):
             "You can joke, tease, and be very friendly — just like a real best friend."
         )
 
-    # Логика по уровням
+    # Level rules
     if level == "A0":
         level_rules = (
             f"Your conversation partner is an absolute beginner ('A0'). "
@@ -128,7 +166,6 @@ def get_system_prompt(style, level, interface_lang, target_lang, mode):
             f"Always check if the user understands; give more explanation in their native language if they're confused. "
             f"NEVER criticize, always encourage, and keep all sentences short and simple."
             f"Always respond with one question or statement only. Never repeat or rephrase the same question in a single message."
-
         )
     elif level == "A1":
         level_rules = (
@@ -163,15 +200,16 @@ def get_system_prompt(style, level, interface_lang, target_lang, mode):
             f"Use {target_lang} exclusively, with idioms, complex grammar, and professional vocabulary."
         )
     else:
-        # На случай странного уровня
         level_rules = (
             f"Communicate in {target_lang} at the user's level. "
             f"Be friendly and helpful, explaining things in the user's native language ({interface_lang}) if they don't understand."
         )
 
-    # Итоговый prompt
-    return f"{mood}\n{level_rules}\nNever act as a tutor. Always act as a conversation partner and friend."
-
-
-# Если появятся ещё фразы для онбординга — добавляй ТОЛЬКО сюда!
-
+    # Final prompt with mild-correction block appended
+    parts = [
+        mood,
+        level_rules,
+        "Never act as a tutor. Always act as a conversation partner and friend.",
+        build_soft_correction_block(style, level, interface_lang, target_lang),
+    ]
+    return "\n".join(parts)
