@@ -1,7 +1,9 @@
-from components.promo import restrict_target_languages_if_needed
+from promo import restrict_target_languages_if_needed
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import logging
 
-# Языки для изучения (и их флаги)
+logger = logging.getLogger(__name__)
+
 LANGUAGES = {
     "ru": "🇷🇺 Русский",
     "en": "🇬🇧 English",
@@ -13,11 +15,12 @@ LANGUAGES = {
 }
 
 def get_target_language_keyboard(user_profile):
-    """
-    Возвращает InlineKeyboardMarkup с поддерживаемыми языками (по 2 в ряд),
-    учитывая ограничения промокода (например, только английский).
-    """
     allowed_languages = restrict_target_languages_if_needed(user_profile, LANGUAGES)
+    if not allowed_languages:
+        # На всякий — если что-то пошло не так
+        logger.warning("No languages available after restriction; fallback to EN")
+        allowed_languages = {"en": LANGUAGES["en"]}
+
     buttons = []
     row = []
     for code, label in allowed_languages.items():
@@ -28,3 +31,4 @@ def get_target_language_keyboard(user_profile):
     if row:
         buttons.append(row)
     return InlineKeyboardMarkup(buttons)
+

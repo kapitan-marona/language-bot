@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
+from utils.decorators import safe_handler
 from components.promo_texts import PROMO_ASK, PROMO_SUCCESS, PROMO_FAIL, PROMO_ALREADY_USED
 from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT, TARGET_LANG_PROMPT
 from components.language import get_target_language_keyboard, LANGUAGES
@@ -11,6 +12,26 @@ from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 
 import random
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+# --- локальные валидаторы/парсеры ---
+_LANG_CODE_RE = re.compile(r"^(en|ru|fr|es|de|sv|fi)$")
+
+def _parse_callback_value(data: str, expected_prefix: str) -> str | None:
+    """Безопасно достаёт значение из callback_data формата '<prefix>:<value>'."""
+    if not data or ":" not in data:
+        return None
+    prefix, value = data.split(":", 1)
+    if prefix != expected_prefix:
+        return None
+    value = (value or "").strip()
+    return value or None
+
+def _is_lang_code(value: str) -> bool:
+    return bool(value and _LANG_CODE_RE.match(value))
 
 # Локализованное сообщение после выбора стиля
 STYLE_SELECTED_MSG = {
@@ -37,6 +58,7 @@ def get_level_guide_keyboard(lang):
     ])
 
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
+@safe_handler
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
@@ -51,20 +73,27 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # --- ШАГ 2. Выбран язык — спрашиваем промокод ---
+@safe_handler
 async def interface_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    lang_code = query.data.split(":")[1]
+
+    raw = query.data
+    lang_code = _parse_callback_value(raw, "interface_lang")
+    if not _is_lang_code(lang_code or ""):
+        logger.warning("Invalid interface_lang callback_data=%r, fallback to 'en'", raw)
+        lang_code = "en"
+
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
-    # ВАЖНО: НЕ передаем ReplyKeyboardRemove() в edit_message_text — Telegram ожидает inline-клавиатуру
-    await query.edit_message_text(
-        text=PROMO_ASK.get(lang_code, PROMO_ASK["en"])
-    )
+
+    # Не передаём ReplyKeyboardRemove в edit_message_text: Telegram ожидает inline-клавиатуру
+    await query.edit_message_text(text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]))
 
 # --- ШАГ 3. Обработка промокода от пользователя (или отказ) ---
+@safe_handler
 async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
@@ -107,6 +136,7 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         session["onboarding_stage"] = "awaiting_promo"
 
 # --- ШАГ 4. OK — Выбор языка для изучения ---
+@safe_handler
 async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -120,10 +150,17 @@ async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 # --- ШАГ 5. Выбор языка для изучения — выбор уровня ---
+@safe_handler
 async def target_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    lang_code = query.data.split(":")[1]
+
+    raw = query.data
+    lang_code = _parse_callback_value(raw, "target_lang")
+    if not _is_lang_code(lang_code or ""):
+        logger.warning("Invalid target_lang callback_data=%r, fallback to 'en'", raw)
+        lang_code = "en"
+
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["target_lang"] = lang_code
@@ -135,6 +172,7 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     )
 
 # --- Гайд по уровням ---
+@safe_handler
 async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -148,6 +186,7 @@ async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 # --- Закрыть гайд по уровням ---
+@safe_handler
 async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -160,10 +199,17 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
     )
 
 # --- ШАГ 6. Выбор уровня — стиль общения ---
+@safe_handler
 async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    level = query.data.split(":")[1]
+
+    raw = query.data
+    level = _parse_callback_value(raw, "level")
+    if not level:
+        logger.warning("Invalid level callback_data=%r, fallback to 'A2'", raw)
+        level = "A2"
+
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["level"] = level
@@ -175,10 +221,17 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # --- ШАГ 7. Выбор стиля — приветствие и вовлекающий вопрос ---
+@safe_handler
 async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    style = query.data.split(":")[1]
+
+    raw = query.data
+    style = _parse_callback_value(raw, "style")
+    if not style:
+        logger.warning("Invalid style callback_data=%r, fallback to 'casual'", raw)
+        style = "casual"
+
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["style"] = style
@@ -190,6 +243,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await onboarding_final(update, context)
 
 # --- Приветствие Мэтта и первый вопрос ---
+@safe_handler
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id if hasattr(update, "effective_chat") else update.callback_query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})

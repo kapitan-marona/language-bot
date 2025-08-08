@@ -4,6 +4,7 @@ import random
 import re
 import tempfile
 import openai
+import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 from config.config import ADMINS
@@ -14,6 +15,8 @@ from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
+
+logger = logging.getLogger(__name__)
 
 MAX_HISTORY_LENGTH = 40
 RATE_LIMIT_SECONDS = 1.5
@@ -31,6 +34,12 @@ LANGUAGE_CODES = {
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
 
+def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
+    text = (text or "").strip()
+    if len(text) > max_len:
+        text = text[:max_len]
+    return text
+
 # --- Главный message handler ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -43,7 +52,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stage = None
 
     if stage == "awaiting_promo":
-        # локальный импорт, чтобы не плодить глобальные зависимости
         from components.onboarding import promo_code_message
         return await promo_code_message(update, context)
     # === КОНЕЦ ВСТАВКИ ===
@@ -55,8 +63,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text="⏳ Погоди, думаю 🙂")
         return
     session["last_message_time"] = now
-
-    # ...ниже оставляешь твой исходный код без изменений...
 
     try:
         # --- session defaults ---
@@ -74,7 +80,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         style = session["style"]
 
         # === ОБРАБОТКА ВХОДЯЩЕГО СООБЩЕНИЯ: текст или голос ===
-        # Если пришёл голос — распознаём его, иначе работаем с текстом
         if update.message.voice:
             # --- Распознавание голоса через Whisper ---
             voice_file = await context.bot.get_file(update.message.voice.file_id)
@@ -89,20 +94,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file=f,
                         response_format="text"
                     )
-                user_input = transcript.strip()
-                print("📝 [Whisper] Распознанный текст:", repr(user_input))
+                user_input = (transcript or "").strip()
+                logger.info("Whisper recognized text: %r", user_input)
             except Exception as e:
                 await context.bot.send_message(chat_id=chat_id, text="❗️Ошибка распознавания голоса. Попробуй ещё раз.")
-                print(f"[Whisper Error]: {e}")
+                logger.exception("[Whisper Error]")
                 user_input = ""
             finally:
-                os.remove(audio_path)
+                try:
+                    os.remove(audio_path)
+                except Exception as e_rm:
+                    logger.warning("Failed to remove temp audio: %s", e_rm)
         else:
             # --- Обычный текст ---
             user_input = update.message.text or ""
 
+        # Санитизация текста от слишком длинных сообщений
+        user_input = _sanitize_user_text(user_input, max_len=2000)
+
         # --- Если пустой текст — сообщаем пользователю и выходим ---
-        if not user_input.strip():
+        if not user_input:
             await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
             return
 
@@ -165,12 +176,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n 💌")
                 elif level in ["A1", "A2"]:
                     await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
-            except Exception as e:
-                print(f"[Ошибка отправки голоса] {e}")
+            except Exception:
+                logger.exception("[Ошибка отправки голоса]")
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + assistant_reply)
         else:
             await update.message.reply_text(assistant_reply)
 
-    except Exception as e:
+    except Exception:
+        logger.exception("[ОШИБКА в handle_message]")
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
-        print(f"[ОШИБКА в handle_message]: {e}")
