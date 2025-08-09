@@ -36,7 +36,7 @@ from handlers.commands.debug import session_command
 from handlers.commands.help import help_command
 
 # ← added: настройки
-from handlers.settings import on_callback as settings_callback, cmd_settings, cmd_level, cmd_language, cmd_style  # noqa: E401
+from handlers.settings import on_callback as settings_callback, cmd_settings
 
 # ← added: режимы
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES  # noqa: E401
