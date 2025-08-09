@@ -1,7 +1,6 @@
 import os
 import base64
 import tempfile
-import asyncio
 import logging
 
 from config.logging_config import setup_logging
@@ -16,7 +15,6 @@ from telegram import Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
-    ContextTypes,
     MessageHandler,
     CommandHandler,
     CallbackQueryHandler,
@@ -64,6 +62,7 @@ app = FastAPI()
 # Telegram-приложение (бот)
 bot_app: Application | None = None  # будет инициализирован при запуске
 
+
 @app.on_event("startup")
 async def on_startup():
     global bot_app
@@ -96,10 +95,12 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-        asyncio.create_task(bot_app.initialize())
+        # ⬇️ КРИТИЧЕСКОЕ: дожидаемся инициализации, чтобы вебхук не пришёл раньше
+        await bot_app.initialize()
         logger.info("Telegram Application initialized")
     except Exception:
         logger.exception("Failed to initialize Telegram Application")
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -112,6 +113,17 @@ async def on_shutdown():
         except Exception:
             logger.warning("Failed to remove temp Google credentials file")
         _tmp_creds_path = None
+
+
+@app.get("/")
+async def root():
+    return {"ok": True}
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
 
 @app.post(f"/{WEBHOOK_SECRET_PATH}")
 async def telegram_webhook(req: Request):
@@ -128,7 +140,17 @@ async def telegram_webhook(req: Request):
 
     try:
         update = Update.de_json(body, bot_app.bot)
-        await bot_app.process_update(update)
+        # Основной путь
+        try:
+            await bot_app.process_update(update)
+        except RuntimeError as e:
+            # Подстраховка: если вдруг не проинициализирован — инициализируем и повторяем
+            if "was not initialized via `Application.initialize`" in str(e):
+                logger.warning("Lazy-initializing Application on first webhook")
+                await bot_app.initialize()
+                await bot_app.process_update(update)
+            else:
+                raise
         return {"ok": True}
     except Exception:
         logger.exception("Error while processing update")
