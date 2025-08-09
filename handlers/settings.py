@@ -1,13 +1,16 @@
 # handlers/settings.py
 from __future__ import annotations
 from typing import List, Tuple
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
 
-# Языки (флаг + имя, код отдельно)
+logger = logging.getLogger(__name__)
+
+# Языки (флаг + название)
 LANGS: List[Tuple[str, str]] = [
     ("🇷🇺 Русский", "ru"),
     ("🇬🇧 English", "en"),
@@ -28,10 +31,12 @@ STYLES: List[Tuple[str, str]] = [
     ("🤓 Деловой", "business"),
 ]
 
-# -------- helpers --------
+
+# ---------- helpers ----------
 
 def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
     return (context.user_data or {}).get("ui_lang", "ru")
+
 
 def _name_for_lang(code: str) -> str:
     for title, c in LANGS:
@@ -39,22 +44,24 @@ def _name_for_lang(code: str) -> str:
             return title
     return code
 
+
 def _name_for_style(code: str) -> str:
     for title, c in STYLES:
         if c == code:
             return title
     return code
 
+
 def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
     base_ru = (
-        "⚙️ Настройки\n\n"
+        "⚙️ Настройки Матта\n\n"
         f"• Язык: {lang_name}\n"
         f"• Уровень: {level}\n"
         f"• Стиль общения: {style_name}\n\n"
         "Что хочешь поменять?"
     )
     base_en = (
-        "⚙️ Settings\n\n"
+        "⚙️ Matt Settings\n\n"
         f"• Language: {lang_name}\n"
         f"• Level: {level}\n"
         f"• Chat style: {style_name}\n\n"
@@ -62,21 +69,26 @@ def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, englis
     )
     text = base_ru if ui == "ru" else base_en
     if english_only_note:
-        note = "\n\n❗ Промокод бессрочный, действует только для английского языка" \
-            if ui == "ru" else "\n\n❗ Promo is permanent and limits learning to English only"
-        text += note
+        text += ("\n\n❗ Промокод бессрочный, действует только для английского языка"
+                 if ui == "ru" else
+                 "\n\n❗ Promo is permanent and limits learning to English only")
     return text
+
 
 def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🌐 Поменять язык" if ui == "ru" else "🌐 Change language", callback_data="SETTINGS:LANG"),
-            InlineKeyboardButton("📚 Поменять уровень" if ui == "ru" else "📚 Change level", callback_data="SETTINGS:LEVEL"),
+            InlineKeyboardButton("🌐 Поменять язык" if ui == "ru" else "🌐 Change language",
+                                 callback_data="SETTINGS:LANG"),
+            InlineKeyboardButton("📚 Поменять уровень" if ui == "ru" else "📚 Change level",
+                                 callback_data="SETTINGS:LEVEL"),
         ],
         [
-            InlineKeyboardButton("🎨 Поменять стиль общения" if ui == "ru" else "🎨 Change style", callback_data="SETTINGS:STYLE"),
+            InlineKeyboardButton("🎨 Поменять стиль" if ui == "ru" else "🎨 Change style",
+                                 callback_data="SETTINGS:STYLE"),
         ],
     ])
+
 
 def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
     # Ограничим список языков при активном english_only
@@ -89,11 +101,11 @@ def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
     rows = []
     for i in range(0, len(items), 2):
         chunk = items[i:i+2]
-        row = [InlineKeyboardButton(t, callback_data=f"SET:LANG:{c}") for (t, c) in chunk]
-        rows.append(row)
+        rows.append([InlineKeyboardButton(t, callback_data=f"SET:LANG:{c}") for (t, c) in chunk])
 
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
+
 
 def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
     row1 = [InlineKeyboardButton(x, callback_data=f"SET:LEVEL:{x}") for x in LEVELS_ROW1]
@@ -101,30 +113,35 @@ def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
     back = [InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")]
     return InlineKeyboardMarkup([row1, row2, back])
 
+
 def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(title, callback_data=f"SET:STYLE:{code}")] for title, code in STYLES]
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
-# -------- public handlers (как в english_bot.py) --------
+
+# ---------- public handlers ----------
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /settings — показать главное меню настроек."""
+    """Команда /settings или вызов из HELP:OPEN:SETTINGS — показать главное меню настроек.
+
+    FIX: используем context.bot.send_message вместо update.message.reply_text,
+    чтобы корректно работать при callback (update.message == None).
+    """
     ui = _ui_lang(context)
     chat_id = update.effective_chat.id
 
-    # Базируемся на профиле, при пустых полях возьмём дефолты из сессии
     s = context.user_data or {}
     p = get_user_profile(chat_id) or {}
 
     language = p.get("target_lang") or s.get("language", "en")
     level = p.get("level") or s.get("level", "B1")
     style = p.get("style") or s.get("style", "casual")
-
     english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
 
     text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note)
-    await update.message.reply_text(text, reply_markup=_menu_keyboard(ui))
+    await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui))
+
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Общий обработчик callback_data, начинающихся с SETTINGS:/SET: (см. english_bot.py)."""
@@ -160,7 +177,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data == "SETTINGS:LEVEL":
-        # Можно добавить гайд по уровням, если есть в onboarding
+        # необязательный короткий гайд из онбординга, если доступен
         guide = None
         try:
             from components.onboarding import get_level_guide  # type: ignore
@@ -186,7 +203,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         context.user_data["language"] = code
         save_user_profile(chat_id, target_lang=code)
         await q.answer("Готово")
-        # Возвращаемся в меню
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
         language = p.get("target_lang") or s.get("language", "en")
@@ -230,6 +246,3 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             reply_markup=_menu_keyboard(ui),
         )
         return
-
-    # не наше — выходим
-    return

@@ -52,7 +52,7 @@ def _help_text_en() -> str:
 
 
 def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Инлайн-кнопки (без ReplyKeyboard, чтобы ничего не подставлялось в поле ввода)."""
+    """Инлайн-кнопки (без ReplyKeyboard)."""
     btn_settings = InlineKeyboardButton(
         text=("⚙️ Настройки" if lang == "ru" else "⚙️ Settings"),
         callback_data="HELP:OPEN:SETTINGS",
@@ -72,33 +72,45 @@ def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[btn_settings, btn_mode, btn_promo], [btn_contact]])
 
 
-# ---------- Форматирование промокода ----------
+# ---------- Промокоды (новый + старый формат) ----------
 
 def _format_promo_status_from_profile(p: dict, ui: str) -> str:
     """
-    Ожидаем поля профиля:
-      promo_code_used: str | None
-      promo_type: 'timed' | 'permanent' | 'english_only' | None
-      promo_activated_at: ISO-строка (UTC) | None
-      promo_days: int | None
+    Поддерживает новый и старый форматы профиля:
+      Новый: promo_code_used, promo_type, promo_activated_at (ISO, UTC), promo_days
+      Старый: promo={code,expires} ИЛИ promo_code (+ promo_expires)
     """
+    # Новый формат
     code = p.get("promo_code_used")
     ptype = p.get("promo_type")
     act = p.get("promo_activated_at")
     days = p.get("promo_days")
 
+    # Старый формат (fallback)
+    if not code or not ptype:
+        legacy = p.get("promo")
+        if isinstance(legacy, dict):
+            lcode = legacy.get("code")
+            lexp = legacy.get("expires")
+            if lcode and lexp:
+                return (f"🎟️ Промокод: {lcode} — до {lexp}"
+                        if ui == "ru" else f"🎟️ Promo code: {lcode} — until {lexp}")
+        lcode = p.get("promo_code") or p.get("promoCode")
+        lexp = p.get("promo_expires") or p.get("promoExpires")
+        if lcode and lexp:
+            return (f"🎟️ Промокод: {lcode} — до {lexp}"
+                    if ui == "ru" else f"🎟️ Promo code: {lcode} — until {lexp}")
+
     if not code or not ptype:
         return "🎟️ Кода пока нет — введи через /promo." if ui == "ru" else "🎟️ No code yet — add via /promo."
 
     if ptype == "permanent":
-        return (f"🎟️ Промокод {code}: бессрочно.") if ui == "ru" else (f"🎟️ Promo {code}: permanent.")
+        return (f"🎟️ Промокод {code}: бессрочно."
+                if ui == "ru" else f"🎟️ Promo {code}: permanent.")
 
     if ptype == "english_only":
-        return (
-            f"🎟️ Промокод {code}: бессрочный, действует только для английского языка."
-            if ui == "ru"
-            else f"🎟️ Promo {code}: permanent, English only."
-        )
+        return ("🎟️ Промокод {0}: бессрочный, действует только для английского языка."
+                .format(code) if ui == "ru" else f"🎟️ Promo {code}: permanent, English only.")
 
     if ptype == "timed" and act and days:
         try:
@@ -111,12 +123,8 @@ def _format_promo_status_from_profile(p: dict, ui: str) -> str:
                 return "🎟️ Промокод истёк." if ui == "ru" else "🎟️ Promo expired."
             if left == 0:
                 return "🎟️ Промокод истекает сегодня!" if ui == "ru" else "🎟️ Promo expires today!"
-            # русская форма без склонений — коротко и понятно
-            return (
-                f"🎟️ Промокод активен: осталось {left} дн."
-                if ui == "ru"
-                else f"🎟️ Promo active: {left} days left."
-            )
+            return (f"🎟️ Промокод активен: осталось {left} дн."
+                    if ui == "ru" else f"🎟️ Promo active: {left} days left.")
         except Exception:
             return "🎟️ Промокод активирован (временной)." if ui == "ru" else "🎟️ Promo active (timed)."
 
@@ -128,7 +136,6 @@ def _format_promo_status_from_profile(p: dict, ui: str) -> str:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает карточку помощи и прячет зависшую ReplyKeyboard (если была)."""
     if update.message:
-        # пустую строку Telegram иногда ругает — используем невидимый символ
         try:
             await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())
         except Exception:
@@ -164,7 +171,6 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return await cmd_settings(update, context)
 
     if action == "MODE":
-        # показываем отдельным сообщением, меню помощи не трогаем
         try:
             from components.mode import get_mode_keyboard
             current_mode = context.user_data.get("mode", "text")
