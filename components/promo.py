@@ -1,81 +1,111 @@
-# promo.py
-import datetime
-import logging
-from typing import Dict, Any, Tuple
+# components/promo.py
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
 
+# Список доступных промокодов (ключи в нижнем регистре)
 PROMO_CODES: Dict[str, Dict[str, Any]] = {
-    "0917": {"type": "permanent", "days": None},
-    "0825": {"type": "timed", "days": 30},
-    "друг": {"type": "timed", "days": 3},
-    "Друг": {"type": "timed", "days": 3},
-    "ДРУГ": {"type": "timed", "days": 3},
-    "friend": {"type": "timed", "days": 3},
-    "Friend": {"type": "timed", "days": 3},
-    "FRIEND": {"type": "timed", "days": 3},
-    "western": {"type": "english_only", "days": None},
-    "Western": {"type": "english_only", "days": None},
-    "WESTERN": {"type": "english_only", "days": None},
+    "0917":   {"type": "permanent",    "days": None},
+    "0825":   {"type": "timed",        "days": 30},
+    "друг":   {"type": "timed",        "days": 3},
+    "friend": {"type": "timed",        "days": 3},
+    "western":{"type": "english_only", "days": None},
 }
 
-def check_promo_code(code: str) -> Dict[str, Any] | None:
-    code = (code or "").strip()
-    promo = PROMO_CODES.get(code)
-    logger.debug("check_promo_code: code=%r -> %r", code, promo)
-    return promo
 
-def activate_promo(user_profile: Dict[str, Any], code: str) -> Tuple[bool, str]:
-    promo = check_promo_code(code)
-    if not promo:
-        logger.info("Promo invalid: %r", code)
+def normalize_code(code: str) -> str:
+    """Приводим код к единому виду (без учёта регистра и лишних пробелов)."""
+    return (code or "").strip().lower()
+
+
+def check_promo_code(code: str) -> Optional[Dict[str, Any]]:
+    """
+    Проверка наличия промокода в словаре (без учёта регистра).
+    Возвращает описание {'type': ..., 'days': ...} либо None.
+    """
+    return PROMO_CODES.get(normalize_code(code))
+
+
+def activate_promo(profile: Dict[str, Any], code: str) -> tuple[bool, str]:
+    """
+    Активирует промокод в профиле-питоновском словаре (НЕ сохраняет в БД).
+    Заполняет:
+      - promo_code_used         : str (нормализованный код)
+      - promo_type              : 'timed' | 'permanent' | 'english_only'
+      - promo_activated_at      : str (ISO-8601, UTC)
+      - promo_days              : int | None  (для timed)
+    Возвращает (ok, reason):
+      - (True, '<type>') при успехе;
+      - (False, 'invalid') если код не найден;
+      - (False, 'already_used') если уже активирован ранее.
+    """
+    if not isinstance(profile, dict):
         return False, "invalid"
 
-    if user_profile.get("promo_code_used"):
-        logger.info("Promo already used for user: %r", user_profile.get("promo_code_used"))
+    # уже был активирован
+    if profile.get("promo_code_used"):
         return False, "already_used"
 
-    promo_type = promo["type"]
-    days = promo.get("days")
-    activated_at = datetime.datetime.utcnow().isoformat()
+    info = check_promo_code(code)
+    if not info:
+        return False, "invalid"
 
-    user_profile["promo_code_used"] = code
-    user_profile["promo_type"] = promo_type
-    user_profile["promo_activated_at"] = activated_at
-    user_profile["promo_days"] = days
+    promo_type = info.get("type")
+    days = info.get("days")
 
-    logger.info("Promo activated: code=%r type=%s days=%r", code, promo_type, days)
-    return True, promo_type
+    profile["promo_code_used"] = normalize_code(code)
+    profile["promo_type"] = promo_type
+    profile["promo_activated_at"] = datetime.now(timezone.utc).isoformat()
+    profile["promo_days"] = int(days) if isinstance(days, int) else None
 
-def is_promo_valid(user_profile: Dict[str, Any]) -> bool:
-    promo_type = user_profile.get("promo_type")
-    if not promo_type:
-        logger.debug("is_promo_valid: no promo_type in profile")
+    return True, str(promo_type or "")
+
+
+def is_promo_valid(profile: Dict[str, Any]) -> bool:
+    """
+    Проверяет, действует ли промо на текущий момент.
+    permanent / english_only — считаем активными без срока.
+    timed — активен, если не истёк интервал с момента активации.
+    """
+    if not isinstance(profile, dict):
         return False
-    if promo_type in ("permanent", "english_only"):
+
+    ptype = profile.get("promo_type")
+    if not ptype:
+        return False
+
+    if ptype in ("permanent", "english_only"):
         return True
 
-    activated = user_profile.get("promo_activated_at")
-    days = user_profile.get("promo_days")
-    if not activated or not days:
-        logger.debug("is_promo_valid: missing activated_at/days -> %r / %r", activated, days)
-        return False
+    if ptype == "timed":
+        iso = profile.get("promo_activated_at")
+        days = profile.get("promo_days")
+        if not iso or not days:
+            return False
+        try:
+            activated = datetime.fromisoformat(iso)
+            if activated.tzinfo is None:
+                activated = activated.replace(tzinfo=timezone.utc)
+        except Exception:
+            return False
+        end = activated + timedelta(days=int(days))
+        return datetime.now(timezone.utc) <= end
 
-    try:
-        activated_dt = datetime.datetime.fromisoformat(activated)
-    except Exception as e:
-        logger.warning("is_promo_valid: invalid date format %r (%s)", activated, e)
-        return False
+    # неизвестный тип — считаем невалидным
+    return False
 
-    now = datetime.datetime.utcnow()
-    delta = now - activated_dt
-    valid = delta.days < int(days)
-    logger.debug("is_promo_valid: delta_days=%s days_limit=%s -> %s", delta.days, days, valid)
-    return valid
 
-def restrict_target_languages_if_needed(user_profile: Dict[str, Any], lang_dict: Dict[str, str]) -> Dict[str, str]:
-    if user_profile.get("promo_type") == "english_only":
-        filtered = {k: v for k, v in lang_dict.items() if k == "en"}
-        logger.debug("restrict_target_languages_if_needed: english_only -> %s", list(filtered.keys()))
-        return filtered
-    return lang_dict
+def restrict_target_languages_if_needed(profile: Dict[str, Any],
+                                        lang_map: Dict[str, str]) -> Dict[str, str]:
+    """
+    Если активен english_only — оставляем только английский язык из lang_map (если он там есть).
+    lang_map: {'en': 'English', 'fr': 'Français', ...}
+    Возвращает НОВУЮ мапу.
+    """
+    if not isinstance(lang_map, dict) or not isinstance(profile, dict):
+        return lang_map
+
+    if profile.get("promo_type") == "english_only" and is_promo_valid(profile):
+        return {"en": lang_map["en"]} if "en" in lang_map else {}
+    return lang_map

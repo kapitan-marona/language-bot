@@ -1,58 +1,13 @@
 # handlers/settings.py
 from __future__ import annotations
-from typing import Dict, List, Tuple
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from typing import List, Tuple
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
-from handlers.chat.levels_text import get_level_guide  # ← используем тот же гайд, что и в онбординге
+from components.promo import restrict_target_languages_if_needed, is_promo_valid
 
-# ===== Локализация UI-текстов =====
-UI = {
-    "ru": {
-        "menu": "Что хочешь поменять?",
-        "change_lang": "🛠️ Поменять язык",
-        "change_level": "🛠️ Поменять уровень",
-        "change_style": "🛠️ Поменять стиль",
-        "pick_level": "Выбери уровень:",
-        "pick_lang": "Выбери язык:",
-        "pick_style": "Выбери стиль общения:",
-        "back": "👈 Назад",
-        "current": "Текущие настройки:",
-        "lang_label": "• Язык",
-        "level_label": "• Уровень",
-        "style_label": "• Стиль общения",
-        "confirm": "Готово! {field} → {value}. Остальные настройки без изменений.",
-        "field_map": {"language": "Язык", "level": "Уровень", "style": "Стиль"},
-        "style_map": {"casual": "Разговорный", "business": "Деловой"},
-    },
-    "en": {
-        "menu": "What would you like to change?",
-        "change_lang": "🛠️ Change language",
-        "change_level": "🛠️ Change level",
-        "change_style": "🛠️ Change style",
-        "pick_level": "Pick a level:",
-        "pick_lang": "Pick a language:",
-        "pick_style": "Pick a style:",
-        "back": "👈 Back",
-        "current": "Current settings:",
-        "lang_label": "• Language",
-        "level_label": "• Level",
-        "style_label": "• Style",
-        "confirm": "Done! {field} → {value}. Other settings unchanged.",
-        "field_map": {"language": "Language", "level": "Level", "style": "Style"},
-        "style_map": {"casual": "Casual", "business": "Business"},
-    },
-}
-
-def _t(s: Dict) -> dict:
-    return UI.get(s.get("ui_lang", "ru"), UI["ru"])
-
-# ===== Дефолты и перечни =====
-DEFAULTS = {"ui_lang": "ru", "language": "en", "style": "casual", "level": "B1"}
-
-# Только эти языки, как ты просила (с флагами и отображаемыми названиями)
+# Языки (флаг + имя, код отдельно)
 LANGS: List[Tuple[str, str]] = [
     ("🇷🇺 Русский", "ru"),
     ("🇬🇧 English", "en"),
@@ -63,152 +18,218 @@ LANGS: List[Tuple[str, str]] = [
     ("🇫🇮 Suomi", "fi"),
 ]
 
-# Порядок уровней как в онбординге
-LEVELS: List[str] = ["A0", "A1", "A2", "B1", "B2", "C1", "C2"]
+# Уровни — без эмодзи; раскладка как в онбординге
+LEVELS_ROW1 = ["A0", "A1", "A2"]
+LEVELS_ROW2 = ["B1", "B2", "C1", "C2"]
 
-# Два стиля (эмодзи стоят СПРАВА от текста)
-STYLES: List[Tuple[str, str]] = [("Разговорный", "casual"), ("Деловой", "business")]
+# Два стиля общения
+STYLES: List[Tuple[str, str]] = [
+    ("😎 Разговорный", "casual"),
+    ("🤓 Деловой", "business"),
+]
 
-# ===== Сессия (синхронизация с БД по chat_id) =====
-def get_session(context: ContextTypes.DEFAULT_TYPE, chat_id: int | None = None) -> Dict:
-    ud = context.user_data
-    if chat_id is not None:
-        prof = get_user_profile(chat_id) or {}
-        ud.update({
-            "ui_lang": prof.get("interface_lang", DEFAULTS["ui_lang"]),
-            "language": prof.get("target_lang", DEFAULTS["language"]),
-            "level": prof.get("level", DEFAULTS["level"]),
-            "style": prof.get("style", DEFAULTS["style"]),
-        })
-    for k, v in DEFAULTS.items():
-        ud.setdefault(k, v)
-    return ud
+# -------- helpers --------
 
-# ===== Утилита для разбиения на строки по N кнопок =====
-def _chunk(seq, n=2):
-    return [seq[i:i+n] for i in range(0, len(seq), n)]
+def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return (context.user_data or {}).get("ui_lang", "ru")
 
-# ===== Клавиатуры =====
-def build_settings_menu(session: Dict) -> InlineKeyboardMarkup:
-    t = _t(session)
-    kb = [
-        [InlineKeyboardButton(t["change_lang"],  callback_data="SETTINGS:LANG")],
-        [InlineKeyboardButton(t["change_level"], callback_data="SETTINGS:LEVEL")],
-        [InlineKeyboardButton(t["change_style"], callback_data="SETTINGS:STYLE")],
-    ]
-    return InlineKeyboardMarkup(kb)
+def _name_for_lang(code: str) -> str:
+    for title, c in LANGS:
+        if c == code:
+            return title
+    return code
 
-def build_language_kb(session: Dict) -> InlineKeyboardMarkup:
-    t = _t(session)
-    buttons = [InlineKeyboardButton(name, callback_data=f"SET:language:{code}") for name, code in LANGS]
-    # по 2 кнопки в строке
-    rows = _chunk(buttons, n=2)
-    rows = [[*row] for row in rows]
-    rows.append([InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")])
-    return InlineKeyboardMarkup(rows)
+def _name_for_style(code: str) -> str:
+    for title, c in STYLES:
+        if c == code:
+            return title
+    return code
 
-def build_level_kb(session: Dict) -> InlineKeyboardMarkup:
-    t = _t(session)
-    # Без эмодзи; раскладка как в онбординге:
-    # 1 строка: A0 A1 A2
-    # 2 строка: B1 B2 C1 C2
-    row1 = [InlineKeyboardButton(lv, callback_data=f"SET:level:{lv}") for lv in ["A0", "A1", "A2"]]
-    row2 = [InlineKeyboardButton(lv, callback_data=f"SET:level:{lv}") for lv in ["B1", "B2", "C1", "C2"]]
-    rows = [row1, row2, [InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")]]
-    return InlineKeyboardMarkup(rows)
-
-def build_style_kb(session: Dict) -> InlineKeyboardMarkup:
-    t = _t(session)
-    # Эмодзи справа: "Разговорный 😎" / "Деловой 🤓"
-    labels_ru = {"casual": "Разговорный 😎", "business": "Деловой 🤓"}
-    labels_en = {"casual": "Casual 😎", "business": "Business 🤓"}
-    labels = labels_ru if session.get("ui_lang", "ru") == "ru" else labels_en
-
-    buttons = [
-        InlineKeyboardButton(labels[code], callback_data=f"SET:style:{code}")
-        for _, code in STYLES
-    ]
-    # по 2 в строке
-    rows = _chunk(buttons, n=2)
-    rows = [[*row] for row in rows]
-    rows.append([InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")])
-    return InlineKeyboardMarkup(rows)
-
-# ===== Форматирование заголовка =====
-def format_settings_header(s: Dict) -> str:
-    t = _t(s)
-    lang_map = {code: name for name, code in LANGS}  # code -> "🇬🇧 English"
-    language_name = lang_map.get(s.get("language", "en"), s.get("language", "en"))
-    style_name = t["style_map"].get(s.get("style", "casual"), s.get("style", "casual"))
-    level = s.get("level", "B1")
-    return (
-        f"{t['current']}\n"
-        f"{t['lang_label']}: {language_name}\n"
-        f"{t['level_label']}: {level}\n"
-        f"{t['style_label']}: {style_name}\n\n"
-        f"{t['menu']}"
+def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
+    base_ru = (
+        "⚙️ Настройки\n\n"
+        f"• Язык: {lang_name}\n"
+        f"• Уровень: {level}\n"
+        f"• Стиль общения: {style_name}\n\n"
+        "Что хочешь поменять?"
     )
+    base_en = (
+        "⚙️ Settings\n\n"
+        f"• Language: {lang_name}\n"
+        f"• Level: {level}\n"
+        f"• Chat style: {style_name}\n\n"
+        "What do you want to change?"
+    )
+    text = base_ru if ui == "ru" else base_en
+    if english_only_note:
+        note = "\n\n❗ Промокод бессрочный, действует только для английского языка" \
+            if ui == "ru" else "\n\n❗ Promo is permanent and limits learning to English only"
+        text += note
+    return text
 
-# ===== Команды/колбэки =====
+def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🌐 Поменять язык" if ui == "ru" else "🌐 Change language", callback_data="SETTINGS:LANG"),
+            InlineKeyboardButton("📚 Поменять уровень" if ui == "ru" else "📚 Change level", callback_data="SETTINGS:LEVEL"),
+        ],
+        [
+            InlineKeyboardButton("🎨 Поменять стиль общения" if ui == "ru" else "🎨 Change style", callback_data="SETTINGS:STYLE"),
+        ],
+    ])
+
+def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
+    # Ограничим список языков при активном english_only
+    prof = get_user_profile(chat_id) or {}
+    lang_map = {code: title for title, code in LANGS}
+    lang_map = restrict_target_languages_if_needed(prof, lang_map)
+
+    # Сетка 2 колонки
+    items = [(title, code) for code, title in lang_map.items()]
+    rows = []
+    for i in range(0, len(items), 2):
+        chunk = items[i:i+2]
+        row = [InlineKeyboardButton(t, callback_data=f"SET:LANG:{c}") for (t, c) in chunk]
+        rows.append(row)
+
+    rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
+    return InlineKeyboardMarkup(rows)
+
+def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
+    row1 = [InlineKeyboardButton(x, callback_data=f"SET:LEVEL:{x}") for x in LEVELS_ROW1]
+    row2 = [InlineKeyboardButton(x, callback_data=f"SET:LEVEL:{x}") for x in LEVELS_ROW2]
+    back = [InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")]
+    return InlineKeyboardMarkup([row1, row2, back])
+
+def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(title, callback_data=f"SET:STYLE:{code}")] for title, code in STYLES]
+    rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
+    return InlineKeyboardMarkup(rows)
+
+# -------- public handlers (как в english_bot.py) --------
+
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id if update and update.effective_chat else None
-    s = get_session(context, chat_id)
-    text = format_settings_header(s)
-    if update.message:
-        await update.message.reply_text(text, reply_markup=build_settings_menu(s))
-    else:
-        await update.effective_chat.send_message(text, reply_markup=build_settings_menu(s))
+    """Команда /settings — показать главное меню настроек."""
+    ui = _ui_lang(context)
+    chat_id = update.effective_chat.id
+
+    # Базируемся на профиле, при пустых полях возьмём дефолты из сессии
+    s = context.user_data or {}
+    p = get_user_profile(chat_id) or {}
+
+    language = p.get("target_lang") or s.get("language", "en")
+    level = p.get("level") or s.get("level", "B1")
+    style = p.get("style") or s.get("style", "casual")
+
+    english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+
+    text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note)
+    await update.message.reply_text(text, reply_markup=_menu_keyboard(ui))
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Общий обработчик callback_data, начинающихся с SETTINGS:/SET: (см. english_bot.py)."""
     q = update.callback_query
-    if not q:
+    if not q or not q.data:
         return
-    await q.answer()
-    data = q.data or ""
 
-    chat_id = update.effective_chat.id if update and update.effective_chat else None
-    s = get_session(context, chat_id)
-    t = _t(s)
+    data = q.data
+    ui = _ui_lang(context)
+    chat_id = q.message.chat.id
 
-    if data == "SETTINGS:MENU":
-        return await q.edit_message_text(format_settings_header(s), reply_markup=build_settings_menu(s))
-
-    if data == "SETTINGS:LEVEL":
-        # Покажем выбор + гайд из онбординга, чтобы тексты и эмодзи совпадали
-        guide = get_level_guide(s.get("ui_lang", "ru"))
-        return await q.edit_message_text(f"{t['pick_level']}\n\n{guide}", parse_mode="Markdown", reply_markup=build_level_kb(s))
+    # Назад в главное меню
+    if data == "SETTINGS:BACK":
+        p = get_user_profile(chat_id) or {}
+        s = context.user_data or {}
+        language = p.get("target_lang") or s.get("language", "en")
+        level = p.get("level") or s.get("level", "B1")
+        style = p.get("style") or s.get("style", "casual")
+        english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        await q.edit_message_text(
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            reply_markup=_menu_keyboard(ui),
+        )
+        await q.answer()
+        return
 
     if data == "SETTINGS:LANG":
-        return await q.edit_message_text(t["pick_lang"], reply_markup=build_language_kb(s))
+        await q.edit_message_text(
+            "Выбери язык:" if ui == "ru" else "Choose a language:",
+            reply_markup=_langs_keyboard(chat_id, ui),
+        )
+        await q.answer()
+        return
+
+    if data == "SETTINGS:LEVEL":
+        # Можно добавить гайд по уровням, если есть в onboarding
+        guide = None
+        try:
+            from components.onboarding import get_level_guide  # type: ignore
+            guide = get_level_guide(ui)
+        except Exception:
+            guide = None
+        text = ("Выбери уровень" if ui == "ru" else "Choose your level") + (f"\n\n{guide}" if guide else "")
+        await q.edit_message_text(text, reply_markup=_levels_keyboard(ui))
+        await q.answer()
+        return
 
     if data == "SETTINGS:STYLE":
-        return await q.edit_message_text(t["pick_style"], reply_markup=build_style_kb(s))
+        await q.edit_message_text(
+            "Выбери стиль общения:" if ui == "ru" else "Choose a chat style:",
+            reply_markup=_styles_keyboard(ui),
+        )
+        await q.answer()
+        return
 
-    if data.startswith("SET:"):
-        try:
-            _, field, value = data.split(":", 2)
-        except ValueError:
-            return
+    # Конкретные изменения
+    if data.startswith("SET:LANG:"):
+        code = data.split(":", 2)[-1]
+        context.user_data["language"] = code
+        save_user_profile(chat_id, target_lang=code)
+        await q.answer("Готово")
+        # Возвращаемся в меню
+        p = get_user_profile(chat_id) or {}
+        s = context.user_data or {}
+        language = p.get("target_lang") or s.get("language", "en")
+        level = p.get("level") or s.get("level", "B1")
+        style = p.get("style") or s.get("style", "casual")
+        english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        await q.edit_message_text(
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            reply_markup=_menu_keyboard(ui),
+        )
+        return
 
-        s[field] = value  # обновляем выбранное поле
+    if data.startswith("SET:LEVEL:"):
+        level = data.split(":", 2)[-1]
+        context.user_data["level"] = level
+        save_user_profile(chat_id, level=level)
+        await q.answer("Готово")
+        p = get_user_profile(chat_id) or {}
+        s = context.user_data or {}
+        language = p.get("target_lang") or s.get("language", "en")
+        style = p.get("style") or s.get("style", "casual")
+        english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        await q.edit_message_text(
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            reply_markup=_menu_keyboard(ui),
+        )
+        return
 
-        # сохраняем в БД по chat_id
-        if chat_id is not None:
-            try:
-                save_user_profile(
-                    chat_id,
-                    interface_lang=s.get("ui_lang"),
-                    target_lang=s.get("language"),
-                    level=s.get("level"),
-                    style=s.get("style"),
-                )
-            except Exception:
-                pass
+    if data.startswith("SET:STYLE:"):
+        style = data.split(":", 2)[-1]
+        context.user_data["style"] = style
+        save_user_profile(chat_id, style=style)
+        await q.answer("Готово")
+        p = get_user_profile(chat_id) or {}
+        s = context.user_data or {}
+        language = p.get("target_lang") or s.get("language", "en")
+        level = p.get("level") or s.get("level", "B1")
+        english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        await q.edit_message_text(
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            reply_markup=_menu_keyboard(ui),
+        )
+        return
 
-        field_h = t["field_map"].get(field, field)
-        confirm = t["confirm"].format(field=field_h, value=value)
-        await q.edit_message_text(confirm + "\n\n" + format_settings_header(s), reply_markup=build_settings_menu(s))
-
-def register_settings_handlers(app: Application) -> None:
-    app.add_handler(CommandHandler("settings", cmd_settings))
-    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(SETTINGS|SET):"))
+    # не наше — выходим
+    return

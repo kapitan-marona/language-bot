@@ -1,13 +1,25 @@
-import sqlite3
+# components/profile_db.py
+from __future__ import annotations
 import os
+import sqlite3
+from typing import Any, Dict, Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db')
-DB_PATH = os.path.abspath(DB_PATH)
+# Абсолютный путь к файлу БД рядом с проектом
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db'))
 
-def init_db():
+
+def init_db() -> None:
+    """Инициализация БД и безопасная авто-миграция недостающих колонок.
+
+    Таблица user_profiles может уже существовать у старых пользователей —
+    добавляем недостающие поля через PRAGMA table_info + ALTER TABLE.
+    """
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute('''
+
+    # Базовая схема (как было изначально)
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS user_profiles (
             chat_id INTEGER PRIMARY KEY,
             name TEXT,
@@ -16,41 +28,146 @@ def init_db():
             level TEXT,
             style TEXT
         )
-    ''')
+        """
+    )
+
+    # Автомиграция: добавим колонки под промокоды, если их ещё нет
+    cur.execute("PRAGMA table_info(user_profiles)")
+    existing = {row[1] for row in cur.fetchall()}  # имена колонок
+
+    required_cols = {
+        "promo_code_used": "TEXT",        # нормализованный код (строка)
+        "promo_type": "TEXT",             # 'timed' | 'permanent' | 'english_only'
+        "promo_activated_at": "TEXT",     # ISO-8601 (UTC)
+        "promo_days": "INTEGER",          # число дней для timed
+    }
+    for col, coltype in required_cols.items():
+        if col not in existing:
+            cur.execute(f"ALTER TABLE user_profiles ADD COLUMN {col} {coltype}")
+
     conn.commit()
     conn.close()
 
-def save_user_profile(chat_id, name=None, interface_lang=None, target_lang=None, level=None, style=None):
-    """Сохраняет или обновляет профиль пользователя."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute('''
-        INSERT INTO user_profiles (chat_id, name, interface_lang, target_lang, level, style)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(chat_id) DO UPDATE SET
-            name=excluded.name,
-            interface_lang=excluded.interface_lang,
-            target_lang=excluded.target_lang,
-            level=excluded.level,
-            style=excluded.style
-    ''', (chat_id, name, interface_lang, target_lang, level, style))
-    conn.commit()
-    conn.close()
 
-def get_user_profile(chat_id):
-    """Возвращает словарь с профилем пользователя."""
+# === Утилиты чтения/записи профиля ===
+
+def get_user_profile(chat_id: int) -> Optional[Dict[str, Any]]:
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute('SELECT * FROM user_profiles WHERE chat_id=?', (chat_id,))
+    cur.execute("SELECT * FROM user_profiles WHERE chat_id = ?", (chat_id,))
     row = cur.fetchone()
     conn.close()
-    if not row:
-        return None
-    return {
-        "chat_id": row[0],
-        "name": row[1],
-        "interface_lang": row[2],
-        "target_lang": row[3],
-        "level": row[4],
-        "style": row[5],
+    return dict(row) if row else None
+
+
+def save_user_profile(
+    chat_id: int,
+    *,
+    name: Optional[str] = None,
+    interface_lang: Optional[str] = None,
+    target_lang: Optional[str] = None,
+    level: Optional[str] = None,
+    style: Optional[str] = None,
+    # Поля промо можно тоже сохранять через этот метод при желании
+    promo_code_used: Optional[str] = None,
+    promo_type: Optional[str] = None,
+    promo_activated_at: Optional[str] = None,
+    promo_days: Optional[int] = None,
+) -> None:
+    """Обновляет/создаёт профиль пользователя частично (upsert)."""
+    current = get_user_profile(chat_id) or {"chat_id": chat_id}
+
+    # Обновляем только переданные значения (не None)
+    updates = {
+        "name": name if name is not None else current.get("name"),
+        "interface_lang": interface_lang if interface_lang is not None else current.get("interface_lang"),
+        "target_lang": target_lang if target_lang is not None else current.get("target_lang"),
+        "level": level if level is not None else current.get("level"),
+        "style": style if style is not None else current.get("style"),
+        "promo_code_used": promo_code_used if promo_code_used is not None else current.get("promo_code_used"),
+        "promo_type": promo_type if promo_type is not None else current.get("promo_type"),
+        "promo_activated_at": promo_activated_at if promo_activated_at is not None else current.get("promo_activated_at"),
+        "promo_days": promo_days if promo_days is not None else current.get("promo_days"),
     }
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    # если запись уже есть — UPDATE, иначе INSERT
+    cur.execute("SELECT 1 FROM user_profiles WHERE chat_id = ?", (chat_id,))
+    exists = cur.fetchone() is not None
+
+    if exists:
+        cur.execute(
+            """
+            UPDATE user_profiles SET
+              name = ?, interface_lang = ?, target_lang = ?, level = ?, style = ?,
+              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?
+            WHERE chat_id = ?
+            """,
+            (
+                updates["name"], updates["interface_lang"], updates["target_lang"],
+                updates["level"], updates["style"],
+                updates["promo_code_used"], updates["promo_type"],
+                updates["promo_activated_at"], updates["promo_days"], chat_id,
+            ),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO user_profiles (
+              chat_id, name, interface_lang, target_lang, level, style,
+              promo_code_used, promo_type, promo_activated_at, promo_days
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chat_id,
+                updates["name"], updates["interface_lang"], updates["target_lang"],
+                updates["level"], updates["style"],
+                updates["promo_code_used"], updates["promo_type"],
+                updates["promo_activated_at"], updates["promo_days"],
+            ),
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# === Новый явный сеттер для промо ===
+
+def set_user_promo(
+    chat_id: int,
+    code: Optional[str],
+    promo_type: Optional[str],
+    activated_at: Optional[str],
+    days: Optional[int],
+) -> None:
+    """Сохраняет только поля промокода для пользователя (upsert)."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("SELECT 1 FROM user_profiles WHERE chat_id = ?", (chat_id,))
+    exists = cur.fetchone() is not None
+
+    if exists:
+        cur.execute(
+            """
+            UPDATE user_profiles SET
+              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?
+            WHERE chat_id = ?
+            """,
+            (code, promo_type, activated_at, days, chat_id),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO user_profiles (
+              chat_id, promo_code_used, promo_type, promo_activated_at, promo_days
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (chat_id, code, promo_type, activated_at, days),
+        )
+
+    conn.commit()
+    conn.close()

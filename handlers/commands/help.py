@@ -1,4 +1,6 @@
 # handlers/commands/help.py
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -6,87 +8,51 @@ from telegram import (
     ReplyKeyboardRemove,
 )
 from telegram.ext import ContextTypes
+
 from components.profile_db import get_user_profile
 
 
 def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
-    """Определяем язык интерфейса пользователя (ru/en)."""
+    """Язык интерфейса (по умолчанию RU)."""
     return (context.user_data or {}).get("ui_lang", "ru")
 
 
-def _lang_human_name(code: str) -> str:
-    """Человекочитаемое имя изучаемого языка."""
-    return {"en": "English", "es": "Español", "de": "Deutsch"}.get(code, code.upper())
+# ---------- Текстовые блоки ----------
 
-
-def _extract_promo(profile: dict | None) -> tuple[str | None, str | None]:
-    """Достаём промокод и срок: поддерживаем p['promo']={code,expires} и плоские поля."""
-    p = profile or {}
-    promo = p.get("promo")
-    code = expires = None
-    if isinstance(promo, dict):
-        code = promo.get("code")
-        expires = promo.get("expires")
-    else:
-        code = p.get("promo_code") or p.get("promoCode")
-        expires = p.get("promo_expires") or p.get("promoExpires")
-    return code, expires
-
-
-def _help_text_ru(profile: dict | None) -> str:
-    p = profile or {}
-    lang_code = p.get("target_lang", "en")
-    level = p.get("level", "B1")
-    style = {"casual": "Разговорный", "business": "Деловой"}.get(
-        p.get("style", "casual"), p.get("style", "casual")
-    )
-    code, expires = _extract_promo(p)
-    promo_line = (
-        f"🎟️ Промокод: {code} — до {expires}" if (code and expires) else "🎟️ Промокод: не указан"
-    )
+def _help_text_ru() -> str:
     return (
-        "📖 Помощь уже здесь!\n\n"
-        f"Текущие настройки: язык — {_lang_human_name(lang_code)}, уровень — {level}, стиль — {style}.\n"
-        f"{promo_line}\n\n"
+        "✨ Помощь уже здесь!\n\n"
         "⚙️ <b>Настройки</b> — /settings\n"
-        "• Меняй язык, уровень и стиль общения.\n\n"
+        "• Меняй язык, уровень и стиль общения по прямой команде.\n\n"
         "🎛 <b>Режим</b> — /mode\n"
-        "• Выбирай, как будем общаться.\n\n"
+        "• Меняй формат общения с текстового на голосовой и обратно в любой момент. "
+        "Можно просто написать «текст» или «голос», и Мэтт поймёт.\n\n"
         "🎟️ <b>Промокод</b> — /promo\n"
-        "• Узнай срок действия кода.\n\n"
+        "• Узнай, сколько ещё действует твой промокод и не забыл ли ты его ввести.\n\n"
         "💬 <b>Обратная связь</b>\n"
-        "• Напиши разработчику."
+        "• Спроси у Мэтта, кто его создал — он даст ссылку на разработчика. "
+        "Туда можно написать отзыв или предложить сотрудничество.\n\n"
+        "…или просто зови /help в любой момент 😊"
     )
 
 
-def _help_text_en(profile: dict | None) -> str:
-    p = profile or {}
-    lang_code = p.get("target_lang", "en")
-    level = p.get("level", "B1")
-    style = {"casual": "Casual", "business": "Business"}.get(
-        p.get("style", "casual"), p.get("style", "casual")
-    )
-    code, expires = _extract_promo(p)
-    promo_line = (
-        f"🎟️ Promo code: {code} — until {expires}" if (code and expires) else "🎟️ Promo code: none"
-    )
+def _help_text_en() -> str:
     return (
-        "📖 Help is already here!\n\n"
-        f"Current: language — {_lang_human_name(lang_code)}, level — {level}, style — {style}.\n"
-        f"{promo_line}\n\n"
+        "✨ Help is here!\n\n"
         "⚙️ <b>Settings</b> — /settings\n"
-        "• Change language, level, and chat style.\n\n"
+        "• Change your language, level, and chat style.\n\n"
         "🎛 <b>Mode</b> — /mode\n"
-        "• Choose how we chat.\n\n"
+        "• Switch between text and voice anytime. You can just type “text” or “voice” — Matt will get it.\n\n"
         "🎟️ <b>Promo code</b> — /promo\n"
-        "• Check your code expiry.\n\n"
+        "• Check how long your promo is valid and whether you’ve added it.\n\n"
         "💬 <b>Feedback</b>\n"
-        "• Message the developer."
+        "• Ask Matt who created him — he’ll send a link to the developer for feedback or collaboration.\n\n"
+        "…or simply call /help anytime 😊"
     )
 
 
 def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Инлайн-клавиатура для меню помощи (без ReplyKeyboard)."""
+    """Инлайн-кнопки (без ReplyKeyboard, чтобы ничего не подставлялось в поле ввода)."""
     btn_settings = InlineKeyboardButton(
         text=("⚙️ Настройки" if lang == "ru" else "⚙️ Settings"),
         callback_data="HELP:OPEN:SETTINGS",
@@ -106,23 +72,71 @@ def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[btn_settings, btn_mode, btn_promo], [btn_contact]])
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик /help: показывает карточку и убирает висящую ReplyKeyboard."""
-    # 1) Аккуратно убираем ReplyKeyboard (пустой текст даёт 400, поэтому используем невидимый символ)
-    if update.message:
+# ---------- Форматирование промокода ----------
+
+def _format_promo_status_from_profile(p: dict, ui: str) -> str:
+    """
+    Ожидаем поля профиля:
+      promo_code_used: str | None
+      promo_type: 'timed' | 'permanent' | 'english_only' | None
+      promo_activated_at: ISO-строка (UTC) | None
+      promo_days: int | None
+    """
+    code = p.get("promo_code_used")
+    ptype = p.get("promo_type")
+    act = p.get("promo_activated_at")
+    days = p.get("promo_days")
+
+    if not code or not ptype:
+        return "🎟️ Кода пока нет — введи через /promo." if ui == "ru" else "🎟️ No code yet — add via /promo."
+
+    if ptype == "permanent":
+        return (f"🎟️ Промокод {code}: бессрочно.") if ui == "ru" else (f"🎟️ Promo {code}: permanent.")
+
+    if ptype == "english_only":
+        return (
+            f"🎟️ Промокод {code}: бессрочный, действует только для английского языка."
+            if ui == "ru"
+            else f"🎟️ Promo {code}: permanent, English only."
+        )
+
+    if ptype == "timed" and act and days:
         try:
-            await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # INVISIBLE SEPARATOR
+            dt = datetime.fromisoformat(act)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            end = dt + timedelta(days=int(days))
+            left = (end.date() - datetime.now(timezone.utc).date()).days
+            if left < 0:
+                return "🎟️ Промокод истёк." if ui == "ru" else "🎟️ Promo expired."
+            if left == 0:
+                return "🎟️ Промокод истекает сегодня!" if ui == "ru" else "🎟️ Promo expires today!"
+            # русская форма без склонений — коротко и понятно
+            return (
+                f"🎟️ Промокод активен: осталось {left} дн."
+                if ui == "ru"
+                else f"🎟️ Promo active: {left} days left."
+            )
+        except Exception:
+            return "🎟️ Промокод активирован (временной)." if ui == "ru" else "🎟️ Promo active (timed)."
+
+    return "🎟️ Промокод активирован." if ui == "ru" else "🎟️ Promo active."
+
+
+# ---------- Команды / колбэки ----------
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает карточку помощи и прячет зависшую ReplyKeyboard (если была)."""
+    if update.message:
+        # пустую строку Telegram иногда ругает — используем невидимый символ
+        try:
+            await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())
         except Exception:
             pass
 
-    # 2) Профиль всегда dict
     lang = _ui_lang(context)
-    chat_id = update.effective_chat.id if update and update.effective_chat else None
-    profile = get_user_profile(chat_id) or {}
-    profile["target_lang"] = profile.get("target_lang") or (context.user_data or {}).get("language", "en")
-    text = _help_text_ru(profile) if lang == "ru" else _help_text_en(profile)
+    text = _help_text_ru() if lang == "ru" else _help_text_en()
 
-    # 4) Карточка помощи с inline-кнопками
     if update.message:
         await update.message.reply_html(text, reply_markup=_inline_keyboard(lang))
     else:
@@ -130,12 +144,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик нажатий на кнопки меню помощи."""
+    """Обработчик инлайн-кнопок из /help (паттерн ^HELP:OPEN:)."""
     q = update.callback_query
     if not q:
         return
-
     await q.answer()
+
     data = (q.data or "")
     if not data.startswith("HELP:OPEN:"):
         return
@@ -145,11 +159,12 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = _ui_lang(context)
 
     if action == "SETTINGS":
-        # локальный импорт исключает циклическую зависимость при запуске
+        # локальный импорт, чтобы избежать циклических зависимостей при старте
         from handlers.settings import cmd_settings
         return await cmd_settings(update, context)
 
     if action == "MODE":
+        # показываем отдельным сообщением, меню помощи не трогаем
         try:
             from components.mode import get_mode_keyboard
             current_mode = context.user_data.get("mode", "text")
@@ -164,21 +179,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if action == "PROMO":
-        # показываем статус промокода отдельным сообщением (не редактируя /help)
         profile = get_user_profile(chat_id) or {}
-        code, expires = _extract_promo(profile)
-
-        if code and expires:
-            text = (
-                f"🎟️ Твой промокод: {code}\nДействует до {expires}."
-                if lang == "ru"
-                else f"🎟️ Your promo code: {code}\nValid until {expires}."
-            )
-        else:
-            text = (
-                "🎟️ Похоже, кода пока нет — не страшно! Пришлёшь, как будет 😉"
-                if lang == "ru"
-                else "🎟️ Looks like we don’t have a code yet — no rush! Send it when you do 😉"
-            )
-        await context.bot.send_message(chat_id, text)
+        line = _format_promo_status_from_profile(profile, lang)
+        await context.bot.send_message(chat_id, line)
         return
