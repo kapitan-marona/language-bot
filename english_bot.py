@@ -33,7 +33,7 @@ from handlers.commands.broadcast import broadcast_command
 from handlers.commands.promo import promo_command
 from handlers.commands.stats import stats_command
 from handlers.commands.debug import session_command
-from handlers.commands.help import help_command
+from handlers.commands.help import help_command, help_callback
 
 # ← added: настройки
 from handlers.settings import on_callback as settings_callback, cmd_settings
@@ -142,10 +142,11 @@ async def on_startup():
 
         # === Порядок важен! ===
         # 1) Сначала наш CallbackQueryHandler для настроек — БЕЗ паттернов, но с приоритетом выше общего.
+        bot_app.add_handler(CallbackQueryHandler(help_callback), group=-1)
         bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)  # ← added (priority)
 
         # 2) Хендлеры режима
-        bot_app.add_handler(CommandHandler("mode", mode_command))               # ← added
+        bot_app.add_handler(CommandHandler("mode", mode_command))
         bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)      # ← added (чтобы не перехватывался общим)
 
         # 3) Основные обработчики сообщений/команд

@@ -13,7 +13,7 @@ def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 def _help_text_ru() -> str:
     return (
-        "Помощь уже здесь!.\n\n"
+        "Помощь уже здесь!\n\n"
         "⚙️ <b>Настройки</b> — /settings\n"
         "• Меняй язык, уровень и стиль общения.\n\n"
         "🎛 <b>Режим</b> — /mode\n"
@@ -27,7 +27,7 @@ def _help_text_ru() -> str:
 
 def _help_text_en() -> str:
     return (
-        "Help is already here!.\n\n"
+        "Help is already here!\n\n"
         "⚙️ <b>Settings</b> — /settings\n"
         "• Change language, level, and chat style.\n\n"
         "🎛 <b>Mode</b> — /mode\n"
@@ -40,18 +40,18 @@ def _help_text_en() -> str:
 
 
 def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    # Кнопки без ReplyKeyboard: заполняем поле ввода с командами через switch_inline_query_current_chat
+    # Кнопки через callback_data — сразу срабатывают и не подставляют текст в поле ввода
     btn_settings = InlineKeyboardButton(
         text=("⚙️ Настройки" if lang == "ru" else "⚙️ Settings"),
-        switch_inline_query_current_chat="/settings",
+        callback_data="HELP:OPEN:SETTINGS",
     )
     btn_mode = InlineKeyboardButton(
         text=("🎛 Режим" if lang == "ru" else "🎛 Mode"),
-        switch_inline_query_current_chat="/mode",
+        callback_data="HELP:OPEN:MODE",
     )
     btn_promo = InlineKeyboardButton(
         text=("🎟️ Промокод" if lang == "ru" else "🎟️ Promo"),
-        switch_inline_query_current_chat="/promo",
+        callback_data="HELP:OPEN:PROMO",
     )
     btn_contact = InlineKeyboardButton(
         text=("💬✨ Написать разработчику" if lang == "ru" else "💬✨ Message the developer"),
@@ -68,3 +68,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_html(text, reply_markup=_inline_keyboard(lang))
     else:
         await update.effective_chat.send_message(text, reply_markup=_inline_keyboard(lang))
+
+
+# Callback для инлайн-кнопок из /help
+async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if not q:
+        return
+    await q.answer()
+    data = (q.data or "")
+    if not data.startswith("HELP:OPEN:"):
+        return
+
+    action = data.split(":", 2)[-1]
+    if action == "SETTINGS":
+        from handlers.settings import cmd_settings
+        return await cmd_settings(update, context)
+    if action == "MODE":
+        try:
+            from english_bot import mode_command
+            return await mode_command(update, context)
+        except Exception:
+            lang = _ui_lang(context)
+            return await q.edit_message_text("Отправь /mode" if lang == "ru" else "Send /mode")
+    if action == "PROMO":
+        try:
+            from handlers.commands.promo import promo_command
+            return await promo_command(update, context)
+        except Exception:
+            lang = _ui_lang(context)
+            return await q.edit_message_text("Отправь /promo" if lang == "ru" else "Send /promo")
