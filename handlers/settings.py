@@ -109,7 +109,26 @@ async def settings_on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ui = _ui_lang(context)
     chat_id = q.message.chat_id
 
-    # ЯЗЫК
+    # Открыть выбор ЯЗЫКА (со списком) — с учётом промо English-only  # NEW
+    if data == "SETTINGS:LANG":  # NEW
+        p = get_user_profile(chat_id) or {}  # NEW
+        langs = restrict_target_languages_if_needed(LANGS, p)  # NEW
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(title, callback_data=f"SET:LANG:{code}")]
+                                   for (title, code) in langs])  # NEW
+        await q.edit_message_text("Выберите язык:" if ui == "ru" else "Choose language:", reply_markup=kb)  # NEW
+        return  # NEW
+
+    # Открыть выбор УРОВНЯ — список уровней  # NEW
+    if data == "SETTINGS:LEVEL":  # NEW
+        await q.edit_message_text("Выберите уровень:" if ui == "ru" else "Choose level:", reply_markup=_level_keyboard(ui))  # NEW
+        return  # NEW
+
+    # Открыть выбор СТИЛЯ — список стилей  # NEW
+    if data == "SETTINGS:STYLE":  # NEW
+        await q.edit_message_text("Выберите стиль:" if ui == "ru" else "Choose style:", reply_markup=_style_keyboard(ui))  # NEW
+        return  # NEW
+
+    # ЯЗЫК (подтверждение конкретного кода)
     if data.startswith("SET:LANG:"):
         lang_code = data.split(":", 2)[-1]
         pending = context.user_data.setdefault("pending_changes", {})  # NEW
@@ -128,7 +147,7 @@ async def settings_on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # УРОВЕНЬ
+    # УРОВЕНЬ (подтверждение конкретного значения)
     if data.startswith("SET:LEVEL:"):
         level = data.split(":", 2)[-1]
         pending = context.user_data.setdefault("pending_changes", {})  # NEW
@@ -147,7 +166,7 @@ async def settings_on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # СТИЛЬ
+    # СТИЛЬ (подтверждение конкретного значения)
     if data.startswith("SET:STYLE:"):
         style = data.split(":", 2)[-1]
         pending = context.user_data.setdefault("pending_changes", {})  # NEW
@@ -195,3 +214,9 @@ async def settings_on_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_promo"] = True  # NEW: expect text promo code
         await q.edit_message_text("Введите промокод текстом:" if ui == "ru" else "Please type your promo code:")  # NEW
         return
+
+async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):  # NEW
+    return await settings_entry(update, context)  # NEW
+
+async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):  # NEW
+    return await settings_on_cb(update, context)  # NEW
