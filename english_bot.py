@@ -141,18 +141,13 @@ async def on_startup():
         from handlers.chat.chat_handler import handle_message
 
         # === Порядок важен! ===
-        # 1) Спец-колбэки (help/settings) с высоким приоритетом
         bot_app.add_handler(CallbackQueryHandler(help_callback), group=-1)
         bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)
-
-        # 2) Хендлеры режима
         bot_app.add_handler(CommandHandler("mode", mode_command))
         bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)
-
-        # 3) Основные обработчики сообщений/команд
         bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
         bot_app.add_handler(CommandHandler("start", send_onboarding))
-        bot_app.add_handler(CallbackQueryHandler(handle_callback_query))  # общий колбэк-хендлер проекта
+        bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
         bot_app.add_handler(CommandHandler("settings", cmd_settings))
         bot_app.add_handler(CommandHandler("admin", admin_command))
         bot_app.add_handler(CommandHandler("users", users_command))
@@ -165,13 +160,13 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-
-async def _kill_kb(update, context):
-    try:
-        await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # invis char
-    except Exception:
-        pass
-bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
+        # 4) Мягко убираем любую ReplyKeyboard после /start
+        async def _kill_kb(update, context):
+            try:
+                await update.message.reply_text("", reply_markup=ReplyKeyboardRemove())
+            except Exception:
+                pass
+        bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
 
         await bot_app.initialize()
         await bot_app.start()
@@ -183,7 +178,7 @@ bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
         else:
             logger.warning("PUBLIC_URL/RENDER_EXTERNAL_URL not set — webhook not configured automatically")
 
-    except Exception:
+    except Exception:  # ← добавлено закрытие try, чтобы не было SyntaxError
         logger.exception("Failed to initialize/start Telegram Application")
 
 
