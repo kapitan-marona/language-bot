@@ -108,21 +108,24 @@ def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик /help: показывает карточку и убирает висящую ReplyKeyboard."""
+    # 1) Аккуратно убираем ReplyKeyboard (пустой текст даёт 400, поэтому используем невидимый символ)
     if update.message:
         try:
-            await update.message.reply_text("", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # INVISIBLE SEPARATOR
         except Exception:
             pass
 
+    # 2) Профиль всегда dict
     lang = _ui_lang(context)
     user_id = update.effective_user.id if update and update.effective_user else None
-    profile = get_user_profile(user_id) if user_id else {}
+    profile = get_user_profile(user_id) or {}
 
-    # надёжно определяем изучаемый язык (из профиля или user_data)
+    # 3) Надёжно определяем изучаемый язык
     profile["target_lang"] = profile.get("target_lang") or (context.user_data or {}).get("language", "en")
 
     text = _help_text_ru(profile) if lang == "ru" else _help_text_en(profile)
 
+    # 4) Карточка помощи с inline-кнопками
     if update.message:
         await update.message.reply_html(text, reply_markup=_inline_keyboard(lang))
     else:
