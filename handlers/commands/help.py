@@ -17,38 +17,26 @@ def _help_text_ru(profile: dict | None) -> str:
     p = profile or {}
     lang = p.get("target_lang", "en")
     level = p.get("level", "B1")
-    style = {"casual": "Разговорный", "business": "Деловой"}.get(p.get("style", "casual"), p.get("style", "casual"))
+    style = {"casual": "Разговорный", "business": "Деловой"}.get(
+        p.get("style", "casual"), p.get("style", "casual")
+    )
     promo = p.get("promo")
     promo_line = (
-        f"🎟️ Промокод: {promo.get('code')} — до {promo.get('expires')}" if isinstance(promo, dict) and promo.get("code") and promo.get("expires")
+        f"🎟️ Промокод: {promo.get('code')} — до {promo.get('expires')}"
+        if isinstance(promo, dict) and promo.get("code") and promo.get("expires")
         else "🎟️ Промокод: не указан"
     )
     return (
-        "Помощь уже здесь!
-
-"
-        f"Текущие настройки: язык — {lang.upper()}, уровень — {level}, стиль — {style}.
-"
-        f"{promo_line}
-
-"
-        "⚙️ <b>Настройки</b> — /settings
-"
-        "• Меняй язык, уровень и стиль общения.
-
-"
-        "🎛 <b>Режим</b> — /mode
-"
-        "• Выбирай, как будем общаться.
-
-"
-        "🎟️ <b>Промокод</b> — /promo
-"
-        "• Узнай срок действия кода.
-
-"
-        "💬 <b>Обратная связь</b>
-"
+        "Помощь уже здесь!\n\n"
+        f"Текущие настройки: язык — {lang.upper()}, уровень — {level}, стиль — {style}.\n"
+        f"{promo_line}\n\n"
+        "⚙️ <b>Настройки</b> — /settings\n"
+        "• Меняй язык, уровень и стиль общения.\n\n"
+        "🎛 <b>Режим</b> — /mode\n"
+        "• Выбирай, как будем общаться.\n\n"
+        "🎟️ <b>Промокод</b> — /promo\n"
+        "• Узнай срок действия кода.\n\n"
+        "💬 <b>Обратная связь</b>\n"
         "• Напиши разработчику."
     )
 
@@ -57,38 +45,26 @@ def _help_text_en(profile: dict | None) -> str:
     p = profile or {}
     lang = p.get("target_lang", "en")
     level = p.get("level", "B1")
-    style = {"casual": "Casual", "business": "Business"}.get(p.get("style", "casual"), p.get("style", "casual"))
+    style = {"casual": "Casual", "business": "Business"}.get(
+        p.get("style", "casual"), p.get("style", "casual")
+    )
     promo = p.get("promo")
     promo_line = (
-        f"🎟️ Promo code: {promo.get('code')} — until {promo.get('expires')}" if isinstance(promo, dict) and promo.get("code") and promo.get("expires")
+        f"🎟️ Promo code: {promo.get('code')} — until {promo.get('expires')}"
+        if isinstance(promo, dict) and promo.get("code") and promo.get("expires")
         else "🎟️ Promo code: none"
     )
     return (
-        "Help is already here!
-
-"
-        f"Current: language — {lang.upper()}, level — {level}, style — {style}.
-"
-        f"{promo_line}
-
-"
-        "⚙️ <b>Settings</b> — /settings
-"
-        "• Change language, level, and chat style.
-
-"
-        "🎛 <b>Mode</b> — /mode
-"
-        "• Choose how we chat.
-
-"
-        "🎟️ <b>Promo code</b> — /promo
-"
-        "• Check your code expiry.
-
-"
-        "💬 <b>Feedback</b>
-"
+        "Help is already here!\n\n"
+        f"Current: language — {lang.upper()}, level — {level}, style — {style}.\n"
+        f"{promo_line}\n\n"
+        "⚙️ <b>Settings</b> — /settings\n"
+        "• Change language, level, and chat style.\n\n"
+        "🎛 <b>Mode</b> — /mode\n"
+        "• Choose how we chat.\n\n"
+        "🎟️ <b>Promo code</b> — /promo\n"
+        "• Check your code expiry.\n\n"
+        "💬 <b>Feedback</b>\n"
         "• Message the developer."
     )
 
