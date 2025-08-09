@@ -124,31 +124,18 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lang = _ui_lang(context)
 
     if action == "SETTINGS":
-        from handlers.settings import cmd_settings
         return await cmd_settings(update, context)
-
-    if action == "MODE":
-        # Покажем выбор режима отдельным сообщением, не трогая /help
-        try:
-            from components.mode import get_mode_keyboard
-            current_mode = context.user_data.get("mode", "text")
-            kb = get_mode_keyboard(current_mode, lang)
-            await context.bot.send_message(chat_id, "Выбери, как будем общаться:" if lang == "ru" else "Choose how we chat:", reply_markup=kb)
-        except Exception:
-            await context.bot.send_message(chat_id, "Отправь /mode" if lang == "ru" else "Send /mode")
-        return
 
     if action == "PROMO":
         # Покажем статус промокода отдельным сообщением
-        from components.profile_db import get_user_profile
         profile = get_user_profile(q.from_user.id)
         promo = (profile or {}).get("promo")
         if isinstance(promo, dict) and promo.get("code") and promo.get("expires"):
             text = (
-                f"🎟️ Твой промокод: {promo['code']}
-Действует до {promo['expires']}." if lang == "ru"
-                else f"🎟️ Your promo code: {promo['code']}
-Valid until {promo['expires']}."
+                f"🎟️ Твой промокод: {promo['code']}\n"
+                f"Действует до {promo['expires']}." if lang == "ru"
+                else f"🎟️ Your promo code: {promo['code']}\n"
+                     f"Valid until {promo['expires']}."
             )
         else:
             text = (
@@ -157,3 +144,4 @@ Valid until {promo['expires']}."
             )
         await context.bot.send_message(chat_id, text)
         return
+
