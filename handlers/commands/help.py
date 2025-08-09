@@ -3,17 +3,17 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
 )
 from telegram.ext import ContextTypes
+
 
 def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
     return (context.user_data or {}).get("ui_lang", "ru")
 
+
 def _help_text_ru() -> str:
     return (
-        "Привет! Я Мэтт — твой друг для английского.\n\n"
+        "Помощь уже здесь!.\n\n"
         "⚙️ <b>Настройки</b> — /settings\n"
         "• Меняй язык, уровень и стиль общения.\n\n"
         "🎛 <b>Режим</b> — /mode\n"
@@ -24,9 +24,10 @@ def _help_text_ru() -> str:
         "• Напиши разработчику."
     )
 
+
 def _help_text_en() -> str:
     return (
-        "Hey! I’m Matt — your friend for English.\n\n"
+        "Help is already here!.\n\n"
         "⚙️ <b>Settings</b> — /settings\n"
         "• Change language, level, and chat style.\n\n"
         "🎛 <b>Mode</b> — /mode\n"
@@ -37,24 +38,33 @@ def _help_text_en() -> str:
         "• Message the developer."
     )
 
-def _reply_keyboard() -> ReplyKeyboardMarkup:
-    rows = [
-        [KeyboardButton("⚙️ /settings"), KeyboardButton("🎛 /mode")],
-        [KeyboardButton("🎟️ /promo")],
-    ]
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    label = "💬 Написать разработчику" if lang == "ru" else "💬 Message the developer"
-    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url="https://t.me/marrona")]])
+    # Кнопки без ReplyKeyboard: заполняем поле ввода с командами через switch_inline_query_current_chat
+    btn_settings = InlineKeyboardButton(
+        text=("⚙️ Настройки" if lang == "ru" else "⚙️ Settings"),
+        switch_inline_query_current_chat="/settings",
+    )
+    btn_mode = InlineKeyboardButton(
+        text=("🎛 Режим" if lang == "ru" else "🎛 Mode"),
+        switch_inline_query_current_chat="/mode",
+    )
+    btn_promo = InlineKeyboardButton(
+        text=("🎟️ Промокод" if lang == "ru" else "🎟️ Promo"),
+        switch_inline_query_current_chat="/promo",
+    )
+    btn_contact = InlineKeyboardButton(
+        text=("💬✨ Написать разработчику" if lang == "ru" else "💬✨ Message the developer"),
+        url="https://t.me/marrona",
+    )
+    return InlineKeyboardMarkup([[btn_settings, btn_mode, btn_promo], [btn_contact]])
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = _ui_lang(context)
     text = _help_text_ru() if lang == "ru" else _help_text_en()
 
-    await update.message.reply_html(text, reply_markup=_reply_keyboard())
-    await update.message.reply_text(
-        "Если нужен быстрый контакт — нажми кнопку ниже:" if lang == "ru"
-        else "Need a quick contact? Tap the button below:",
-        reply_markup=_inline_keyboard(lang),
-    )
+    if update.message:
+        await update.message.reply_html(text, reply_markup=_inline_keyboard(lang))
+    else:
+        await update.effective_chat.send_message(text, reply_markup=_inline_keyboard(lang))

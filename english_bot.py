@@ -34,14 +34,19 @@ from handlers.commands.promo import promo_command
 from handlers.commands.stats import stats_command
 from handlers.commands.debug import session_command
 from handlers.commands.help import help_command
-from handlers.settings import register_settings_handlers  # ← added
+
+# ← added: настройки
+from handlers.settings import on_callback as settings_callback, cmd_settings, cmd_level, cmd_language, cmd_style  # noqa: E401
+
+# ← added: режимы
+from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES  # noqa: E401
 
 # ✅ Инициализация базы данных профилей (один раз при запуске)
 try:
     init_db()
     logger.info("Profile DB initialized")
 except Exception:
-    logger.exception("Failed to initialize profile DB")
+    logger.exception("Failed to initialize Profile DB")
 
 # ✅ Расшифровка GOOGLE_APPLICATION_CREDENTIALS_BASE64 на старте
 _tmp_creds_path: str | None = None
@@ -65,22 +70,11 @@ bot_app: Application | None = None  # будет инициализирован 
 
 
 def _guess_public_url() -> str | None:
-    """
-    Берём публичный URL из окружения.
-    Приоритет: PUBLIC_URL > RENDER_EXTERNAL_URL
-    Пример: https://english-talking-bot.onrender.com
-    """
     url = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL")
-    if url:
-        return url.rstrip("/")
-    return None
+    return url.rstrip("/") if url else None
 
 
 def _mask_secret(secret: str, keep: int = 4) -> str:
-    """
-    Маскирует WEBHOOK_SECRET_PATH для логов/ответов.
-    Пример: Dlzfd1hw_jm76qqCirdDtA -> Dlzf••••••••••••••••tA
-    """
     if not secret:
         return ""
     if len(secret) <= keep * 2:
@@ -89,26 +83,46 @@ def _mask_secret(secret: str, keep: int = 4) -> str:
 
 
 async def _ensure_webhook(app_obj: Application, base_url: str) -> None:
-    """
-    Ставит вебхук на base_url/WEBHOOK_SECRET_PATH.
-    В логах и ответах секрет НЕ раскрываем.
-    """
     url = f"{base_url}/{WEBHOOK_SECRET_PATH}"
     masked = f"{base_url}/{_mask_secret(WEBHOOK_SECRET_PATH)}"
     try:
         ok = await app_obj.bot.set_webhook(
             url=url,
-            drop_pending_updates=True,  # очищаем очередь после прошлых 500-ок
-            allowed_updates=["message", "edited_message", "callback_query"]
+            drop_pending_updates=True,
+            allowed_updates=["message", "edited_message", "callback_query"],
         )
         info = await app_obj.bot.get_webhook_info()
-        # Не логируем info.url (он содержит полный секрет), логируем только маску
         logger.info(
             "set_webhook(%s) -> %s; has_url=%s; last_error_date=%s; last_error_message=%s",
             masked, ok, bool(info.url), getattr(info, "last_error_date", None), getattr(info, "last_error_message", None)
         )
     except Exception:
         logger.exception("Failed to set webhook to %s", masked)
+
+
+# ← added: простейшие обработчики режима на базе твоего mode.py
+from telegram import InlineKeyboardMarkup  # keep import local to avoid top reordering
+
+async def mode_command(update: Update, context):
+    # храним текущий режим в user_data; UI язык — из user_data (по умолчанию ru)
+    ud = context.user_data
+    current_mode = ud.get("mode", "text")
+    ui_lang = ud.get("ui_lang", "ru")
+    kb: InlineKeyboardMarkup = get_mode_keyboard(current_mode, ui_lang)
+    await update.message.reply_text("Выбери, как будем общаться:" if ui_lang == "ru" else "Choose how we chat:", reply_markup=kb)
+
+async def mode_callback(update: Update, context):
+    q = update.callback_query
+    await q.answer()
+    data = (q.data or "")
+    if not data.startswith("mode:"):
+        return
+    _, value = data.split(":", 1)
+    context.user_data["mode"] = value
+    ui_lang = context.user_data.get("ui_lang", "ru")
+    msg = MODE_SWITCH_MESSAGES.get(value, {}).get(ui_lang, "OK")
+    kb: InlineKeyboardMarkup = get_mode_keyboard(value, ui_lang)
+    await q.edit_message_text(msg, reply_markup=kb)
 
 
 @app.on_event("startup")
@@ -123,15 +137,22 @@ async def on_startup():
         bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         bot_app.add_error_handler(on_error)
 
-        # Импорт обработчиков тут — чтобы не ловить циклические импорты
+        # Импорт обработчика чата здесь — чтобы избежать циклических импортов
         from handlers.chat.chat_handler import handle_message
 
-        # Регистрируем хендлеры
+        # === Порядок важен! ===
+        # 1) Сначала наш CallbackQueryHandler для настроек — БЕЗ паттернов, но с приоритетом выше общего.
+        bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)  # ← added (priority)
+
+        # 2) Хендлеры режима
+        bot_app.add_handler(CommandHandler("mode", mode_command))               # ← added
+        bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)      # ← added (чтобы не перехватывался общим)
+
+        # 3) Основные обработчики сообщений/команд
         bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
         bot_app.add_handler(CommandHandler("start", send_onboarding))
-        bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
+        bot_app.add_handler(CallbackQueryHandler(handle_callback_query))  # общий колбэк-хендлер проекта
 
-        # Команды для админа
         bot_app.add_handler(CommandHandler("admin", admin_command))
         bot_app.add_handler(CommandHandler("users", users_command))
         bot_app.add_handler(CommandHandler("user", user_command))
@@ -143,15 +164,10 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-        # Регистрация панели настроек
-        register_settings_handlers(bot_app)  # ← added
-
-        # ⬇️ Ждём полную инициализацию и старт (важно!)
         await bot_app.initialize()
         await bot_app.start()
         logger.info("Telegram Application initialized & started")
 
-        # ⬇️ Ставим вебхук автоматически (если знаем публичный URL)
         base_url = _guess_public_url()
         if base_url:
             await _ensure_webhook(bot_app, base_url)
@@ -165,7 +181,6 @@ async def on_startup():
 @app.on_event("shutdown")
 async def on_shutdown():
     global _tmp_creds_path, bot_app
-    # Останавливаем Application
     try:
         if bot_app:
             await bot_app.stop()
@@ -174,7 +189,6 @@ async def on_shutdown():
     except Exception:
         logger.warning("Failed to gracefully stop Telegram Application")
 
-    # Чистим временный файл с кредами (если создавали)
     if _tmp_creds_path:
         try:
             os.remove(_tmp_creds_path)
@@ -196,12 +210,6 @@ async def healthz():
 
 @app.get("/set_webhook")
 async def set_webhook(url: str = Query(default=None, description="Base public URL, e.g. https://your-app.onrender.com")):
-    """
-    Ручная установка вебхука:
-    - без параметра url берём PUBLIC_URL/RENDER_EXTERNAL_URL
-    - с параметром url используем его как базовый
-    Секрет не раскрываем в ответе/логах.
-    """
     global bot_app
     if bot_app is None:
         return JSONResponse({"ok": False, "error": "bot not ready"}, status_code=503)
@@ -214,7 +222,6 @@ async def set_webhook(url: str = Query(default=None, description="Base public UR
     return {"ok": True, "webhook_set_to": f"{base}/{_mask_secret(WEBHOOK_SECRET_PATH)}"}
 
 
-# Вебхук с секретом — сам маршрут содержит секрет, но мы его нигде не логируем.
 @app.post(f"/{WEBHOOK_SECRET_PATH}")
 async def telegram_webhook(req: Request):
     global bot_app
@@ -225,17 +232,14 @@ async def telegram_webhook(req: Request):
     try:
         body = await req.json()
     except Exception:
-        # Не выводим URL/путь запроса — там есть секрет
         logger.exception("Invalid JSON in webhook request")
         return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
 
     try:
         update = Update.de_json(body, bot_app.bot)
-        # Обрабатываем апдейт синхронно (без быстрого ACK)
         try:
             await bot_app.process_update(update)
         except RuntimeError as e:
-            # Подстраховка: если вдруг не инициализирован — доинициализируем и повторим
             if "was not initialized via `Application.initialize`" in str(e):
                 logger.warning("Lazy-initializing Application on first webhook")
                 await bot_app.initialize()
