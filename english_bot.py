@@ -140,15 +140,25 @@ async def on_startup():
         # Импорт обработчика чата здесь — чтобы избежать циклических импортов
         from handlers.chat.chat_handler import handle_message
 
-        # === Порядок важен! ===
-        bot_app.add_handler(CallbackQueryHandler(help_callback), group=-1)
-        bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)
+        # === Порядок ВАЖЕН ===
+        # 1) Наши целевые CallbackQuery-хендлеры — с паттернами и block=True
+        bot_app.add_handler(
+            CallbackQueryHandler(help_callback, pattern=r"^HELP:OPEN:", block=True),
+            group=0,
+        )
+        bot_app.add_handler(
+            CallbackQueryHandler(settings_callback, pattern=r"^(SETTINGS|SET):", block=True),
+            group=0,
+        )
+        bot_app.add_handler(
+            CallbackQueryHandler(mode_callback, pattern=r"^mode:", block=True),
+            group=0,
+        )
+
+        # 2) Команды
         bot_app.add_handler(CommandHandler("mode", mode_command))
-        bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)
-        bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
-        bot_app.add_handler(CommandHandler("start", send_onboarding))
-        bot_app.add_handler(CallbackQueryHandler(handle_callback_query))
         bot_app.add_handler(CommandHandler("settings", cmd_settings))
+        bot_app.add_handler(CommandHandler("start", send_onboarding))
         bot_app.add_handler(CommandHandler("admin", admin_command))
         bot_app.add_handler(CommandHandler("users", users_command))
         bot_app.add_handler(CommandHandler("user", user_command))
@@ -160,10 +170,16 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-        # 4) Мягко убираем любую ReplyKeyboard после /start
+        # 3) Общий CallbackQuery-хендлер — в самый конец (fallback)
+        bot_app.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
+
+        # 4) Сообщения
+        bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
+
+        # 5) Мягко убираем любую ReplyKeyboard после /start
         async def _kill_kb(update, context):
             try:
-                await update.message.reply_text("", reply_markup=ReplyKeyboardRemove())
+                await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # invis char
             except Exception:
                 pass
         bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
@@ -178,7 +194,7 @@ async def on_startup():
         else:
             logger.warning("PUBLIC_URL/RENDER_EXTERNAL_URL not set — webhook not configured automatically")
 
-    except Exception:  # ← добавлено закрытие try, чтобы не было SyntaxError
+    except Exception:
         logger.exception("Failed to initialize/start Telegram Application")
 
 
