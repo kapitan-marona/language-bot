@@ -165,13 +165,13 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-        # 4) Мягко убираем любую ReplyKeyboard после /start (если вдруг висит)
-        async def _kill_kb(update, context):
-            try:
-                await update.message.reply_text("", reply_markup=ReplyKeyboardRemove())
-            except Exception:
-                pass
-        bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
+
+async def _kill_kb(update, context):
+    try:
+        await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # invis char
+    except Exception:
+        pass
+bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
 
         await bot_app.initialize()
         await bot_app.start()

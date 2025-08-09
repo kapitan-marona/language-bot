@@ -1,6 +1,6 @@
 """
-handlers/settings.py — Панель настроек пользователя (локализовано RU/EN по ui_lang).
-Структура и логика сохранены. ВАЖНО: профиль читается/пишется по chat_id.
+handlers/settings.py — Панель настроек пользователя (RU/EN по ui_lang).
+ВАЖНО: профиль читаем/пишем по chat_id в SQLite (user_profiles.db).
 """
 from __future__ import annotations
 from typing import Dict, List, Tuple
@@ -9,7 +9,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
-
 
 # ===== Локализация UI-текстов =====
 UI = {
@@ -50,19 +49,11 @@ UI = {
         "style_map": {"casual": "Casual", "business": "Business"},
     },
 }
-
 def _t(s: Dict) -> dict:
     return UI.get(s.get("ui_lang", "ru"), UI["ru"])
 
-
 # ===== Дефолты и перечни =====
-DEFAULTS = {
-    "ui_lang": "ru",    # язык интерфейса
-    "language": "en",   # изучаемый: en/es/de
-    "style": "casual",  # casual/business
-    "level": "B1",      # A0..C2
-}
-
+DEFAULTS = {"ui_lang": "ru", "language": "en", "style": "casual", "level": "B1"}
 LEVELS: List[str] = ["A0", "A1", "A2", "B1", "B2", "C1", "C2"]
 LANGS: List[Tuple[str, str]] = [("English", "en"), ("Español", "es"), ("Deutsch", "de")]
 STYLES: List[Tuple[str, str]] = [("Разговорный", "casual"), ("Деловой", "business")]
@@ -84,15 +75,12 @@ LEVEL_GUIDE_EN = "\n".join([
     "C1–C2: advanced discussions, style nuances",
 ])
 
-
 # ===== Сессия (синхронизация с БД по chat_id) =====
 def get_session(context: ContextTypes.DEFAULT_TYPE, chat_id: int | None = None) -> Dict:
     """
     Читает профиль из БД (по chat_id), синхронизирует его в context.user_data и возвращает user_data.
     """
     ud = context.user_data
-
-    # ⬇ ЧТЕНИЕ ИЗ БД ПО CHAT_ID (раньше было по user_id)
     if chat_id is not None:
         try:
             prof = get_user_profile(chat_id) or {}
@@ -104,12 +92,9 @@ def get_session(context: ContextTypes.DEFAULT_TYPE, chat_id: int | None = None) 
             "level": prof.get("level", DEFAULTS["level"]),
             "style": prof.get("style", DEFAULTS["style"]),
         })
-
-    # гарантируем дефолты
     for k, v in DEFAULTS.items():
         ud.setdefault(k, v)
     return ud
-
 
 # ===== Клавиатуры =====
 def build_settings_menu(session: Dict) -> InlineKeyboardMarkup:
@@ -121,35 +106,27 @@ def build_settings_menu(session: Dict) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(kb)
 
-
 def build_level_kb(session: Dict) -> InlineKeyboardMarkup:
     t = _t(session)
     rows = [[InlineKeyboardButton(f"🎯 {lv}", callback_data=f"SET:level:{lv}")] for lv in LEVELS]
     rows.append([InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")])
     return InlineKeyboardMarkup(rows)
 
-
 def build_language_kb(session: Dict) -> InlineKeyboardMarkup:
     t = _t(session)
-    rows = [
-        [InlineKeyboardButton(("🇬🇧 " if code == "en" else "🇪🇸 " if code == "es" else "🇩🇪 ") + name,
-                              callback_data=f"SET:language:{code}")]
-        for name, code in LANGS
-    ]
+    rows = [[InlineKeyboardButton(("🇬🇧 " if code=="en" else "🇪🇸 " if code=="es" else "🇩🇪 ") + name,
+                                  callback_data=f"SET:language:{code}")]
+            for name, code in LANGS]
     rows.append([InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")])
     return InlineKeyboardMarkup(rows)
-
 
 def build_style_kb(session: Dict) -> InlineKeyboardMarkup:
     t = _t(session)
-    rows = [
-        [InlineKeyboardButton(("🙂 " if code == "casual" else "💼 ") + name,
-                              callback_data=f"SET:style:{code}")]
-        for name, code in STYLES
-    ]
+    rows = [[InlineKeyboardButton(("🙂 " if code=="casual" else "💼 ") + name,
+                                  callback_data=f"SET:style:{code}")]
+            for name, code in STYLES]
     rows.append([InlineKeyboardButton(t["back"], callback_data="SETTINGS:MENU")])
     return InlineKeyboardMarkup(rows)
-
 
 # ===== Форматирование заголовка =====
 def format_settings_header(s: Dict) -> str:
@@ -166,10 +143,9 @@ def format_settings_header(s: Dict) -> str:
         f"{t['menu']}"
     )
 
-
 # ===== Команды/колбэки =====
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # ⬇ БЕРЁМ CHAT_ID (важно — не user_id)
+    # читаем по chat_id (не user_id)
     chat_id = update.effective_chat.id if update and update.effective_chat else None
     s = get_session(context, chat_id)
 
@@ -179,7 +155,6 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     else:
         await update.effective_chat.send_message(text, reply_markup=build_settings_menu(s))
 
-
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q:
@@ -187,7 +162,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await q.answer()
     data = q.data or ""
 
-    # ⬇ ВСЁ ДЕЛАЕМ ПО CHAT_ID
+    # всё по chat_id
     chat_id = update.effective_chat.id if update and update.effective_chat else None
     s = get_session(context, chat_id)
     t = _t(s)
@@ -211,28 +186,27 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except ValueError:
             return
 
-        # Обновляем только выбранное поле в сессии
+        # 1) Обновляем только выбранное поле в сессии
         s[field] = value
 
-        # ⬇ СОХРАНЯЕМ В БД ПО CHAT_ID (КЛЮЧЕВОЕ МЕСТО)
+        # 2) СОХРАНЯЕМ В БД ПО CHAT_ID (ключевое место)
         try:
             if chat_id is not None:
                 save_user_profile(
-                    chat_id,  # ← используем chat_id
+                    chat_id,
                     interface_lang=s.get("ui_lang"),
                     target_lang=s.get("language"),
                     level=s.get("level"),
                     style=s.get("style"),
                 )
         except Exception:
-            # логирование можно добавить при необходимости
+            # при желании можно добавить logger.exception(...)
             pass
 
-        # Ответ-подтверждение
+        # 3) Подтверждение + свежая «шапка»
         field_h = t["field_map"].get(field, field)
         confirm = t["confirm"].format(field=field_h, value=value)
         await q.edit_message_text(confirm + "\n\n" + format_settings_header(s), reply_markup=build_settings_menu(s))
-
 
 def register_settings_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("settings", cmd_settings))
