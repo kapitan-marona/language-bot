@@ -41,10 +41,6 @@ from handlers.settings import on_callback as settings_callback, cmd_settings
 # режимы
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES  # noqa: E401
 
-# NEW: обработка текстового ввода промокодов
-from components.profile_db import get_user_profile, set_user_promo  # NEW
-from components.promo import normalize_code, check_promo_code, activate_promo  # NEW
-
 # ✅ Инициализация базы данных профилей (один раз при запуске)
 try:
     init_db()
@@ -174,77 +170,10 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
 
-        # 2.5) Локальный обработчик ТОЛЬКО для текстового ввода промокода (раньше общего)
-        async def _promo_text_handler(update: Update, context):  # NEW
-            if not getattr(update, "message", None):
-                return
-            # перехватываем только когда явно ждём промокод
-            if not context.user_data.get("awaiting_promo"):
-                return
-
-            # сбрасываем ожидание, чтобы не ловить обычные сообщения
-            context.user_data["awaiting_promo"] = False
-
-            code_raw = (update.message.text or "").strip()
-            if not code_raw:
-                return
-
-            code = normalize_code(code_raw)
-            chat_id = update.effective_chat.id
-            profile = (get_user_profile(chat_id) or {}) | {"chat_id": chat_id}
-
-            if not check_promo_code(code):
-                ui = (profile.get("interface_lang") or "ru")
-                await update.message.reply_text(
-                    "Промокод не найден 😕" if ui == "ru" else "Promo code not found 😕"
-                )
-                return
-
-            ok, reason = activate_promo(profile, code)
-            if not ok and reason == "already_used":
-                ui = (profile.get("interface_lang") or "ru")
-                await update.message.reply_text(
-                    "Промокод уже активирован ранее." if ui == "ru" else "Promo was already used."
-                )
-                return
-
-            # сохранить промо в БД
-            set_user_promo(
-                chat_id=chat_id,
-                code=code,
-                promo_type=profile.get("promo_type"),
-                activated_at=profile.get("promo_activated_at"),
-                days=profile.get("promo_days"),
-            )
-
-            # ответ пользователю
-            ui = (profile.get("interface_lang") or "ru")
-            promo_type = profile.get("promo_type")
-            days = profile.get("promo_days")
-
-            if promo_type == "timed" and days:
-                msg = "Промокод активирован! Включён тариф с ограниченным сроком." \
-                      if ui == "ru" else "Promo activated! Timed plan is on."
-            elif promo_type == "english_only":
-                msg = "Промокод активирован! Бессрочно, только для английского." \
-                      if ui == "ru" else "Promo activated! Permanent, English only."
-            elif promo_type == "permanent":
-                msg = "Промокод активирован! Бессрочный доступ." \
-                      if ui == "ru" else "Promo activated! Permanent access."
-            else:
-                msg = "Промокод активирован!" if ui == "ru" else "Promo activated!"
-
-            await update.message.reply_text(msg)
-
-        bot_app.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, _promo_text_handler),
-            group=-1,  # выполняется раньше общего обработчика сообщений
-        )
-
         # 3) Общий CallbackQuery-хендлер — в самый конец (fallback)
         bot_app.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
 
-        # 4) Сообщения (основной диалог)
+        # 4) Сообщения
         bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
 
         # 5) Мягко убираем любую ReplyKeyboard после /start
