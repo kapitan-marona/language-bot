@@ -11,7 +11,7 @@ from handlers.error_handler import on_error
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
-from telegram import Update
+from telegram import Update, ReplyKeyboardRemove, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -35,10 +35,10 @@ from handlers.commands.stats import stats_command
 from handlers.commands.debug import session_command
 from handlers.commands.help import help_command, help_callback
 
-# ← added: настройки
+# настройки
 from handlers.settings import on_callback as settings_callback, cmd_settings
 
-# ← added: режимы
+# режимы
 from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES  # noqa: E401
 
 # ✅ Инициализация базы данных профилей (один раз при запуске)
@@ -100,16 +100,16 @@ async def _ensure_webhook(app_obj: Application, base_url: str) -> None:
         logger.exception("Failed to set webhook to %s", masked)
 
 
-# ← added: простейшие обработчики режима на базе твоего mode.py
-from telegram import InlineKeyboardMarkup  # keep import local to avoid top reordering
-
+# === Режимы (команда и колбэк) ===
 async def mode_command(update: Update, context):
-    # храним текущий режим в user_data; UI язык — из user_data (по умолчанию ru)
     ud = context.user_data
     current_mode = ud.get("mode", "text")
     ui_lang = ud.get("ui_lang", "ru")
     kb: InlineKeyboardMarkup = get_mode_keyboard(current_mode, ui_lang)
-    await update.message.reply_text("Выбери, как будем общаться:" if ui_lang == "ru" else "Choose how we chat:", reply_markup=kb)
+    await update.message.reply_text(
+        "Выбери, как будем общаться:" if ui_lang == "ru" else "Choose how we chat:",
+        reply_markup=kb,
+    )
 
 async def mode_callback(update: Update, context):
     q = update.callback_query
@@ -141,19 +141,19 @@ async def on_startup():
         from handlers.chat.chat_handler import handle_message
 
         # === Порядок важен! ===
-        # 1) Сначала наш CallbackQueryHandler для настроек — БЕЗ паттернов, но с приоритетом выше общего.
+        # 1) Спец-колбэки (help/settings) с высоким приоритетом
         bot_app.add_handler(CallbackQueryHandler(help_callback), group=-1)
-        bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)  # ← added (priority)
+        bot_app.add_handler(CallbackQueryHandler(settings_callback), group=-1)
 
         # 2) Хендлеры режима
         bot_app.add_handler(CommandHandler("mode", mode_command))
-        bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)      # ← added (чтобы не перехватывался общим)
+        bot_app.add_handler(CallbackQueryHandler(mode_callback), group=-1)
 
         # 3) Основные обработчики сообщений/команд
         bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
         bot_app.add_handler(CommandHandler("start", send_onboarding))
         bot_app.add_handler(CallbackQueryHandler(handle_callback_query))  # общий колбэк-хендлер проекта
-
+        bot_app.add_handler(CommandHandler("settings", cmd_settings))
         bot_app.add_handler(CommandHandler("admin", admin_command))
         bot_app.add_handler(CommandHandler("users", users_command))
         bot_app.add_handler(CommandHandler("user", user_command))
@@ -164,6 +164,14 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("stats", stats_command))
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
+
+        # 4) Мягко убираем любую ReplyKeyboard после /start (если вдруг висит)
+        async def _kill_kb(update, context):
+            try:
+                await update.message.reply_text("", reply_markup=ReplyKeyboardRemove())
+            except Exception:
+                pass
+        bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
 
         await bot_app.initialize()
         await bot_app.start()
