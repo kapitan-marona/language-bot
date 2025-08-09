@@ -15,6 +15,7 @@ from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
+from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger  # <-- добавлено
 
 logger = logging.getLogger(__name__)
 
@@ -117,26 +118,75 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
             return
 
-        # === Универсальная обработка триггеров ===
-        user_text_norm = re.sub(r'[^\w\s]', '', user_input.lower())
+        # === Разовая озвучка без смены режима ===
+        # (если пользователь написал "озвучь"/"voice it" и т.п.)
+        if is_strict_say_once_trigger(user_input, interface_lang):
+            last_text = session.get("last_assistant_text")
+            if not last_text:
+                if interface_lang == "ru":
+                    await update.message.reply_text("Пока мне нечего озвучить. Сначала дождись моего ответа, а потом напиши «озвучь».")
+                else:
+                    await update.message.reply_text("I have nothing to voice yet. First wait for my reply, then say “voice it”.")
+                return
 
-        # --- Переключение режима по тексту (voice/text) ---
-        if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["voice"]):
+            try:
+                voice_path = synthesize_voice(
+                    last_text,
+                    LANGUAGE_CODES.get(target_lang, "en-US"),
+                    level  # в voice.py есть автонормализация параметров
+                )
+                if voice_path:
+                    with open(voice_path, "rb") as vf:
+                        await context.bot.send_voice(chat_id=chat_id, voice=vf)
+                else:
+                    if interface_lang == "ru":
+                        await update.message.reply_text("Не получилось озвучить. Попробуй ещё раз чуть позже.")
+                    else:
+                        await update.message.reply_text("Couldn’t generate audio. Please try again later.")
+            except Exception:
+                logger.exception("[One-shot TTS error]")
+                if interface_lang == "ru":
+                    await update.message.reply_text("Произошла ошибка при озвучке. Попробуем позже.")
+                else:
+                    await update.message.reply_text("An error occurred while generating audio. Let’s try later.")
+            finally:
+                return  # ВАЖНО: режим не меняем, продолжаем обычный диалог дальше
+
+        # === Универсальная обработка триггеров ===
+        # Строгое переключение режима: команда должна совпасть целиком
+        if is_strict_mode_trigger(user_input, "voice"):
             session["mode"] = "voice"
             msg = MODE_SWITCH_MESSAGES["voice"].get(interface_lang, MODE_SWITCH_MESSAGES["voice"]["en"])
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice", interface_lang))
             return
 
-        if any(trigger in user_text_norm for trigger in MODE_TRIGGERS["text"]):
+        if is_strict_mode_trigger(user_input, "text"):
             session["mode"] = "text"
             msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
             await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
+        # Мягкая подсказка: если фраза "похожа", но не точная команда — не отправляем в GPT
+        user_text_norm = user_input.lower()
+        if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["voice"]):
+            if interface_lang == "ru":
+                await update.message.reply_text("Если хочешь перейти в голосовой режим — просто напиши **голос** 😉", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("To switch to voice mode, just type **voice** 😉", parse_mode="Markdown")
+            return
+
+        if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["text"]):
+            if interface_lang == "ru":
+                await update.message.reply_text("Чтобы перейти в текстовый режим, напиши **текст** 🙂", parse_mode="Markdown")
+            else:
+                await update.message.reply_text("To switch to text mode, type **text** 🙂", parse_mode="Markdown")
+            return
+
         # --- Обработка запроса про создателя/разработчика ---
         found_trigger = False
+        norm_for_creator = re.sub(r'[^\w\s]', '', user_input.lower())
         for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
-            if trig in user_text_norm:
+            if trig in norm_for_creator:
                 found_trigger = True
                 break
 
@@ -179,8 +229,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 logger.exception("[Ошибка отправки голоса]")
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + assistant_reply)
+            finally:
+                session["last_assistant_text"] = assistant_reply  # <-- фиксируем последний ответ ассистента
         else:
             await update.message.reply_text(assistant_reply)
+            session["last_assistant_text"] = assistant_reply  # <-- фиксируем последний ответ ассистента
 
     except Exception:
         logger.exception("[ОШИБКА в handle_message]")
