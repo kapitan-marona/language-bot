@@ -34,6 +34,7 @@ from handlers.commands.promo import promo_command
 from handlers.commands.stats import stats_command
 from handlers.commands.debug import session_command
 from handlers.commands.help import help_command
+from handlers.settings import register_settings_handlers  # ← added
 
 # ✅ Инициализация базы данных профилей (один раз при запуске)
 try:
@@ -141,6 +142,9 @@ async def on_startup():
         bot_app.add_handler(CommandHandler("stats", stats_command))
         bot_app.add_handler(CommandHandler("session", session_command))
         bot_app.add_handler(CommandHandler("help", help_command))
+
+        # Регистрация панели настроек
+        register_settings_handlers(bot_app)  # ← added
 
         # ⬇️ Ждём полную инициализацию и старт (важно!)
         await bot_app.initialize()
