@@ -117,12 +117,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # 2) Профиль всегда dict
     lang = _ui_lang(context)
-    user_id = update.effective_user.id if update and update.effective_user else None
-    profile = get_user_profile(user_id) or {}
-
-    # 3) Надёжно определяем изучаемый язык
+    chat_id = update.effective_chat.id if update and update.effective_chat else None
+    profile = get_user_profile(chat_id) or {}
     profile["target_lang"] = profile.get("target_lang") or (context.user_data or {}).get("language", "en")
-
     text = _help_text_ru(profile) if lang == "ru" else _help_text_en(profile)
 
     # 4) Карточка помощи с inline-кнопками
@@ -168,8 +165,9 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if action == "PROMO":
         # показываем статус промокода отдельным сообщением (не редактируя /help)
-        profile = get_user_profile(q.from_user.id) or {}
+        profile = get_user_profile(chat_id) or {}
         code, expires = _extract_promo(profile)
+
         if code and expires:
             text = (
                 f"🎟️ Твой промокод: {code}\nДействует до {expires}."
