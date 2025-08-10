@@ -1,1 +1,1 @@
-worker: python english_bot.py
+web: uvicorn english_bot:app --host 0.0.0.0 --port $PORT
