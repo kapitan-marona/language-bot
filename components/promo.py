@@ -2,6 +2,7 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
+from components.promo_texts import PROMO_STATUS, promo_status_timed_left
 
 # Список доступных промокодов (ключи в нижнем регистре)
 PROMO_CODES: Dict[str, Dict[str, Any]] = {
@@ -144,40 +145,49 @@ def _parse_iso(dt: Optional[str]) -> Optional[datetime]:
         return None
 
 def format_promo_status_for_user(profile: dict) -> str:
-    code_used = (profile.get("promo_code_used") or "").strip()
+    """
+    Короткий статус в одну строку, без эмодзи.
+    Источник текста: components.promo_texts (PROMO_STATUS / promo_status_timed_left)
+    """
+    from datetime import datetime, timedelta, timezone
+
     ptype = (profile.get("promo_type") or "").strip()
-    days_total = profile.get("promo_days")
-    activated_at = _parse_iso(profile.get("promo_activated_at"))
-    now = datetime.now(timezone.utc)
+    if not ptype:
+        return PROMO_STATUS["not_activated"]
 
-    # Бессрочные
+    # Бессрочные промо
     if ptype in ("permanent", "english_only"):
-        if normalize_code(code_used) in ("western",):
-            return "♾️ действует бессрочно\n🇬🇧 открывает английский язык"
-        else:
-            return "❤️ бессрочный\n❤️ действует всегда\n❤️ открывает все языки"
+        return PROMO_STATUS["permanent"]
 
-    # Временные
+    # Временные промо
     if ptype == "timed":
-        if activated_at and days_total:
-            expires = activated_at + timedelta(days=int(days_total))
-            left = max(expires - now, timedelta(0))
-        else:
-            left = timedelta(0)
+        iso = profile.get("promo_activated_at")
+        days = profile.get("promo_days")
+        if not iso or not days:
+            return PROMO_STATUS["timed_unknown"]
 
-        norm = normalize_code(code_used)
-        if norm in ("friend", "друг"):
-            return f"⏳ действует ещё {_human_time_left(left)}\n🌐 открывает все языки и возможности\n🕊️ без ограничений"
-        if norm == "0825":
-            end_of_month = (now.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
-            left_em = max(end_of_month - now, timedelta(0))
-            left_days = max(0, int(left_em.total_seconds() // 86400))
-            return f"⏳ действует до конца месяца — ещё {left_days} {_plural_ru_days(left_days)}\n🌐 открывает все языки и возможности\n🕊️ без ограничений"
+        try:
+            activated = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            if activated.tzinfo is None:
+                activated = activated.replace(tzinfo=timezone.utc)
+        except Exception:
+            return PROMO_STATUS["timed_unknown"]
 
-        return f"⏳ действует ещё {_human_time_left(left)}\n🌐 открывает все языки и возможности\n🕊️ без ограничений"
+        now = datetime.now(timezone.utc)
+        expires = activated + timedelta(days=int(days))
+        left = expires - now
+        if left.total_seconds() <= 0:
+            return PROMO_STATUS["expired"]
 
-    # Нет активного промо
-    return "🎟️ промокод не активирован\nℹ️ отправь: /promo <код>"
+        # округляем в сторону большего до целых дней
+        total_seconds = int(left.total_seconds())
+        days_left = (total_seconds + 86399) // 86400  # ceil по дням
+
+        return promo_status_timed_left(days_left)
+
+    # на всякий случай
+    return PROMO_STATUS["timed_unknown"]
+
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
