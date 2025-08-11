@@ -3,17 +3,14 @@ import time
 import random
 import re
 import tempfile
-from io import BytesIO
 import openai
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 from config.config import ADMINS
 
-from components.gpt_client import ask_gpt, transcribe_audio, synthesize_tts
-from components.voice import synthesize_voice  # (fallback)
-# Prefer OpenAI TTS:
-from components.gpt_client import synthesize_tts
+from components.gpt_client import ask_gpt
+from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
@@ -133,20 +130,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             try:
-                audio_bytes = await synthesize_tts(last_text, voice="alloy")
-                if audio_bytes:
-                    await context.bot.send_audio(chat_id=chat_id, audio=BytesIO(audio_bytes), filename="reply.mp3", title="Bot reply")
+                voice_path = synthesize_voice(
+                    last_text,
+                    LANGUAGE_CODES.get(target_lang, "en-US"),
+                    level  # в voice.py есть автонормализация параметров
+                )
+                if voice_path:
+                    with open(voice_path, "rb") as vf:
+                        await context.bot.send_voice(chat_id=chat_id, voice=vf)
                 else:
-                    # Fallback to old pipeline
-                    voice_path = synthesize_voice(last_text, LANGUAGE_CODES.get(target_lang, "en-US"), level)
-                    if voice_path:
-                        with open(voice_path, "rb") as vf:
-                            await context.bot.send_voice(chat_id=chat_id, voice=vf)
+                    if interface_lang == "ru":
+                        await update.message.reply_text("Не получилось озвучить. Попробуй ещё раз чуть позже.")
                     else:
-                        if interface_lang == "ru":
-                            await update.message.reply_text("Не получилось озвучить. Попробуй ещё раз чуть позже.")
-                        else:
-                            await update.message.reply_text("Couldn't generate voice right now. Try again later.")
+                        await update.message.reply_text("Couldn’t generate audio. Please try again later.")
+            except Exception:
+                logger.exception("[One-shot TTS error]")
+                if interface_lang == "ru":
+                    await update.message.reply_text("Произошла ошибка при озвучке. Попробуем позже.")
+                else:
+                    await update.message.reply_text("An error occurred while generating audio. Let’s try later.")
+            finally:
                 return  # ВАЖНО: режим не меняем, продолжаем обычный диалог дальше
 
         # === Универсальная обработка триггеров ===
@@ -215,17 +218,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # --- Ответ: текст или голос ---
         if mode == "voice":
+            voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
             try:
-                tts_bytes = await synthesize_tts(assistant_reply, voice="alloy")
-                if tts_bytes:
-                    await context.bot.send_audio(chat_id=chat_id, audio=BytesIO(tts_bytes), filename="reply.mp3", title="Bot reply")
-                    if level in ["A0", "A1", "A2"]:
-                        await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
-                else:
-                    # Fallback to legacy voice path
-                    voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
-                    with open(voice_path, "rb") as vf:
-                        await context.bot.send_voice(chat_id=chat_id, voice=vf)
+                with open(voice_path, "rb") as vf:
+                    await context.bot.send_voice(chat_id=chat_id, voice=vf)
+                if level == "A0":
+                    await context.bot.send_message(chat_id=chat_id, text=f"{assistant_reply}\n\n 💌")
+                elif level in ["A1", "A2"]:
+                    await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
             except Exception:
                 logger.exception("[Ошибка отправки голоса]")
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + assistant_reply)

@@ -11,7 +11,7 @@ BASE_URL = "https://english-talking-bot.onrender.com"  # Render URL
 if not TOKEN or not WEBHOOK_SECRET_PATH:
     raise ValueError("TELEGRAM_TOKEN or WEBHOOK_SECRET_PATH is missing from .env")
 
-WEBHOOK_URL = f"{BASE_URL}/{WEBHOOK_SECRET_PATH}"
+WEBHOOK_URL = f"{BASE_URL}/webhook/{WEBHOOK_SECRET_PATH}"
 url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
 
 print(f"Registering webhook at: {WEBHOOK_URL}")
