@@ -125,8 +125,8 @@ def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /settings или вызов из HELP:OPEN:SETTINGS — показать главное меню настроек.
 
-    FIX: используем context.bot.send_message вместо update.message.reply_text,
-    чтобы корректно работать при callback (update.message == None).
+    Если вызов из callback, редактируем текущее сообщение, чтобы не плодить дубликаты.
+    Если вызов из /settings, отправляем новое сообщение.
     """
     ui = _ui_lang(context)
     chat_id = update.effective_chat.id
@@ -140,6 +140,18 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
 
     text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note)
+
+    q = getattr(update, "callback_query", None)
+    if q and q.message:
+        # Вызов из инлайн-кнопки: не создаём новое сообщение, а редактируем текущее
+        await q.edit_message_text(text, reply_markup=_menu_keyboard(ui))
+        try:
+            await q.answer()
+        except Exception:
+            pass
+        return
+
+    # Обычная команда /settings: отправляем новое сообщение
     await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui))
 
 
