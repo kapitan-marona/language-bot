@@ -1,0 +1,56 @@
+
+*** Begin Patch
+*** Update File: handlers/commands/promo.py
+@@
+-def _format_status_for_user(profile: dict) -> str:
++def format_promo_status_for_user(profile: dict) -> str:
+@@
+-            await update.message.reply_text(_format_status_for_user(profile))
++            await update.message.reply_text(format_promo_status_for_user(profile))
+             return
+@@
+-    await update.message.reply_text(_format_status_for_user(profile))
++    await update.message.reply_text(format_promo_status_for_user(profile))
+*** End Patch
+*** Begin Patch
+*** Update File: english_bot.py
+@@
+-from handlers.conversation_callback import handle_callback_query
++from handlers.conversation_callback import handle_callback_query
++from handlers.commands.promo import promo_command
+@@
+-    app_obj.add_handler(CommandHandler("help", help_command))
++    app_obj.add_handler(CommandHandler("help", help_command))
++    app_obj.add_handler(CommandHandler("promo", promo_command))
+*** End Patch
+*** Begin Patch
+*** Update File: handlers/conversation_callback.py
+@@
+-from telegram import Update
+-from telegram.ext import ContextTypes
++from telegram import Update
++from telegram.ext import ContextTypes
++from components.profile_db import get_user_profile
++from handlers.commands.promo import format_promo_status_for_user
+@@
+ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     q = update.callback_query
+     data = q.data or ""
+@@
+-    # existing logic...
++    # existing logic...
++
++    # === HELP: Promo button ===
++    if data == "HELP:OPEN:PROMO":
++        chat_id = update.effective_chat.id
++        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
++        text = format_promo_status_for_user(profile)
++        try:
++            await q.answer()  # close spinner
++            # показываем статус отдельным сообщением, чтобы не рушить Help
++            await context.bot.send_message(chat_id=chat_id, text=text)
++        except Exception:
++            # как fallback — хотя бы ответим в колбэке
++            await q.answer(text=text, show_alert=True)
++        return
+*** End Patch
