@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
+from components.profile_db import get_user_profile, save_user_profile  # <-- добавлено
 from utils.decorators import safe_handler
 from components.promo_texts import PROMO_ASK, PROMO_SUCCESS, PROMO_FAIL, PROMO_ALREADY_USED
 from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT, TARGET_LANG_PROMPT
@@ -115,6 +116,20 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Активируем промокод
     success, reason = activate_promo(session, promo_code)
     if success:
+        # сохраняем промо в БД: /promo и кнопка в /help увидят тот же статус
+        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
+        profile["promo_code_used"] = session.get("promo_code_used")
+        profile["promo_type"] = session.get("promo_type")
+        profile["promo_activated_at"] = session.get("promo_activated_at")
+        profile["promo_days"] = session.get("promo_days")
+        save_user_profile(
+            chat_id,
+            promo_code_used=profile.get("promo_code_used"),
+            promo_type=profile.get("promo_type"),
+            promo_activated_at=profile.get("promo_activated_at"),
+            promo_days=profile.get("promo_days"),
+        )
+
         await context.bot.send_message(
             chat_id=chat_id,
             text=PROMO_SUCCESS.get(lang_code, PROMO_SUCCESS["en"]),
