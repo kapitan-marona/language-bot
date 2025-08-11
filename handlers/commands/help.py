@@ -10,6 +10,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile
+from components.promo import format_promo_status_for_user
 
 
 def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -72,65 +73,6 @@ def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[btn_settings, btn_mode, btn_promo], [btn_contact]])
 
 
-# ---------- Промокоды (новый + старый формат) ----------
-
-def _format_promo_status_from_profile(p: dict, ui: str) -> str:
-    """
-    Поддерживает новый и старый форматы профиля:
-      Новый: promo_code_used, promo_type, promo_activated_at (ISO, UTC), promo_days
-      Старый: promo={code,expires} ИЛИ promo_code (+ promo_expires)
-    """
-    # Новый формат
-    code = p.get("promo_code_used")
-    ptype = p.get("promo_type")
-    act = p.get("promo_activated_at")
-    days = p.get("promo_days")
-
-    # Старый формат (fallback)
-    if not code or not ptype:
-        legacy = p.get("promo")
-        if isinstance(legacy, dict):
-            lcode = legacy.get("code")
-            lexp = legacy.get("expires")
-            if lcode and lexp:
-                return (f"🎟️ Промокод: {lcode} — до {lexp}"
-                        if ui == "ru" else f"🎟️ Promo code: {lcode} — until {lexp}")
-        lcode = p.get("promo_code") or p.get("promoCode")
-        lexp = p.get("promo_expires") or p.get("promoExpires")
-        if lcode and lexp:
-            return (f"🎟️ Промокод: {lcode} — до {lexp}"
-                    if ui == "ru" else f"🎟️ Promo code: {lcode} — until {lexp}")
-
-    if not code or not ptype:
-        return "🎟️ Кода пока нет — введи через /promo." if ui == "ru" else "🎟️ No code yet — add via /promo."
-
-    if ptype == "permanent":
-        return (f"🎟️ Промокод {code}: бессрочно."
-                if ui == "ru" else f"🎟️ Promo {code}: permanent.")
-
-    if ptype == "english_only":
-        return ("🎟️ Промокод {0}: бессрочный, действует только для английского языка."
-                .format(code) if ui == "ru" else f"🎟️ Promo {code}: permanent, English only.")
-
-    if ptype == "timed" and act and days:
-        try:
-            dt = datetime.fromisoformat(act)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            end = dt + timedelta(days=int(days))
-            left = (end.date() - datetime.now(timezone.utc).date()).days
-            if left < 0:
-                return "🎟️ Промокод истёк." if ui == "ru" else "🎟️ Promo expired."
-            if left == 0:
-                return "🎟️ Промокод истекает сегодня!" if ui == "ru" else "🎟️ Promo expires today!"
-            return (f"🎟️ Промокод активен: осталось {left} дн."
-                    if ui == "ru" else f"🎟️ Promo active: {left} days left.")
-        except Exception:
-            return "🎟️ Промокод активирован (временной)." if ui == "ru" else "🎟️ Promo active (timed)."
-
-    return "🎟️ Промокод активирован." if ui == "ru" else "🎟️ Promo active."
-
-
 # ---------- Команды / колбэки ----------
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -155,7 +97,10 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     q = update.callback_query
     if not q:
         return
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass
 
     data = (q.data or "")
     if not data.startswith("HELP:OPEN:"):
@@ -175,6 +120,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             from components.mode import get_mode_keyboard
             current_mode = context.user_data.get("mode", "text")
             kb = get_mode_keyboard(current_mode, lang)
+            # режим оставляем как есть — отдельным сообщением
             await context.bot.send_message(
                 chat_id,
                 "Выбери, как будем общаться:" if lang == "ru" else "Choose how we chat:",
@@ -185,7 +131,13 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if action == "PROMO":
-        profile = get_user_profile(chat_id) or {}
-        line = _format_promo_status_from_profile(profile, lang)
-        await context.bot.send_message(chat_id, line)
+        # единый путь как у /promo: один текст, без дублей
+        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
+        text = format_promo_status_for_user(profile)
+        # редактируем текущую карточку /help, чтобы не было второго сообщения
+        try:
+            await q.edit_message_text(text=text)
+        except Exception:
+            # если редактировать нельзя (например, удалено) — отправим одно новое
+            await context.bot.send_message(chat_id, text)
         return
