@@ -35,6 +35,10 @@ from handlers.commands.teach import (
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
+# ВОЗВРАЩАЕМ ПРЕЖНЮЮ МЕХАНИКУ /start и /reset
+from handlers.commands.reset import reset_command
+from components.onboarding import send_onboarding
+
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
 from components.training_db import init_training_db
@@ -133,7 +137,9 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
 def setup_handlers(app_: Application):
     app_.add_error_handler(on_error)
 
-    # Команды
+    # Команды (вернули /start и /reset)
+    app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
+    app_.add_handler(CommandHandler("reset", reset_command))
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
 
@@ -162,6 +168,7 @@ def setup_handlers(app_: Application):
 
     # Универсальный роутер callback’ов онбординга/режимов (в самом конце, без паттерна)
     app_.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
+
 
 # -----------------------------------------------------------------------------
 # Инициализация БД и запуск/останов PTB
