@@ -6,7 +6,8 @@ from telegram.ext import ContextTypes
 from components.profile_db import save_user_profile, get_user_profile
 
 Product = Literal["pro_30d"]
-XTR_CURRENCY = "XTR"
+
+XTR_CURRENCY = "XTR"  # Stars валюта
 
 def plan_price_xtr(product: Product) -> list[LabeledPrice]:
     if product == "pro_30d":
@@ -27,20 +28,18 @@ def compute_expiry(profile: dict | None, days: int = 30) -> datetime:
                 pass
     return base + timedelta(days=days)
 
-async def send_stars_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, product: Product = "pro_30d") -> None:
-    # Тексты вынесли излишне — оставим прямо тут, чтобы не ловить ещё один импорт
-    ui = ctx.user_data.get("ui_lang", "ru")
-    title = "Доступ English Talking — 30 дней" if ui == "ru" else "English Talking Access — 30 days"
-    desc  = "Подписка на 30 дней: безлимитные диалоги в тексте и голосе." if ui == "ru" else "30-day access: unlimited text & voice practice."
-    prices = plan_price_xtr(product)
+async def send_stars_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, product: Product) -> None:
+    title = "English Talking — 30 дней"
+    desc = "Безлимитные диалоги в тексте и голосе на 30 дней."
     payload = f"{product}:{update.effective_user.id}"
+
     await update.effective_chat.send_invoice(
         title=title,
         description=desc,
         payload=payload,
+        provider_token="",  # пустая строка для Stars
         currency=XTR_CURRENCY,
-        prices=prices,
-        api_kwargs={},  # для Stars provider_token не нужен
+        prices=plan_price_xtr(product),
     )
 
 async def precheckout_ok(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -57,7 +56,9 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         last_payment_charge_id=sp.telegram_payment_charge_id,
     )
     ui = ctx.user_data.get("ui_lang", "ru")
-    msg = ("✅ Оплата прошла! Доступ активен до {d}. Приятной практики!"
-           if ui == "ru" else
-           "✅ Payment complete! Access active until {d}. Enjoy!").format(d=until.date().isoformat())
+    msg = (
+        f"✅ Оплата прошла! Доступ активен до {until.date().isoformat()}. Приятной практики!"
+        if ui == "ru"
+        else f"✅ Payment complete! Access active until {until.date().isoformat()}. Enjoy!"
+    )
     await update.message.reply_text(msg)
