@@ -5,6 +5,7 @@ from telegram.constants import MessageEntityType
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
+from components.promo import is_promo_valid  # добавили проверку промокодов
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
@@ -30,16 +31,23 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_countable_message(update):
         return
     user_id = update.effective_user.id
-    if has_access(user_id):
+
+    # Если есть премиум-доступ или активный промокод — пропускаем
+    if has_access(user_id) or is_promo_valid(user_id):
         return
+
     used = get_usage(user_id)
     lang = _ui_lang(ctx)
+
     if used >= FREE_DAILY_LIMIT:
         await (update.message or update.edited_message).reply_text(OFFER["limit_reached"][lang])
         raise ApplicationHandlerStop
+
     used = increment_usage(user_id)
+
     if used == REMIND_AFTER:
         await (update.message or update.edited_message).reply_text(OFFER["reminder_after_10"][lang])
+
     if used > FREE_DAILY_LIMIT:
         await (update.message or update.edited_message).reply_text(OFFER["limit_reached"][lang])
         raise ApplicationHandlerStop

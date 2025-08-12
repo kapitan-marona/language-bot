@@ -97,12 +97,16 @@ def format_promo_status_for_user(profile: dict) -> str:
     return f"{header}\n{details}"
 
 
+def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
+    # язык интерфейса, который ты уже используешь в других местах
+    return ctx.user_data.get("ui_lang", "ru")
+
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Пользовательская команда:
     - /promo              → показать статус
-    - /promo <код>        → активировать код и показать статус
+    - /promo <код>        → активировать код и показать статус (+ явное сообщение, что лимит снят)
     """
     chat_id = update.effective_chat.id
     args = context.args or []
@@ -116,6 +120,7 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         ok, msg = activate_promo(profile, code)
         if ok:
+            # сохраняем состояние промокода
             save_user_profile(
                 chat_id,
                 promo_code_used=profile.get("promo_code_used"),
@@ -123,7 +128,12 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 promo_activated_at=profile.get("promo_activated_at"),
                 promo_days=profile.get("promo_days"),
             )
+            # показываем статус промокода
             await update.message.reply_text(format_promo_status_for_user(profile))
+            # и явное подтверждение, что лимит снят — сразу можно продолжать диалог
+            ui = _ui_lang(context)
+            tail = "✅ Лимит сообщений снят — можно продолжать!" if ui == "ru" else "✅ Message limit removed — you can continue!"
+            await update.message.reply_text(tail)
             return
         else:
             await update.message.reply_text(msg or "⚠️ не удалось активировать промокод")
