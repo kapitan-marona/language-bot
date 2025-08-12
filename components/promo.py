@@ -144,49 +144,93 @@ def _parse_iso(dt: Optional[str]) -> Optional[datetime]:
     except Exception:
         return None
 
-def format_promo_status_for_user(profile: dict) -> str:
+def _days_word_ru(n: int) -> str:
+    n = abs(n) % 100
+    if 11 <= n <= 14:
+        return "дней"
+    last = n % 10
+    if last == 1:
+        return "день"
+    if 2 <= last <= 4:
+        return "дня"
+    return "дней"
+
+def _days_word_en(n: int) -> str:
+    return "day" if abs(n) == 1 else "days"
+
+def format_promo_status_for_user(profile: dict, lang: str = "ru") -> str:
     """
-    Короткий статус в одну строку, без эмодзи.
-    Источник текста: components.promo_texts (PROMO_STATUS / promo_status_timed_left)
+    Единое сообщение:
+      1-я строка — заголовок с кодом (на нужном языке)
+      Ниже — детали по строкам (на нужном языке)
+    Если промокод не активирован — возвращаем дружелюбный двухстрочный текст.
     """
     from datetime import datetime, timedelta, timezone
+    from components.promo_texts import PROMO_HEADER_TPL, PROMO_DETAILS
+    # защита от неожиданного значения языка
+    lang = "en" if lang == "en" else "ru"
 
+    code_used = (profile.get("promo_code_used") or "").strip()
     ptype = (profile.get("promo_type") or "").strip()
+    days_total = profile.get("promo_days")
+    iso = profile.get("promo_activated_at")
+
     if not ptype:
-        return PROMO_STATUS["not_activated"]
+        return PROMO_DETAILS[lang]["not_active"]
 
-    # Бессрочные промо
+    # Заголовок (если кода нет, просто "Промокод:" / "Promo code:")
+    header = PROMO_HEADER_TPL[lang].format(code=code_used or "" ).strip()
+    if header.endswith(":") and not code_used:
+        # уберем лишний пробел перед двоеточием, если code пуст
+        header = header.replace("  ", " ")
+
+    # PERMANENT / ENGLISH ONLY
     if ptype in ("permanent", "english_only"):
-        return PROMO_STATUS["permanent"]
+        body = PROMO_DETAILS[lang]["english_only"] if ptype == "english_only" \
+               else PROMO_DETAILS[lang]["permanent_all"]
+        return f"{header}\n{body}"
 
-    # Временные промо
+    # TIMED
     if ptype == "timed":
-        iso = profile.get("promo_activated_at")
-        days = profile.get("promo_days")
-        if not iso or not days:
-            return PROMO_STATUS["timed_unknown"]
+        # вычисляем оставшиеся дни (ceil)
+        if not iso or not days_total:
+            body = PROMO_DETAILS[lang]["timed_generic"].format(
+                days="?", days_word=_days_word_en(2) if lang == "en" else _days_word_ru(2)
+            )
+            return f"{header}\n{body}"
 
         try:
-            activated = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-            if activated.tzinfo is None:
-                activated = activated.replace(tzinfo=timezone.utc)
+            dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
         except Exception:
-            return PROMO_STATUS["timed_unknown"]
+            body = PROMO_DETAILS[lang]["timed_generic"].format(
+                days="?", days_word=_days_word_en(2) if lang == "en" else _days_word_ru(2)
+            )
+            return f"{header}\n{body}"
 
         now = datetime.now(timezone.utc)
-        expires = activated + timedelta(days=int(days))
-        left = expires - now
-        if left.total_seconds() <= 0:
-            return PROMO_STATUS["expired"]
+        end = dt + timedelta(days=int(days_total))
+        left_seconds = int((end - now).total_seconds())
+        if left_seconds <= 0:
+            # истёк — дружелюбно вернем not_active/expired? оставим явный not_active body
+            return PROMO_DETAILS[lang]["not_active"]
 
-        # округляем в сторону большего до целых дней
-        total_seconds = int(left.total_seconds())
-        days_left = (total_seconds + 86399) // 86400  # ceil по дням
+        # ceil до дней
+        days_left = (left_seconds + 86399) // 86400
+        dw = _days_word_en(days_left) if lang == "en" else _days_word_ru(days_left)
 
-        return promo_status_timed_left(days_left)
+        # спец-кейс "до конца месяца" (0825)
+        norm = normalize_code(code_used)
+        if norm == "0825":
+            body = PROMO_DETAILS[lang]["timed_end_of_month"].format(days=days_left, days_word=dw)
+        else:
+            body = PROMO_DETAILS[lang]["timed_generic"].format(days=days_left, days_word=dw)
 
-    # на всякий случай
-    return PROMO_STATUS["timed_unknown"]
+        return f"{header}\n{body}"
+
+    # неизвестный тип
+    return f"{header}\n{PROMO_DETAILS[lang]['unknown_type']}"
 
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -1,273 +1,182 @@
+# english_bot.py
+from __future__ import annotations
+
 import os
-import base64
-import tempfile
 import logging
+from typing import Optional
 
-from config.logging_config import setup_logging
-setup_logging()
-logger = logging.getLogger(__name__)
-
-from handlers.error_handler import on_error
-
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
-from telegram import Update, ReplyKeyboardRemove, InlineKeyboardMarkup
+
+from telegram import Update
 from telegram.ext import (
     Application,
-    ApplicationBuilder,
-    MessageHandler,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
+    PreCheckoutQueryHandler,  # NEW: для Telegram Stars pre_checkout
     filters,
 )
 
-from config.config import TELEGRAM_TOKEN, WEBHOOK_SECRET_PATH
-from components.profile_db import init_db
-from components.onboarding import send_onboarding
-from handlers.conversation_callback import handle_callback_query
-from handlers.commands.admin import admin_command
-from handlers.commands.user import users_command, user_command
-from handlers.commands.reset import reset_command
-from handlers.commands.test import test_command
-from handlers.commands.broadcast import broadcast_command
-from handlers.commands.promo import promo_command
-from handlers.commands.stats import stats_command
-from handlers.commands.debug import session_command
-from handlers.commands.help import help_command, help_callback
+# === наши компоненты/хендлеры ===
+from handlers.commands.help import help_command
+from handlers.commands.payments import buy_command  # NEW
+from components.payments import precheckout_ok, on_successful_payment  # NEW
+from handlers.middleware.usage_gate import usage_gate  # NEW
+from handlers.commands.teach import (  # NEW
+    build_teach_handler,
+    consent_on,
+    consent_off,
+    glossary_cmd,
+)
+from handlers.callbacks.menu import menu_router  # NEW
+from handlers.callbacks import how_to_pay_game  # NEW
 
-# настройки
-from handlers.settings import on_callback as settings_callback, cmd_settings
+from components.profile_db import init_db as init_profiles_db  # NEW
+from components.usage_db import init_usage_db  # NEW
+from components.training_db import init_training_db  # NEW
 
-# режимы
-from components.mode import get_mode_keyboard, MODE_SWITCH_MESSAGES  # noqa: E401
+# -----------------------------------------------------------------------------
+# Инициализация
+# -----------------------------------------------------------------------------
+load_dotenv()
 
-# ✅ Инициализация базы данных профилей (один раз при запуске)
-try:
-    init_db()
-    logger.info("Profile DB initialized")
-except Exception:
-    logger.exception("Failed to initialize Profile DB")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN is not set")
 
-# ✅ Расшифровка GOOGLE_APPLICATION_CREDENTIALS_BASE64 на старте
-_tmp_creds_path: str | None = None
-encoded = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_BASE64")
-if encoded:
-    try:
-        decoded = base64.b64decode(encoded)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
-            f.write(decoded)
-            _tmp_creds_path = f.name
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _tmp_creds_path
-        logger.info("Google credentials decoded to temp file")
-    except Exception:
-        logger.exception("Failed to decode GOOGLE_APPLICATION_CREDENTIALS_BASE64")
+WEBHOOK_SECRET_PATH = os.getenv("WEBHOOK_SECRET_PATH")
+if not WEBHOOK_SECRET_PATH:
+    raise RuntimeError("WEBHOOK_SECRET_PATH is not set")
 
-# FastAPI-приложение
-app = FastAPI()
+PUBLIC_URL = os.getenv("PUBLIC_URL")  # например, https://english-talking-bot.onrender.com
+TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")  # NEW: секрет для подписи апдейтов
 
-# Telegram-приложение (бот)
-bot_app: Application | None = None  # будет инициализирован при запуске
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("english-bot")
+
+app = FastAPI(title="English Talking Bot")
+
+# Создаём приложение python-telegram-bot
+bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 
-def _guess_public_url() -> str | None:
-    url = os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL")
-    return url.rstrip("/") if url else None
+# -----------------------------------------------------------------------------
+# Обработчики ошибок
+# -----------------------------------------------------------------------------
+async def on_error(update: Optional[Update], context):
+    logger.exception("Unhandled error: %s", context.error)
 
 
-def _mask_secret(secret: str, keep: int = 4) -> str:
-    if not secret:
-        return ""
-    if len(secret) <= keep * 2:
-        return "•" * len(secret)
-    return f"{secret[:keep]}{'•'*(len(secret)-2*keep)}{secret[-keep:]}"
-
-
-async def _ensure_webhook(app_obj: Application, base_url: str) -> None:
-    url = f"{base_url}/{WEBHOOK_SECRET_PATH}"
-    masked = f"{base_url}/{_mask_secret(WEBHOOK_SECRET_PATH)}"
-    try:
-        ok = await app_obj.bot.set_webhook(
-            url=url,
-            drop_pending_updates=True,
-            allowed_updates=["message", "edited_message", "callback_query"],
-        )
-        info = await app_obj.bot.get_webhook_info()
-        logger.info(
-            "set_webhook(%s) -> %s; has_url=%s; last_error_date=%s; last_error_message=%s",
-            masked, ok, bool(info.url), getattr(info, "last_error_date", None), getattr(info, "last_error_message", None)
-        )
-    except Exception:
-        logger.exception("Failed to set webhook to %s", masked)
-
-
-# === Режимы (команда и колбэк) ===
-async def mode_command(update: Update, context):
-    ud = context.user_data
-    current_mode = ud.get("mode", "text")
-    ui_lang = ud.get("ui_lang", "ru")
-    kb: InlineKeyboardMarkup = get_mode_keyboard(current_mode, ui_lang)
-    await update.message.reply_text(
-        "Выбери, как будем общаться:" if ui_lang == "ru" else "Choose how we chat:",
-        reply_markup=kb,
-    )
-
-async def mode_callback(update: Update, context):
-    q = update.callback_query
-    await q.answer()
-    data = (q.data or "")
-    if not data.startswith("mode:"):
-        return
-    _, value = data.split(":", 1)
-    context.user_data["mode"] = value
-    ui_lang = context.user_data.get("ui_lang", "ru")
-    msg = MODE_SWITCH_MESSAGES.get(value, {}).get(ui_lang, "OK")
-    kb: InlineKeyboardMarkup = get_mode_keyboard(value, ui_lang)
-    await q.edit_message_text(msg, reply_markup=kb)
-
-
-@app.on_event("startup")
-async def on_startup():
-    global bot_app
-
-    if not TELEGRAM_TOKEN:
-        logger.error("TELEGRAM_TOKEN is not set")
-        return
-
-    try:
-        bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        bot_app.add_error_handler(on_error)
-
-        # Импорт обработчика чата здесь — чтобы избежать циклических импортов
-        from handlers.chat.chat_handler import handle_message
-
-        # === Порядок ВАЖЕН ===
-        # 1) Наши целевые CallbackQuery-хендлеры — с паттернами и block=True
-        bot_app.add_handler(
-            CallbackQueryHandler(help_callback, pattern=r"^HELP:OPEN:", block=True),
-            group=0,
-        )
-        bot_app.add_handler(
-            CallbackQueryHandler(settings_callback, pattern=r"^(SETTINGS|SET):", block=True),
-            group=0,
-        )
-        bot_app.add_handler(
-            CallbackQueryHandler(mode_callback, pattern=r"^mode:", block=True),
-            group=0,
-        )
-
-        # 2) Команды
-        bot_app.add_handler(CommandHandler("mode", mode_command))
-        bot_app.add_handler(CommandHandler("settings", cmd_settings))
-        bot_app.add_handler(CommandHandler("start", send_onboarding))
-        bot_app.add_handler(CommandHandler("admin", admin_command))
-        bot_app.add_handler(CommandHandler("users", users_command))
-        bot_app.add_handler(CommandHandler("user", user_command))
-        bot_app.add_handler(CommandHandler("reset", reset_command))
-        bot_app.add_handler(CommandHandler("test", test_command))
-        bot_app.add_handler(CommandHandler("broadcast", broadcast_command))
-        bot_app.add_handler(CommandHandler("promo", promo_command))
-        bot_app.add_handler(CommandHandler("stats", stats_command))
-        bot_app.add_handler(CommandHandler("session", session_command))
-        bot_app.add_handler(CommandHandler("help", help_command))
-
-        # 3) Общий CallbackQuery-хендлер — в самый конец (fallback)
-        bot_app.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
-
-        # 4) Сообщения
-        bot_app.add_handler(MessageHandler((filters.TEXT | filters.VOICE) & ~filters.COMMAND, handle_message))
-
-        # 5) Мягко убираем любую ReplyKeyboard после /start
-        async def _kill_kb(update, context):
-            try:
-                await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())  # invis char
-            except Exception:
-                pass
-        bot_app.add_handler(CommandHandler("start", _kill_kb), group=-1)
-
-        await bot_app.initialize()
-        await bot_app.start()
-        logger.info("Telegram Application initialized & started")
-
-        base_url = _guess_public_url()
-        if base_url:
-            await _ensure_webhook(bot_app, base_url)
-        else:
-            logger.warning("PUBLIC_URL/RENDER_EXTERNAL_URL not set — webhook not configured automatically")
-
-    except Exception:
-        logger.exception("Failed to initialize/start Telegram Application")
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    global _tmp_creds_path, bot_app
-    try:
-        if bot_app:
-            await bot_app.stop()
-            await bot_app.shutdown()
-            logger.info("Telegram Application stopped")
-    except Exception:
-        logger.warning("Failed to gracefully stop Telegram Application")
-
-    if _tmp_creds_path:
-        try:
-            os.remove(_tmp_creds_path)
-            logger.info("Removed temp Google credentials file")
-        except Exception:
-            logger.warning("Failed to remove temp Google credentials file")
-        _tmp_creds_path = None
-
-
-@app.get("/")
-async def root():
-    return {"ok": True}
-
-
+# -----------------------------------------------------------------------------
+# Роуты FastAPI
+# -----------------------------------------------------------------------------
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
 
-@app.get("/set_webhook")
-async def set_webhook(url: str = Query(default=None, description="Base public URL, e.g. https://your-app.onrender.com")):
-    global bot_app
-    if bot_app is None:
-        return JSONResponse({"ok": False, "error": "bot not ready"}, status_code=503)
-
-    base = (url or _guess_public_url())
-    if not base:
-        return JSONResponse({"ok": False, "error": "no base url; set PUBLIC_URL or provide ?url="}, status_code=400)
-
-    await _ensure_webhook(bot_app, base)
-    return {"ok": True, "webhook_set_to": f"{base}/{_mask_secret(WEBHOOK_SECRET_PATH)}"}
-
-
 @app.post(f"/{WEBHOOK_SECRET_PATH}")
 async def telegram_webhook(req: Request):
-    global bot_app
-    if bot_app is None:
-        logger.error("bot_app is None on webhook call")
-        return JSONResponse({"ok": False, "error": "bot not ready"}, status_code=503)
+    # проверка секрета (если задан)
+    if TELEGRAM_WEBHOOK_SECRET_TOKEN:
+        got = req.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if got != TELEGRAM_WEBHOOK_SECRET_TOKEN:
+            logger.warning("Forbidden: bad webhook secret token")
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
 
+    # читаем JSON безопасно
     try:
-        body = await req.json()
-    except Exception:
-        logger.exception("Invalid JSON in webhook request")
-        return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
+        data = await req.json()
+    except Exception as e:
+        logger.warning("Bad JSON in webhook: %s", e)
+        return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
 
+    # парсим Update и отдаём в PTB
     try:
-        update = Update.de_json(body, bot_app.bot)
-        try:
-            await bot_app.process_update(update)
-        except RuntimeError as e:
-            if "was not initialized via `Application.initialize`" in str(e):
-                logger.warning("Lazy-initializing Application on first webhook")
-                await bot_app.initialize()
-                await bot_app.start()
-                await bot_app.process_update(update)
-            else:
-                raise
-        return {"ok": True}
-    except Exception:
-        logger.exception("Error while processing update")
-        return JSONResponse({"ok": False, "error": "processing error"}, status_code=500)
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.process_update(update)
+    except Exception as e:
+        # важно: не отдаём 500, чтобы Telegram не заспамил ретраями
+        logger.exception("Webhook handling error: %s", e)
+        return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
+
+    return {"ok": True}
+
+
+
+# Утилита для ручной установки вебхука (например, через браузер/студио)
+@app.get("/set_webhook")
+async def set_webhook(url: Optional[str] = Query(default=None)):
+    """
+    Устанавливает вебхук. Если параметр url не передан, собирает из PUBLIC_URL.
+    """
+    target = url or (f"{PUBLIC_URL.rstrip('/')}/{WEBHOOK_SECRET_PATH}" if PUBLIC_URL else None)
+    if not target:
+        return JSONResponse({"ok": False, "error": "PUBLIC_URL is not set"}, status_code=400)
+
+    logger.info("Setting webhook to %s", target)
+    ok = await bot_app.bot.set_webhook(
+        url=target,
+        drop_pending_updates=True,
+        allowed_updates=["message", "edited_message", "callback_query", "pre_checkout_query"],  # NEW
+        secret_token=TELEGRAM_WEBHOOK_SECRET_TOKEN or None,  # NEW: Telegram будет слать этот же токен в заголовке
+    )
+    return {"ok": ok, "url": target}
+
+
+# -----------------------------------------------------------------------------
+# Регистрация хендлеров Telegram
+# -----------------------------------------------------------------------------
+def setup_handlers(app_: Application):
+    # Ошибки
+    app_.add_error_handler(on_error)
+
+    # Команды
+    app_.add_handler(CommandHandler("help", help_command))
+    app_.add_handler(CommandHandler("buy", buy_command))  # NEW
+
+    # «Режим обучения» (глоссарий)
+    app_.add_handler(CommandHandler("consent_on", consent_on))   # NEW
+    app_.add_handler(CommandHandler("consent_off", consent_off)) # NEW
+    app_.add_handler(CommandHandler("glossary", glossary_cmd))   # NEW
+    app_.add_handler(build_teach_handler())                      # NEW
+
+    # Платежи Stars
+    app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))                    # NEW
+    app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))  # NEW
+
+    # Кнопки меню
+    app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))  # NEW
+
+    # Интерактивная инструкция «Как оплатить?»
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))  # NEW
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how, pattern=r"^htp_how$", block=True))      # NEW
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit, pattern=r"^htp_exit$", block=True))    # NEW
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))   # NEW
+
+    # Гейт лимитов (15/сутки) — ставим «выше» основного обработчика диалога
+    app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, usage_gate), group=0)  # NEW
+
+
+# -----------------------------------------------------------------------------
+# Инициализация БД и запуск
+# -----------------------------------------------------------------------------
+def init_databases():
+    init_profiles_db()  # NEW
+    init_usage_db()     # NEW
+    init_training_db()  # NEW
+
+
+@app.on_event("startup")
+async def on_startup():
+    init_databases()         # NEW
+    setup_handlers(bot_app)  # NEW
+    logger.info("Bot application is ready")
+
+
+# -----------------------------------------------------------------------------
+# Локальный запуск Uvicorn:
+# uvicorn english_bot:app --host 0.0.0.0 --port 8000
+# -----------------------------------------------------------------------------

@@ -90,18 +90,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    # <<< ВАЖНО: этот блок ДОЛЖЕН быть на верхнем уровне, как сосед остальных if >>>
-    if data == "HELP:OPEN:PROMO":
-        chat_id = query.message.chat_id
-        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
-        text = format_promo_status_for_user(profile)
-        try:
-            await query.answer()  # закрыть «крутилку»
-            await context.bot.send_message(chat_id=chat_id, text=text)
-        except Exception:
-            await query.answer(text=text, show_alert=True)
-        return
-
     # Если дошли сюда — неизвестный callback_data
     logger.warning("Unhandled callback_data: %r", data)
     try:
