@@ -14,3 +14,8 @@ async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.message.chat.send_message("/promo")
     elif data == "open:sub":
         await q.message.chat.send_message("/buy")
+    elif data == "open:teach":
+        await q.message.chat.send_message("/teach")
+    elif data == "open:glossary":
+        await q.message.chat.send_message("/glossary")
+

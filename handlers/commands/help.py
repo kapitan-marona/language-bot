@@ -1,143 +1,80 @@
-# handlers/commands/help.py
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardRemove,
-)
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
+from components.offer_texts import OFFER
 from components.profile_db import get_user_profile
-from components.promo import format_promo_status_for_user
+from components.usage_db import get_usage
+from components.access import has_access
 
 
-def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
-    """Язык интерфейса (по умолчанию RU)."""
-    return (context.user_data or {}).get("ui_lang", "ru")
+def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
+    return ctx.user_data.get("ui_lang", "ru")
 
 
-# ---------- Текстовые блоки ----------
-
-def _help_text_ru() -> str:
-    return (
-        "✨ Помощь уже здесь!\n\n"
-        "⚙️ <b>Настройки</b> — /settings\n"
-        "• Меняй язык, уровень и стиль общения по прямой команде.\n\n"
-        "🎛 <b>Режим</b> — /mode\n"
-        "• Меняй формат общения с текстового на голосовой и обратно в любой момент. "
-        "Можно просто написать «текст» или «голос», и Мэтт поймёт.\n\n"
-        "🎟️ <b>Промокод</b> — /promo\n"
-        "• Скоро тут будет подсказка по использованию промокодов.\n\n"
-        "💬 <b>Обратная связь</b>\n"
-        "• Спроси у Мэтта, кто его создал — он даст ссылку на разработчика. "
-        "Туда можно написать отзыв или предложить сотрудничество.\n\n"
-        "…или просто зови /help в любой момент 😊"
-    )
-
-
-def _help_text_en() -> str:
-    return (
-        "✨ Help is here!\n\n"
-        "⚙️ <b>Settings</b> — /settings\n"
-        "• Change your language, level, and chat style.\n\n"
-        "🎛 <b>Mode</b> — /mode\n"
-        "• Switch between text and voice anytime. You can just type “text” or “voice” — Matt will get it.\n\n"
-        "🎟️ <b>Promo code</b> — /promo\n"
-        "• Soon there will be a hint about using promo codes.\n\n"
-        "💬 <b>Feedback</b>\n"
-        "• Ask Matt who created him — he’ll send a link to the developer for feedback or collaboration.\n\n"
-        "…or simply call /help anytime 😊"
-    )
-
-
-def _inline_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Инлайн-кнопки (без ReplyKeyboard)."""
-    btn_settings = InlineKeyboardButton(
-        text=("⚙️ Настройки" if lang == "ru" else "⚙️ Settings"),
-        callback_data="HELP:OPEN:SETTINGS",
-    )
-    btn_mode = InlineKeyboardButton(
-        text=("🎛 Режим" if lang == "ru" else "🎛 Mode"),
-        callback_data="HELP:OPEN:MODE",
-    )
-    btn_promo = InlineKeyboardButton(
-        text=("🎟️ Промокод" if lang == "ru" else "🎟️ Promo"),
-        callback_data="HELP:OPEN:PROMO",
-    )
-    btn_contact = InlineKeyboardButton(
-        text=("💬✨ Написать разработчику" if lang == "ru" else "💬✨ Message the developer"),
-        url="https://t.me/marrona",
-    )
-    return InlineKeyboardMarkup([[btn_settings, btn_mode, btn_promo], [btn_contact]])
-
-
-# ---------- Команды / колбэки ----------
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показывает карточку помощи и прячет зависшую ReplyKeyboard (если была)."""
-    if update.message:
-        try:
-            await update.message.reply_text("\u2063", reply_markup=ReplyKeyboardRemove())
-        except Exception:
-            pass
-
-    lang = _ui_lang(context)
-    text = _help_text_ru() if lang == "ru" else _help_text_en()
-
-    if update.message:
-        await update.message.reply_html(text, reply_markup=_inline_keyboard(lang))
+def _help_text(user_id: int, ui: str) -> str:
+    used = get_usage(user_id)
+    if has_access(user_id):
+        header = OFFER["help_premium_header"][ui]
+        card = OFFER["premium_card"][ui].format(date=(get_user_profile(user_id) or {}).get("premium_expires_at", "—"), used=used)
     else:
-        await update.effective_chat.send_message(text, reply_markup=_inline_keyboard(lang))
+        header = OFFER["help_free_header"][ui]
+        card = OFFER["free_card"][ui].format(used=used)
+
+    # Список команд — все они зарегистрированы в english_bot.py
+    # /start — запуск онбординга (через send_onboarding)
+    # /reset — очистка сессии + онбординг
+    # /buy — покупка через Stars (invoice)
+    # /donate — поддержать проект (кнопка ведёт к htp_buy)
+    # /promo — промокод
+    # /teach, /glossary — режим корректировок
+    common = OFFER["help_body_common"][ui]
+    return f"*{header}*\n{card}\n\n{common}"
 
 
-async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик инлайн-кнопок из /help (паттерн ^HELP:OPEN:)."""
-    q = update.callback_query
-    if not q:
-        return
-    try:
-        await q.answer()
-    except Exception:
-        pass
+def _help_keyboard(ui: str, premium: bool) -> InlineKeyboardMarkup:
+    # Все callback_data привязаны к существующим хендлерам:
+    # open:settings -> handlers/callbacks/menu.menu_router => "/donate", "/promo", "/buy" и т.п.
+    # htp_start     -> handlers/callbacks/how_to_pay_game.how_to_pay_entry (текстовая игра «Как оплатить?»)
+    # htp_buy       -> handlers/callbacks/how_to_pay_game.how_to_pay_go_buy -> buy_command (invoice)
+    rows = []
 
-    data = (q.data or "")
-    if not data.startswith("HELP:OPEN:"):
-        return
+    # Настройки (внутреннее меню)
+    rows.append([InlineKeyboardButton("⚙️ Settings" if ui == "en" else "⚙️ Настройки", callback_data="open:settings")])
 
-    action = data.split(":", 2)[-1]
-    chat_id = q.message.chat.id
-    lang = _ui_lang(context)
+    # Оплата
+    buy_label = "Buy 30 days — 149 ⭐" if ui == "en" else "Купить 30 дней — 149 ⭐"
+    how_label = "How to pay?" if ui == "en" else "Как оплатить?"
+    rows.append([
+        InlineKeyboardButton(buy_label, callback_data="htp_buy"),
+        InlineKeyboardButton(how_label, callback_data="htp_start"),
+    ])
 
-    if action == "SETTINGS":
-        # локальный импорт, чтобы избежать циклических зависимостей при старте
-        from handlers.settings import cmd_settings
-        return await cmd_settings(update, context)
+    # Промокод и поддержка
+    promo_label = "Promo code" if ui == "en" else "Промокод"
+    donate_label = "Support" if ui == "en" else "Поддержать"
+    rows.append([
+        InlineKeyboardButton(promo_label, callback_data="open:promo"),
+        InlineKeyboardButton(donate_label, callback_data="open:donate"),
+    ])
 
-    if action == "MODE":
-        try:
-            from components.mode import get_mode_keyboard
-            current_mode = context.user_data.get("mode", "text")
-            kb = get_mode_keyboard(current_mode, lang)
-            # режим оставляем как есть — отдельным сообщением
-            await context.bot.send_message(
-                chat_id,
-                "Выбери, как будем общаться:" if lang == "ru" else "Choose how we chat:",
-                reply_markup=kb,
-            )
-        except Exception:
-            await context.bot.send_message(chat_id, "Отправь /mode" if lang == "ru" else "Send /mode")
-        return
+    # Быстрые команды как кнопки (удобно на мобилках)
+    rows.append([
+        InlineKeyboardButton("/teach", callback_data="open:teach"),
+        InlineKeyboardButton("/glossary", callback_data="open:glossary"),
+    ])
 
-    if action == "PROMO":
-        # единый путь как у /promo: один текст, без дублей
-        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
-        text = format_promo_status_for_user(profile)
-        # редактируем текущую карточку /help, чтобы не было второго сообщения
-        try:
-            await q.edit_message_text(text=text)
-        except Exception:
-            # если редактировать нельзя (например, удалено) — отправим одно новое
-            await context.bot.send_message(chat_id, text)
-        return
+    # Прямые команды / ссылки бот-команд — остаются в тексте (см. _help_text)
+    return InlineKeyboardMarkup(rows)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ui = _ui_lang(context)
+    user_id = update.effective_user.id
+    is_premium = has_access(user_id)
+
+    text = _help_text(user_id, ui)
+    kb = _help_keyboard(ui, is_premium)
+
+    # В /help команда приходит как message
+    await update.message.reply_markdown(text, reply_markup=kb)

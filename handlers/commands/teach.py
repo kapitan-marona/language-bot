@@ -4,13 +4,23 @@ from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, Mess
 from components.training_db import set_consent, has_consent, add_glossary, get_glossary
 
 ASK_SRC_DST = 1
-ASK_PHRASE = 2
-ASK_CORR = 3
+ASK_PHRASE  = 2
+ASK_CORR    = 3
+
+def _split_pair(text: str):
+    # поддержим разделители: " - ", " — ", " -> ", " → "
+    for sep in [" — ", " - ", " -> ", " → "]:
+        if sep in text:
+            a, b = text.split(sep, 1)
+            return a.strip(), b.strip()
+    return None, None
 
 async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_consent(update.effective_user.id, True)
     await update.message.reply_text(
-        "Спасибо! Режим корректировок включён. Используй /teach для добавления исправлений."
+        "Режим корректировок включён. Команда /teach:\n"
+        "• Вариант 1 (коротко): сразу пришли пару «фраза — как правильно» (по умолчанию en→ru)\n"
+        "• Вариант 2 (пошагово): укажи направление en→ru, затем фразу, затем исправление."
     )
 
 async def consent_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -19,37 +29,62 @@ async def consent_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_consent(update.effective_user.id):
-        await update.message.reply_text("Сначала включи согласие на корректировки: /consent_on")
+        await update.message.reply_text("Сначала включи согласие: /consent_on")
         return ConversationHandler.END
-    await update.message.reply_text("Укажи направление в формате src→dst (например: en→ru):")
+
+    # Если пользователь сразу прислал «фраза — исправление», примем без лишних шагов
+    t = (update.message.text or "").strip()
+    if t and " " in t:
+        phrase, corr = _split_pair(t)
+        if phrase and corr:
+            add_glossary(update.effective_user.id, "en", "ru", phrase, corr)
+            await update.message.reply_text("✅ Записал. Ещё пример — снова /teach, список — /glossary.")
+            return ConversationHandler.END
+
+    await update.message.reply_text("Укажи направление в формате en→ru (или присылай сразу: «фраза — как правильно»).")
     return ASK_SRC_DST
 
 async def teach_src_dst(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").lower().replace(" ", "")
+    t = (update.message.text or "").strip()
+
+    # Если пользователь тут же прислал пару «фраза — исправление», тоже примем (дефолт en→ru)
+    phrase, corr = _split_pair(t)
+    if phrase and corr:
+        add_glossary(update.effective_user.id, "en", "ru", phrase, corr)
+        await update.message.reply_text("✅ Записал. Ещё пример — /teach, список — /glossary.")
+        return ConversationHandler.END
+
+    text = t.lower().replace(" ", "")
     if "->" in text:
         src, dst = text.split("->", 1)
     elif "→" in text:
         src, dst = text.split("→", 1)
     else:
-        await update.message.reply_text("Нужно в формате en→ru")
+        await update.message.reply_text("Нужно в формате en→ru или пришли сразу: «фраза — как правильно».")
         return ASK_SRC_DST
+
     ctx.user_data["teach_src"] = src
     ctx.user_data["teach_dst"] = dst
-    await update.message.reply_text("Введи фразу, которую нужно поправить:")
+    await update.message.reply_text("Окей. Пришли фразу (без перевода).")
     return ASK_PHRASE
 
 async def teach_phrase(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["teach_phrase"] = (update.message.text or "").strip()
-    await update.message.reply_text("Как правильно её трактовать/переводить?")
+    await update.message.reply_text("Теперь пришли, как правильно её трактовать/переводить.")
     return ASK_CORR
 
 async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    src = ctx.user_data.get("teach_src")
-    dst = ctx.user_data.get("teach_dst")
+    src = ctx.user_data.get("teach_src", "en")
+    dst = ctx.user_data.get("teach_dst", "ru")
     phrase = ctx.user_data.get("teach_phrase")
     corr = (update.message.text or "").strip()
+    if not phrase:
+        # на случай, если пользователь прислал пару на последнем шаге
+        p, c = _split_pair(corr)
+        if p and c:
+            phrase, corr = p, c
     add_glossary(update.effective_user.id, src, dst, phrase, corr)
-    await update.message.reply_text("Супер, записал. Добавить ещё — /teach. Посмотреть — /glossary")
+    await update.message.reply_text("✅ Готово. Ещё — /teach. Посмотреть — /glossary.")
     return ConversationHandler.END
 
 async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

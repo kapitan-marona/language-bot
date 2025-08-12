@@ -34,6 +34,7 @@ from handlers.commands.teach import (
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
+from handlers.commands.donate import donate_command
 
 # ВОЗВРАЩАЕМ ПРЕЖНЮЮ МЕХАНИКУ /start и /reset
 from handlers.commands.reset import reset_command
@@ -142,6 +143,7 @@ def setup_handlers(app_: Application):
     app_.add_handler(CommandHandler("reset", reset_command))
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
+    app_.add_handler(CommandHandler("donate", donate_command))
 
     # Teach/Glossary
     app_.add_handler(CommandHandler("consent_on", consent_on))
@@ -162,9 +164,11 @@ def setup_handlers(app_: Application):
 
     # Гейт лимитов (15/сутки) — должен стоять раньше основного диалога
     app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, usage_gate), group=0)
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
     # Основной диалог (после гейта)
     app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, handle_message), group=1)
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND | filters.VOICE | filters.AUDIO, handle_message), group=1)
 
     # Универсальный роутер callback’ов онбординга/режимов (в самом конце, без паттерна)
     app_.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
