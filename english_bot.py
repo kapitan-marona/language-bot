@@ -20,6 +20,7 @@ from telegram.ext import (
 )
 
 # === наши компоненты/хендлеры ===
+from handlers.conversation_callback import conversation_callback
 from handlers.commands.help import help_command
 from handlers.commands.payments import buy_command
 from components.payments import precheckout_ok, on_successful_payment
@@ -157,6 +158,7 @@ def setup_handlers(app_: Application):
 
     # Гейт лимитов (15/сутки) — ставим «выше» основного обработчика диалога
     app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, usage_gate), group=0)
+    app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, conversation_callback), group=1)
 
 
 # -----------------------------------------------------------------------------
