@@ -5,7 +5,8 @@ from telegram.constants import MessageEntityType
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
-from components.promo import is_promo_valid  # добавили проверку промокодов
+from components.promo import is_promo_valid          # ✅ проверка активного промо по профилю
+from components.profile_db import get_user_profile   # ✅ берём профиль пользователя
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
@@ -30,17 +31,29 @@ def _is_countable_message(update: Update) -> bool:
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_countable_message(update):
         return
+
     user_id = update.effective_user.id
 
-    # Если есть премиум-доступ или активный промокод — пропускаем
-    if has_access(user_id) or is_promo_valid(user_id):
+    # 1) Премиум — всегда пропускаем
+    if has_access(user_id):
         return
 
+    # 2) Активный промокод — тоже пропускаем
+    profile = get_user_profile(user_id) or {}
+    if is_promo_valid(profile):
+        return
+
+    # 3) Счётчик бесплатных сообщений
     used = get_usage(user_id)
     lang = _ui_lang(ctx)
 
     if used >= FREE_DAILY_LIMIT:
-        await (update.message or update.edited_message).reply_text(OFFER["limit_reached"][lang])
+        await (update.message or update.edited_message).reply_text(
+            OFFER["limit_reached"][lang]
+            + ("\n\n💡 " + ("Введите /promo для активации промокода и продолжения."
+                            if lang == "ru" else
+                            "Enter /promo to activate a promo code and continue."))
+        )
         raise ApplicationHandlerStop
 
     used = increment_usage(user_id)
@@ -49,5 +62,10 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await (update.message or update.edited_message).reply_text(OFFER["reminder_after_10"][lang])
 
     if used > FREE_DAILY_LIMIT:
-        await (update.message or update.edited_message).reply_text(OFFER["limit_reached"][lang])
+        await (update.message or update.edited_message).reply_text(
+            OFFER["limit_reached"][lang]
+            + ("\n\n💡 " + ("Введите /promo для активации промокода и продолжения."
+                            if lang == "ru" else
+                            "Enter /promo to activate a promo code and continue."))
+        )
         raise ApplicationHandlerStop
