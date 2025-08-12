@@ -20,7 +20,8 @@ from telegram.ext import (
 )
 
 # === наши компоненты/хендлеры ===
-from handlers.conversation_callback import conversation_callback
+from handlers.chat.chat_handler import handle_message
+from handlers.conversation_callback import handle_callback_query
 from handlers.commands.help import help_command
 from handlers.commands.payments import buy_command
 from components.payments import precheckout_ok, on_successful_payment
@@ -130,14 +131,13 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
 # Регистрация хендлеров Telegram
 # -----------------------------------------------------------------------------
 def setup_handlers(app_: Application):
-    # Ошибки
     app_.add_error_handler(on_error)
 
     # Команды
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
 
-    # «Режим обучения» (глоссарий)
+    # Teach/Glossary
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
@@ -147,19 +147,21 @@ def setup_handlers(app_: Application):
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # Кнопки меню
+    # Кнопки меню / спец-паттерны
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
-
-    # Интерактивная инструкция «Как оплатить?»
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
-    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how, pattern=r"^htp_how$", block=True))
-    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit, pattern=r"^htp_exit$", block=True))
-    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how,   pattern=r"^htp_how$",   block=True))
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit,  pattern=r"^htp_exit$",  block=True))
+    app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy,pattern=r"^htp_buy$",   block=True))
 
-    # Гейт лимитов (15/сутки) — ставим «выше» основного обработчика диалога
+    # Гейт лимитов (15/сутки) — должен стоять раньше основного диалога
     app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, usage_gate), group=0)
-    app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, conversation_callback), group=1)
 
+    # Основной диалог (после гейта)
+    app_.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.AUDIO, handle_message), group=1)
+
+    # Универсальный роутер callback’ов онбординга/режимов (в самом конце, без паттерна)
+    app_.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
 
 # -----------------------------------------------------------------------------
 # Инициализация БД и запуск/останов PTB
@@ -186,6 +188,11 @@ async def on_shutdown():
     await bot_app.stop()
     await bot_app.shutdown()
     logger.info("Bot application is stopped")
+
+
+@app.get("/")
+async def root():
+    return {"ok": True, "service": "english-talking-bot"}
 
 
 # -----------------------------------------------------------------------------
