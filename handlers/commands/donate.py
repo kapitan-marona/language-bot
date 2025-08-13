@@ -11,14 +11,14 @@ async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Нажми /buy — оформи доступ на 30 дней за 149 ⭐ (это тоже поддержка).\n\n"
             "Если увидишь кнопку *Get Stars* — пополни ⭐ и вернись к счёту."
         )
-        btns = [[InlineKeyboardButton("Оформить доступ (/buy)", callback_data="htp_buy")]]
+        btns = [[InlineKeyboardButton("Оформить доступ (/buy)", callback_data="open:sub")]]
     else:
         text = (
             "Thanks for supporting the project! 🙌\n\n"
-            "Support is available via Telegram Stars.\n"
-            "Tap /buy — get 30-day access for 149 ⭐ (that supports the project, too).\n\n"
-            "If you see *Get Stars*, top up ⭐ and return to the invoice."
+            "You can support via Telegram Stars.\n"
+            "Tap /buy — 30 days Premium for 149 ⭐ (this supports the project too).\n\n"
+            "If you see *Get Stars* — top up ⭐ and return to the invoice."
         )
-        btns = [[InlineKeyboardButton("Proceed to /buy", callback_data="htp_buy")]]
+        btns = [[InlineKeyboardButton("Get Premium (/buy)", callback_data="open:sub")]]
 
-    await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(btns))
+    await update.effective_message.reply_text(text, reply_markup=InlineKeyboardMarkup(btns))

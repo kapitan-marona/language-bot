@@ -1,6 +1,11 @@
 from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes
+from handlers import settings
+from handlers.commands.promo import promo_command
+from handlers.commands.donate import donate_command
+from handlers.commands.teach import teach_start, glossary_cmd
+from handlers.commands.payments import buy_command
 
 async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -8,14 +13,16 @@ async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await q.answer()
     data = q.data
-    if data == "open:donate":
-        await q.message.chat.send_message("/donate")
-    elif data == "open:promo":
-        await q.message.chat.send_message("/promo")
-    elif data == "open:sub":
-        await q.message.chat.send_message("/buy")
-    elif data == "open:teach":
-        await q.message.chat.send_message("/teach")
-    elif data == "open:glossary":
-        await q.message.chat.send_message("/glossary")
 
+    if data == "open:settings":
+        await settings.cmd_settings(update, ctx)
+    elif data == "open:donate":
+        await donate_command(update, ctx)
+    elif data == "open:promo":
+        await promo_command(update, ctx)
+    elif data == "open:sub":
+        await buy_command(update, ctx)
+    elif data == "open:teach":
+        await teach_start(update, ctx)
+    elif data == "open:glossary":
+        await glossary_cmd(update, ctx)
