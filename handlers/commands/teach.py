@@ -14,6 +14,20 @@ def _split_pair(text: str):
             return a.strip(), b.strip()
     return None, None
 
+# --------- ДОБАВЛЕНО: согласие на режим Teach ----------
+async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    set_consent(update.effective_user.id, True)
+    await update.effective_message.reply_text(
+        "Режим корректировок включён. Команда /teach:\n"
+        "• Вариант 1 (коротко): сразу пришли пару «фраза — как правильно» (по умолчанию en→ru)\n"
+        "• Вариант 2 (пошагово): укажи направление en→ru, затем фразу, затем исправление."
+    )
+
+async def consent_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    set_consent(update.effective_user.id, False)
+    await update.effective_message.reply_text("Режим корректировок выключен.")
+# -------------------------------------------------------
+
 async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_consent(update.effective_user.id):
         await update.effective_message.reply_text("Сначала включи согласие: /consent_on")
