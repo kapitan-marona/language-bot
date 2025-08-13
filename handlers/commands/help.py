@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime, timezone  # NEW
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
@@ -6,20 +7,52 @@ from components.offer_texts import OFFER
 from components.profile_db import get_user_profile
 from components.usage_db import get_usage
 from components.access import has_access
+from components.i18n import get_ui_lang  # NEW
 
 
-def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
-    return ctx.user_data.get("ui_lang", "ru")
+def _offer_text(key: str, lang: str) -> str:  # NEW: безопасно берём строку из OFFER с фолбэком
+    d = OFFER.get(key) if isinstance(OFFER, dict) else None
+    if not isinstance(d, dict):
+        return ""
+    if lang in d:
+        return d[lang]
+    return d.get("en") or d.get("ru") or next(iter(d.values()), "")
 
 
 def _help_text(user_id: int, ui: str) -> str:
     used = get_usage(user_id)
+
     if has_access(user_id):
-        header = OFFER["help_premium_header"][ui]
-        card = OFFER["premium_card"][ui].format(date=(get_user_profile(user_id) or {}).get("premium_expires_at", "—"), used=used)
+        header = _offer_text("help_premium_header", ui) or (  # NEW
+            ("Премиум доступ" if ui == "ru" else "Premium access")
+        )
+        profile = get_user_profile(user_id) or {}
+        exp = profile.get("premium_expires_at") or "—"
+        # NEW: аккуратно парсим дату и форматируем
+        until = "—"
+        try:
+            if exp and exp != "—":
+                dt = datetime.fromisoformat(exp)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                until = dt.date().isoformat()
+        except Exception:
+            until = "—"
+
+        card_tpl = _offer_text("premium_card", ui) or (  # NEW
+            ("🎟 Премиум активен до {date}. Сообщения сегодня: {used}/∞"
+             if ui == "ru"
+             else "🎟 Premium active until {date}. Messages today: {used}/∞")
+        )
+        card = card_tpl.format(date=until, used=used)
     else:
-        header = OFFER["help_free_header"][ui]
-        card = OFFER["free_card"][ui].format(used=used)
+        header = _offer_text("help_free_header", ui) or (  # NEW
+            ("Бесплатный доступ" if ui == "ru" else "Free access")
+        )
+        card_tpl = _offer_text("free_card", ui) or (  # NEW
+            ("🔓 Сообщения сегодня: {used}/15" if ui == "ru" else "🔓 Messages today: {used}/15")
+        )
+        card = card_tpl.format(used=used)
 
     # Список команд — все они зарегистрированы в english_bot.py
     # /start — запуск онбординга (через send_onboarding)
@@ -28,8 +61,23 @@ def _help_text(user_id: int, ui: str) -> str:
     # /donate — поддержать проект (кнопка ведёт к htp_buy)
     # /promo — промокод
     # /teach, /glossary — режим корректировок
-    common = OFFER["help_body_common"][ui]
-    return f"*{header}*\n{card}\n\n{common}"
+    common = _offer_text("help_body_common", ui) or (  # NEW
+        ("Команды:\n"
+         "/buy — купить доступ на 30 дней\n"
+         "/donate — поддержать проект\n"
+         "/promo — активировать промокод\n"
+         "/lang — сменить язык интерфейса/практики\n"
+         "/glossary — личные корректировки перевода")
+        if ui == "ru" else
+        ("Commands:\n"
+         "/buy — get 30-day access\n"
+         "/donate — support the project\n"
+         "/promo — apply a promo code\n"
+         "/lang — change interface/practice language\n"
+         "/glossary — your translation corrections")
+    )
+
+    return f"*{header}*\n{card}\n\n{common}"  # CHANGED: header уже жирный
 
 
 def _help_keyboard(ui: str, premium: bool) -> InlineKeyboardMarkup:
@@ -69,7 +117,7 @@ def _help_keyboard(ui: str, premium: bool) -> InlineKeyboardMarkup:
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ui = _ui_lang(context)
+    ui = get_ui_lang(update, context)  # NEW
     user_id = update.effective_user.id
     is_premium = has_access(user_id)
 

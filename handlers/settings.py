@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
+from components.i18n import get_ui_lang  # NEW
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,7 @@ STYLES: List[Tuple[str, str]] = [
 
 # ---------- helpers ----------
 
-def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
-    return (context.user_data or {}).get("ui_lang", "ru")
-
+# (удалено) _ui_lang(context) — локаль теперь берём через get_ui_lang(update, context)  # NEW
 
 def _name_for_lang(code: str) -> str:
     for title, c in LANGS:
@@ -44,13 +43,11 @@ def _name_for_lang(code: str) -> str:
             return title
     return code
 
-
 def _name_for_style(code: str) -> str:
     for title, c in STYLES:
         if c == code:
             return title
     return code
-
 
 def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
     base_ru = (
@@ -89,7 +86,6 @@ def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
         ],
     ])
 
-
 def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
     # Ограничим список языков при активном english_only
     prof = get_user_profile(chat_id) or {}
@@ -106,13 +102,11 @@ def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
-
 def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
     row1 = [InlineKeyboardButton(x, callback_data=f"SET:LEVEL:{x}") for x in LEVELS_ROW1]
     row2 = [InlineKeyboardButton(x, callback_data=f"SET:LEVEL:{x}") for x in LEVELS_ROW2]
     back = [InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")]
     return InlineKeyboardMarkup([row1, row2, back])
-
 
 def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(title, callback_data=f"SET:STYLE:{code}")] for title, code in STYLES]
@@ -128,7 +122,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     Если вызов из callback, редактируем текущее сообщение, чтобы не плодить дубликаты.
     Если вызов из /settings, отправляем новое сообщение.
     """
-    ui = _ui_lang(context)
+    ui = get_ui_lang(update, context)  # NEW
     chat_id = update.effective_chat.id
 
     s = context.user_data or {}
@@ -154,7 +148,6 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Обычная команда /settings: отправляем новое сообщение
     await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui))
 
-
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Общий обработчик callback_data, начинающихся с SETTINGS:/SET: (см. english_bot.py)."""
     q = update.callback_query
@@ -162,7 +155,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     data = q.data
-    ui = _ui_lang(context)
+    ui = get_ui_lang(update, context)  # NEW
     chat_id = q.message.chat.id
 
     # Назад в главное меню

@@ -7,12 +7,27 @@ from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
 from components.promo import is_promo_valid          # ✅ проверка активного промо по профилю
 from components.profile_db import get_user_profile   # ✅ берём профиль пользователя
+from components.i18n import get_ui_lang              # NEW
+from state.session import user_sessions              # NEW
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
-def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
-    return ctx.user_data.get("ui_lang", "ru")
+def _offer_text(key: str, lang: str) -> str:        # NEW: безопасное извлечение из OFFER
+    d = OFFER.get(key) if isinstance(OFFER, dict) else None
+    if not isinstance(d, dict):
+        return ""
+    if lang in d:
+        return d[lang]
+    # Фолбэк: сначала en, потом ru, потом любая доступная
+    return d.get("en") or d.get("ru") or next(iter(d.values()), "")
+
+def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:  # CHANGED: через общий резолвер
+    try:
+        lang = get_ui_lang(update, ctx)  # учитывает user_data / онбординг / профиль
+        return lang
+    except Exception:
+        return (ctx.user_data or {}).get("ui_lang", "en")
 
 def _is_countable_message(update: Update) -> bool:
     msg = update.message or update.edited_message
@@ -32,6 +47,15 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_countable_message(update):
         return
 
+    # NEW: не считаем и не блокируем ввод промокода на онбординге
+    try:
+        chat_id = update.effective_chat.id
+        sess = user_sessions.get(chat_id, {}) or {}
+        if sess.get("onboarding_stage") == "awaiting_promo":
+            return
+    except Exception:
+        pass
+
     user_id = update.effective_user.id
 
     # 1) Премиум — всегда пропускаем
@@ -45,27 +69,35 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # 3) Счётчик бесплатных сообщений
     used = get_usage(user_id)
-    lang = _ui_lang(ctx)
+    lang = _ui_lang(update, ctx)  # CHANGED
+
+    # Достаем тексты OFFER безопасно
+    limit_text = _offer_text("limit_reached", lang) or (
+        "Лимит пробного дня достигнут." if lang == "ru" else "You’ve hit the daily trial limit."
+    )  # NEW
+    reminder_text = _offer_text("reminder_after_10", lang) or (
+        "Осталось 5 сообщений в пробном периоде." if lang == "ru" else "You’ve got 5 messages left on the trial."
+    )  # NEW
 
     if used >= FREE_DAILY_LIMIT:
-        await (update.message or update.edited_message).reply_text(
-            OFFER["limit_reached"][lang]
-            + ("\n\n💡 " + ("Введите /promo для активации промокода и продолжения."
-                            if lang == "ru" else
-                            "Enter /promo to activate a promo code and continue."))
-        )
+        hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
+                if lang == "ru"
+                else "\n\n💡 Enter /promo to activate a promo code and continue.")
+        await (update.message or update.edited_message).reply_text(limit_text + hint)
         raise ApplicationHandlerStop
 
     used = increment_usage(user_id)
 
     if used == REMIND_AFTER:
-        await (update.message or update.edited_message).reply_text(OFFER["reminder_after_10"][lang])
+        # NEW: добавим мягкий хинт про /promo и тут тоже
+        hint = ("\n\n💡 Есть промокод? Введите /promo <код>."
+                if lang == "ru"
+                else "\n\n💡 Have a promo code? Use /promo <code>.")
+        await (update.message or update.edited_message).reply_text(reminder_text + hint)
 
     if used > FREE_DAILY_LIMIT:
-        await (update.message or update.edited_message).reply_text(
-            OFFER["limit_reached"][lang]
-            + ("\n\n💡 " + ("Введите /promo для активации промокода и продолжения."
-                            if lang == "ru" else
-                            "Enter /promo to activate a promo code and continue."))
-        )
+        hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
+                if lang == "ru"
+                else "\n\n💡 Enter /promo to activate a promo code and continue.")
+        await (update.message or update.edited_message).reply_text(limit_text + hint)
         raise ApplicationHandlerStop
