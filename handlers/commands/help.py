@@ -8,21 +8,8 @@ from components.usage_db import get_usage
 from components.access import has_access
 
 
-from components.profile_db import get_user_profile
-
-def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE, user_id: int | None = None) -> str:
-    ui = ctx.user_data.get('ui_lang') if getattr(ctx, 'user_data', None) else None
-    if ui:
-        return ui
-    if user_id is None:
-        return 'ru'
-    prof = get_user_profile(user_id) or {}
-    ui = prof.get('interface_lang', 'ru')
-    try:
-        ctx.user_data['ui_lang'] = ui
-    except Exception:
-        pass
-    return ui
+def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
+    return ctx.user_data.get("ui_lang", "ru")
 
 
 def _help_text(user_id: int, ui: str) -> str:
@@ -82,8 +69,8 @@ def _help_keyboard(ui: str, premium: bool) -> InlineKeyboardMarkup:
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ui = _ui_lang(context)
     user_id = update.effective_user.id
-    ui = _ui_lang(context, user_id)
     is_premium = has_access(user_id)
 
     text = _help_text(user_id, ui)

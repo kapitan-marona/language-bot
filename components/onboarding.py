@@ -88,15 +88,10 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     chat_id = query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
-    context.user_data['ui_lang'] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
 
     # Не передаём ReplyKeyboardRemove в edit_message_text: Telegram ожидает inline-клавиатуру
-    await query.edit_message_text(text=(
-        "У тебя есть промокод?\n👉 Отправь его командой: /promo <код>\n\nНажми 🆗, чтобы продолжить без промокода"
-        if lang_code == 'ru' else
-        "Do you have a promo code?\n👉 Send it with the command: /promo <code>\n\nTap 🆗 to continue without a promo code"
-    ), reply_markup=get_ok_keyboard())
+    await query.edit_message_text(text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]))
 
 # --- ШАГ 3. Обработка промокода от пользователя (или отказ) ---
 @safe_handler
@@ -104,10 +99,12 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     lang_code = session.get("interface_lang", "en")
-    promo_input = (update.message.text or "").strip()
+    promo_code = (update.message.text or "").strip()
 
     # Пользователь может отказаться вводить промокод
-    if promo_input.lower() in ["нет", "no"]:
+    if promo_code.lower() in ["нет", "no"]:
+        session["promo_code_used"] = None
+        session["promo_type"] = None
         await context.bot.send_message(
             chat_id=chat_id,
             text=START_MESSAGE.get(lang_code, START_MESSAGE["en"]),
@@ -116,13 +113,43 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         session["onboarding_stage"] = "awaiting_ok"
         return
 
-    # На этапе онбординга принимаем промокоды ТОЛЬКО через команду /promo <код>
-    tip = ("Введите промокод командой: /promo <код>" if lang_code == "ru"
-           else "Send the promo code using the command: /promo <code>")
-    await context.bot.send_message(chat_id=chat_id, text=tip)
-    # Остаёмся на этапе ввода промокода — ждём /promo или 'нет'
-    session["onboarding_stage"] = "awaiting_promo"
-    return
+    # Активируем промокод
+    success, reason = activate_promo(session, promo_code)
+    if success:
+        # сохраняем промо в БД: /promo и кнопка в /help увидят тот же статус
+        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
+        profile["promo_code_used"] = session.get("promo_code_used")
+        profile["promo_type"] = session.get("promo_type")
+        profile["promo_activated_at"] = session.get("promo_activated_at")
+        profile["promo_days"] = session.get("promo_days")
+        save_user_profile(
+            chat_id,
+            promo_code_used=profile.get("promo_code_used"),
+            promo_type=profile.get("promo_type"),
+            promo_activated_at=profile.get("promo_activated_at"),
+            promo_days=profile.get("promo_days"),
+        )
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=PROMO_SUCCESS.get(lang_code, PROMO_SUCCESS["en"]),
+            reply_markup=get_ok_keyboard()
+        )
+        session["onboarding_stage"] = "awaiting_ok"
+    else:
+        if reason == "invalid":
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=PROMO_FAIL.get(lang_code, PROMO_FAIL["en"]),
+            )
+        elif reason == "already_used":
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=PROMO_ALREADY_USED.get(lang_code, PROMO_ALREADY_USED["en"]),
+            )
+        # Остаёмся на этапе ввода промокода — ждём новый ввод или "нет"
+        session["onboarding_stage"] = "awaiting_promo"
+
 # --- ШАГ 4. OK — Выбор языка для изучения ---
 @safe_handler
 async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
