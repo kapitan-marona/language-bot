@@ -17,10 +17,13 @@ def normalize_code(code: str) -> str:
     """Приводим код к единому виду (без учёта регистра и лишних пробелов)."""
     return (code or "").strip().lower()
 
-def check_promo_code(code: str) -> Optional[Dict[str, Any]]:
+def check_promo_code(code: str, profile: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:  # CHANGED
     """
     Проверка наличия промокода в словаре (без учёта регистра).
     Возвращает описание {'type': ..., 'days': ...} либо None.
+
+    Совместимость: допускает второй аргумент (profile) и игнорирует его,
+    чтобы старые вызовы check_promo_code(code, profile) не падали.  # NEW
     """
     return PROMO_CODES.get(normalize_code(code))
 
@@ -109,6 +112,7 @@ def restrict_target_languages_if_needed(profile: Dict[str, Any],
 from telegram import Update
 from telegram.ext import ContextTypes
 from components.profile_db import get_user_profile, save_user_profile
+from components.i18n import get_ui_lang  # NEW
 
 def _plural_ru_days(n: int) -> str:
     n = abs(n)
@@ -232,7 +236,6 @@ def format_promo_status_for_user(profile: dict, lang: str = "ru") -> str:
     # неизвестный тип
     return f"{header}\n{PROMO_DETAILS[lang]['unknown_type']}"
 
-
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /promo            -> показать статус
@@ -243,10 +246,12 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = (args[0] if args else "").strip()
 
     profile = get_user_profile(chat_id) or {"chat_id": chat_id}
+    ui = get_ui_lang(update, context)  # NEW
 
     if code:
-        if not check_promo_code(code):
-            await update.message.reply_text("❌ неизвестный промокод")
+        if not check_promo_code(code, profile):  # CHANGED: совместим с вызовами в 2 аргумента
+            # локализованное сообщение об ошибке  # NEW
+            await update.message.reply_text("❌ неизвестный промокод" if ui == "ru" else "❌ unknown promo code")
             return
         ok, msg = activate_promo(profile, code)
         if ok:
@@ -257,10 +262,12 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 promo_activated_at=profile.get("promo_activated_at"),
                 promo_days=profile.get("promo_days"),
             )
-            await update.message.reply_text(format_promo_status_for_user(profile))
+            await update.message.reply_text(format_promo_status_for_user(profile, ui))  # CHANGED: язык UI
             return
         else:
-            await update.message.reply_text(msg or "⚠️ не удалось активировать промокод")
+            # локализованный фолбэк, если msg пуст  # NEW
+            await update.message.reply_text(msg or ("⚠️ не удалось активировать промокод" if ui == "ru" else "⚠️ failed to activate promo code"))
             return
 
-    await update.message.reply_text(format_promo_status_for_user(profile))
+    # без кода — показать статус на языке UI  # NEW
+    await update.message.reply_text(format_promo_status_for_user(profile, ui))  # CHANGED
