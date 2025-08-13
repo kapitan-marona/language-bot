@@ -55,7 +55,7 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         premium_expires_at=until.isoformat(),
         last_payment_charge_id=sp.telegram_payment_charge_id,
     )
-    ui = ctx.user_data.get("ui_lang", "ru")
+    ui = (getattr(ctx, 'user_data', {}) or {}).get('ui_lang') or (get_user_profile(update.effective_user.id) or {}).get('interface_lang', 'ru')
     msg = (
         f"✅ Оплата прошла! Доступ активен до {until.date().isoformat()}. Приятной практики!"
         if ui == "ru"

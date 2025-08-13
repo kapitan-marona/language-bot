@@ -34,8 +34,21 @@ STYLES: List[Tuple[str, str]] = [
 
 # ---------- helpers ----------
 
-def _ui_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
-    return (context.user_data or {}).get("ui_lang", "ru")
+from components.profile_db import get_user_profile
+
+def _ui_lang(context: ContextTypes.DEFAULT_TYPE, user_id: int | None = None) -> str:
+    ui = (context.user_data or {}).get('ui_lang') if getattr(context, 'user_data', None) else None
+    if ui:
+        return ui
+    if user_id is None:
+        return 'ru'
+    prof = get_user_profile(user_id) or {}
+    ui = prof.get('interface_lang', 'ru')
+    try:
+        context.user_data['ui_lang'] = ui
+    except Exception:
+        pass
+    return ui
 
 
 def _name_for_lang(code: str) -> str:
@@ -87,6 +100,10 @@ def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🎨 Поменять стиль" if ui == "ru" else "🎨 Change style",
                                  callback_data="SETTINGS:STYLE"),
         ],
+        [
+            InlineKeyboardButton("🎟️ Промокод" if ui == "ru" else "🎟️ Promo code",
+                                 callback_data="open:promo"),
+        ],
     ])
 
 
@@ -128,7 +145,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     Если вызов из callback, редактируем текущее сообщение, чтобы не плодить дубликаты.
     Если вызов из /settings, отправляем новое сообщение.
     """
-    ui = _ui_lang(context)
+    ui = _ui_lang(context, chat_id)
     chat_id = update.effective_chat.id
 
     s = context.user_data or {}
@@ -162,7 +179,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     data = q.data
-    ui = _ui_lang(context)
+    ui = _ui_lang(context, chat_id)
     chat_id = q.message.chat.id
 
     # Назад в главное меню

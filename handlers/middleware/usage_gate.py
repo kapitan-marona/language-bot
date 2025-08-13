@@ -11,8 +11,21 @@ from components.profile_db import get_user_profile   # ✅ берём профи
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
-def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
-    return ctx.user_data.get("ui_lang", "ru")
+from components.profile_db import get_user_profile
+
+def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE, user_id: int | None = None) -> str:
+    ui = ctx.user_data.get("ui_lang") if getattr(ctx, 'user_data', None) else None
+    if ui:
+        return ui
+    if user_id is None:
+        return 'ru'
+    prof = get_user_profile(user_id) or {}
+    ui = prof.get('interface_lang', 'ru')
+    try:
+        ctx.user_data['ui_lang'] = ui
+    except Exception:
+        pass
+    return ui
 
 def _is_countable_message(update: Update) -> bool:
     msg = update.message or update.edited_message
@@ -45,7 +58,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # 3) Счётчик бесплатных сообщений
     used = get_usage(user_id)
-    lang = _ui_lang(ctx)
+    lang = _ui_lang(ctx, user_id)
 
     if used >= FREE_DAILY_LIMIT:
         await (update.message or update.edited_message).reply_text(
