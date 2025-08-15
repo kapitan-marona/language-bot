@@ -13,11 +13,13 @@ logger = logging.getLogger(__name__)
 MIN_DONATE = 1
 MAX_DONATE = 10_000
 
-# Пресеты сумм (по запросу)
+# Пресеты сумм
 _PRESETS = [10, 20, 50]
 
 # До 5 цифр — хватит для 10_000
 _AMOUNT_RE = re.compile(r"^\s*(\d{1,5})\s*$")
+# Парсим команду с аргументом: /donate 50 или /donate@bot 50
+_CMD_AMOUNT_RE = re.compile(r"^/donate(?:@\S+)?\s+(\d{1,5})\s*$", re.IGNORECASE)
 
 def _donate_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(str(p), callback_data=f"DONATE:{p}") for p in _PRESETS]]
@@ -38,7 +40,23 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     sess = user_sessions.setdefault(chat_id, {})
     sess.pop("donate_waiting_amount", None)  # сбросим возможный флаг
 
-    # Если указан аргумент — пытаемся сразу выставить счёт
+    text_full = (update.message.text or "").strip()
+    logger.info("DONATE CMD: text=%r args=%r", text_full, getattr(ctx, "args", None))
+
+    # 1) Сначала пытаемся извлечь сумму из самого текста команды (/donate 50, /donate@bot 50)
+    m_text = _CMD_AMOUNT_RE.match(text_full)
+    if m_text:
+        amount = int(m_text.group(1))
+        if MIN_DONATE <= amount <= MAX_DONATE:
+            await send_donation_invoice(update, ctx, amount)
+            return
+        warn = (f"Сумма должна быть от {MIN_DONATE} до {MAX_DONATE}⭐"
+                if ui == "ru" else
+                f"Amount must be between {MIN_DONATE} and {MAX_DONATE}⭐")
+        await update.message.reply_text(warn)
+        return
+
+    # 2) Дальше — стандартный путь через ctx.args (на случай, если выше не сработало)
     args = getattr(ctx, "args", None) or []
     if args:
         m = _AMOUNT_RE.match(" ".join(args))
@@ -58,7 +76,7 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         await send_donation_invoice(update, ctx, amount)
         return
 
-    # Иначе — показываем пресеты
+    # 3) Иначе — показываем пресеты
     text = ("Поддержи проект любой суммой в звёздах ⭐\n"
             "Выбери сумму или укажи другую." if ui == "ru" else
             "Support the project with any amount of Stars ⭐\n"
@@ -81,6 +99,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     sess = user_sessions.setdefault(chat_id, {})
     data = q.data
 
+    logger.info("DONATE CB: %s", data)
+
     # Отмена
     if data == "DONATE:CANCEL":
         sess.pop("donate_waiting_amount", None)
@@ -89,7 +109,6 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception:
             pass
         text = "Отменил, всё ок 👍" if ui == "ru" else "Cancelled, no worries 👍"
-        # заменим клавиатуру, чтобы не жали старые кнопки
         await q.edit_message_text(text)
         return
 
@@ -126,7 +145,6 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await q.answer("✅")
         except Exception:
             pass
-        # Можно оставить сообщение с кнопками — инвойс придёт отдельным сообщением
         await send_donation_invoice(update, ctx, amount)
         return
 
@@ -142,6 +160,8 @@ async def on_amount_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
 
     ui = get_ui_lang(update, ctx)
     text = (update.message.text or "").strip()
+    logger.info("DONATE AMOUNT MSG: %r (waiting=%s)", text, True)
+
     m = _AMOUNT_RE.match(text)
     if not m:
         warn = ("Укажи сумму как число, например 50. Или /donate 50."
