@@ -7,7 +7,8 @@ from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
-from components.i18n import get_ui_lang  # NEW
+from components.i18n import get_ui_lang
+from state.session import user_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ LANGS: List[Tuple[str, str]] = [
     ("🇫🇮 Suomi", "fi"),
 ]
 
-# Уровни — без эмодзи; раскладка как в онбординге
+# Уровни — как в онбординге
 LEVELS_ROW1 = ["A0", "A1", "A2"]
 LEVELS_ROW2 = ["B1", "B2", "C1", "C2"]
 
@@ -32,10 +33,7 @@ STYLES: List[Tuple[str, str]] = [
     ("🤓 Деловой", "business"),
 ]
 
-
 # ---------- helpers ----------
-
-# (удалено) _ui_lang(context) — локаль теперь берём через get_ui_lang(update, context)  # NEW
 
 def _name_for_lang(code: str) -> str:
     for title, c in LANGS:
@@ -51,14 +49,14 @@ def _name_for_style(code: str) -> str:
 
 def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
     base_ru = (
-        "⚙️ Настройки Матта\n\n"
+        "⚙️ Настройки\n\n"
         f"• Язык: {lang_name}\n"
         f"• Уровень: {level}\n"
         f"• Стиль общения: {style_name}\n\n"
         "Что хочешь поменять?"
     )
     base_en = (
-        "⚙️ Matt Settings\n\n"
+        "⚙️ Settings\n\n"
         f"• Language: {lang_name}\n"
         f"• Level: {level}\n"
         f"• Chat style: {style_name}\n\n"
@@ -71,28 +69,32 @@ def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, englis
                  "\n\n❗ Promo is permanent and limits learning to English only")
     return text
 
-
 def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
+    # Снизу — "Продолжить..." для любителей кнопок
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🌐 Поменять язык" if ui == "ru" else "🌐 Change language",
+            InlineKeyboardButton("Поменять язык" if ui == "ru" else "🌐 Change language",
                                  callback_data="SETTINGS:LANG"),
-            InlineKeyboardButton("📚 Поменять уровень" if ui == "ru" else "📚 Change level",
+            InlineKeyboardButton("Поменять уровень" if ui == "ru" else "📚 Change level",
                                  callback_data="SETTINGS:LEVEL"),
         ],
         [
-            InlineKeyboardButton("🎨 Поменять стиль" if ui == "ru" else "🎨 Change style",
+            InlineKeyboardButton("Поменять стиль" if ui == "ru" else "🎨 Change style",
                                  callback_data="SETTINGS:STYLE"),
+        ],
+        [
+            InlineKeyboardButton(
+                "▶️ Продолжить с новыми настройками" if ui == "ru" else "▶️ Continue with new settings",
+                callback_data="SETTINGS:APPLY"
+            )
         ],
     ])
 
 def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
-    # Ограничим список языков при активном english_only
     prof = get_user_profile(chat_id) or {}
     lang_map = {code: title for title, code in LANGS}
     lang_map = restrict_target_languages_if_needed(prof, lang_map)
 
-    # Сетка 2 колонки
     items = [(title, code) for code, title in lang_map.items()]
     rows = []
     for i in range(0, len(items), 2):
@@ -113,16 +115,42 @@ def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
+# Короткая стартовая фраза для продолжения диалога на целевом языке
+_STARTERS = {
+    "casual": {
+        "ru": "Продолжаем! Как прошёл твой день?",
+        "en": "Let's continue! How's your day going?",
+        "fr": "On continue ! Comment s'est passée ta journée ?",
+        "es": "¡Continuemos! ¿Cómo va tu día?",
+        "de": "Lass uns weitermachen! Wie läuft dein Tag?",
+        "sv": "Vi fortsätter! Hur har din dag varit?",
+        "fi": "Jatketaan! Miten päiväsi on sujunut?",
+    },
+    "business": {
+        "ru": "Продолжим. Какая у тебя главная задача на сегодня?",
+        "en": "Let's continue. What's your top task today?",
+        "fr": "On continue. Quelle est ta priorité aujourd'hui ?",
+        "es": "Sigamos. ¿Cuál es tu prioridad de hoy?",
+        "de": "Weiter geht's. Was ist deine wichtigste Aufgabe heute?",
+        "sv": "Vi fortsätter. Vad är din huvuduppgift idag?",
+        "fi": "Jatketaan. Mikä on päivän tärkein tehtäväsi?",
+    }
+}
+
+def _starter_phrase(lang: str, level: str, style: str) -> str:
+    style_key = "business" if style == "business" else "casual"
+    table = _STARTERS.get(style_key, _STARTERS["casual"])
+    # Если язык неизвестен — по умолчанию английский
+    return table.get(lang, table["en"])
 
 # ---------- public handlers ----------
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Команда /settings или вызов из HELP:OPEN:SETTINGS — показать главное меню настроек.
-
-    Если вызов из callback, редактируем текущее сообщение, чтобы не плодить дубликаты.
-    Если вызов из /settings, отправляем новое сообщение.
     """
-    ui = get_ui_lang(update, context)  # NEW
+    /settings — показать главное меню настроек.
+    Если вызов из callback — редактируем текущее сообщение.
+    """
+    ui = get_ui_lang(update, context)
     chat_id = update.effective_chat.id
 
     s = context.user_data or {}
@@ -137,7 +165,6 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     q = getattr(update, "callback_query", None)
     if q and q.message:
-        # Вызов из инлайн-кнопки: не создаём новое сообщение, а редактируем текущее
         await q.edit_message_text(text, reply_markup=_menu_keyboard(ui))
         try:
             await q.answer()
@@ -145,17 +172,16 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             pass
         return
 
-    # Обычная команда /settings: отправляем новое сообщение
     await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui))
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Общий обработчик callback_data, начинающихся с SETTINGS:/SET: (см. english_bot.py)."""
+    """Обработчик callback_data, начинающихся с SETTINGS:/SET:"""
     q = update.callback_query
     if not q or not q.data:
         return
 
     data = q.data
-    ui = get_ui_lang(update, context)  # NEW
+    ui = get_ui_lang(update, context)
     chat_id = q.message.chat.id
 
     # Назад в главное меню
@@ -182,7 +208,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data == "SETTINGS:LEVEL":
-        # необязательный короткий гайд из онбординга, если доступен
+        # необязательный короткий гайд из онбординга, если есть
         guide = None
         try:
             from components.onboarding import get_level_guide  # type: ignore
@@ -202,12 +228,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.answer()
         return
 
-    # Конкретные изменения
+    # --- Конкретные изменения: авто-применяем в активную сессию ---
     if data.startswith("SET:LANG:"):
         code = data.split(":", 2)[-1]
+        # user_data + БД
         context.user_data["language"] = code
         save_user_profile(chat_id, target_lang=code)
-        await q.answer("Готово")
+        # активная сессия чата (то, что читает чат)
+        sess = user_sessions.setdefault(chat_id, {})
+        sess["target_lang"] = code
+
+        await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
         language = p.get("target_lang") or s.get("language", "en")
@@ -224,7 +255,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         level = data.split(":", 2)[-1]
         context.user_data["level"] = level
         save_user_profile(chat_id, level=level)
-        await q.answer("Готово")
+        sess = user_sessions.setdefault(chat_id, {})
+        sess["level"] = level
+
+        await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
         language = p.get("target_lang") or s.get("language", "en")
@@ -240,7 +274,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         style = data.split(":", 2)[-1]
         context.user_data["style"] = style
         save_user_profile(chat_id, style=style)
-        await q.answer("Готово")
+        sess = user_sessions.setdefault(chat_id, {})
+        sess["style"] = style
+
+        await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
         language = p.get("target_lang") or s.get("language", "en")
@@ -250,4 +287,35 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
             reply_markup=_menu_keyboard(ui),
         )
+        return
+
+    # --- Кнопка: "Продолжить..." — просто инициируем диалог по текущим настройкам ---
+    if data == "SETTINGS:APPLY":
+        p = get_user_profile(chat_id) or {}
+        s = context.user_data or {}
+        new_lang = p.get("target_lang") or s.get("language", "en")
+        new_level = p.get("level") or s.get("level", "B1")
+        new_style = p.get("style") or s.get("style", "casual")
+
+        # на всякий случай дублируем в активную сессию (если пользователь не нажимал SET:* в этот раз)
+        sess = user_sessions.setdefault(chat_id, {})
+        if new_lang:  sess["target_lang"] = new_lang
+        if new_level: sess["level"] = new_level
+        if new_style: sess["style"] = new_style
+
+        try:
+            await q.answer("▶️")
+        except Exception:
+            pass
+
+        # Подтверждение + стартовая реплика на целевом языке
+        confirm = (
+            f"✅ Настройки применены.\nЯзык: {_name_for_lang(new_lang)} • Уровень: {new_level} • Стиль: {_name_for_style(new_style)}"
+            if ui == "ru" else
+            f"✅ Settings applied.\nLanguage: {_name_for_lang(new_lang)} • Level: {new_level} • Style: {_name_for_style(new_style)}"
+        )
+        await context.bot.send_message(chat_id, confirm)
+
+        starter = _starter_phrase(new_lang, new_level, new_style)
+        await context.bot.send_message(chat_id, starter)
         return
