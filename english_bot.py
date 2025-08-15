@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import logging
+import asyncio  # <-- добавлено для неблокирующей обработки
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -97,9 +98,12 @@ async def telegram_webhook(req: Request):
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     try:
         update = Update.de_json(data, bot_app.bot)
-        await bot_app.process_update(update)
+        # Раньше здесь было: await bot_app.process_update(update)
+        # Теперь обрабатываем апдейт в фоне и сразу отдаём 200 OK Телеграму.
+        asyncio.create_task(bot_app.process_update(update))
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
+        # Возвращаем 200, чтобы Телеграм не отрубал вебхук из-за ошибочного апдейта
         return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
     return {"ok": True}
 
