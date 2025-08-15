@@ -34,6 +34,8 @@ def compute_expiry(profile: dict | None, days: int = 30) -> datetime:
                 pass
     return base + timedelta(days=days)
 
+# ------------------- PRO (покупка) -------------------
+
 async def send_stars_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, product: Product) -> None:
     # NEW: локализуем заголовок/описание счёта по текущему UI-языку
     ui = get_ui_lang(update, ctx)                    # NEW
@@ -53,13 +55,58 @@ async def send_stars_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, pro
         # start_parameter="premium_30d",            # NEW (опционально): если используешь deep-linking
     )
 
+# ------------------- DONATION (донаты) -------------------
+
+async def send_donation_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, amount: int) -> None:
+    """
+    Выставляет счёт на произвольную сумму звёздочек.
+    payload = "donation:<amount>:<user_id>" — чтобы отличать от покупки.
+    """
+    ui = get_ui_lang(update, ctx)
+    title = "Пожертвование проекту" if ui == "ru" else "Donation to the Project"
+    desc = ("Спасибо за поддержку! Это добровольный взнос в звёздах."
+            if ui == "ru" else
+            "Thank you for your support! This is a voluntary donation in Stars.")
+    payload = f"donation:{amount}:{update.effective_user.id}"
+    prices = [LabeledPrice(label="Donation", amount=amount)]
+
+    await update.effective_chat.send_invoice(
+        title=title,
+        description=desc,
+        payload=payload,
+        provider_token="",   # Stars
+        currency=XTR_CURRENCY,
+        prices=prices,
+    )
+
+# ------------------- Общие платёжные хендлеры -------------------
+
 async def precheckout_ok(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.pre_checkout_query.answer(ok=True)
 
 async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     sp = update.message.successful_payment
-    if not sp:                                       # NEW: защита от редких кейсов без объекта оплаты
+    if not sp:  # защита
         return
+
+    payload = sp.invoice_payload or ""
+
+    # --- Донат: просто благодарим, ничего не меняем в доступе ---
+    if payload.startswith("donation:"):
+        try:
+            # payload: "donation:<amount>:<user_id>"
+            _, amount_str, _ = payload.split(":", 2)
+            amount = int(amount_str)
+        except Exception:
+            amount = 0
+        ui = get_ui_lang(update, ctx)
+        msg = (f"🙏 Спасибо за поддержку! Получено {amount}⭐"
+               if ui == "ru" else
+               f"🙏 Thank you for your support! Received {amount}⭐")
+        await update.message.reply_text(msg)
+        return
+
+    # --- Покупка тарифа (как было) ---
     profile = get_user_profile(update.effective_user.id)
     until = compute_expiry(profile, days=30)
     save_user_profile(
@@ -68,7 +115,7 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         premium_expires_at=until.isoformat(),
         last_payment_charge_id=sp.telegram_payment_charge_id,
     )
-    ui = get_ui_lang(update, ctx)                    # CHANGED: берём язык через общий резолвер
+    ui = get_ui_lang(update, ctx)
     msg = (
         f"✅ Оплата прошла! Доступ активен до {until.date().isoformat()}. Приятной практики!"
         if ui == "ru"

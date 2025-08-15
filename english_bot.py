@@ -48,6 +48,7 @@ from components.training_db import init_training_db
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
+from handlers.commands import donate as donate_handlers
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -149,6 +150,7 @@ def setup_handlers(app_: Application):
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
+    app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
 
     # Callback’и меню, настроек, how-to-pay
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
@@ -160,12 +162,14 @@ def setup_handlers(app_: Application):
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
+    app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
     # Универсальный роутер callback’ов онбординга/режимов — НЕ трогаем чужие префиксы
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
-            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_))",
+            # добавил DONATE: в исключения
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:))",
         ),
         group=1,
     )
