@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
-from components.profile_db import get_user_profile, save_user_profile  # <-- добавлено
+from components.profile_db import get_user_profile, save_user_profile  # сохраняем выборы в БД
 from utils.decorators import safe_handler
 from components.promo_texts import PROMO_ASK, PROMO_SUCCESS, PROMO_FAIL, PROMO_ALREADY_USED
 from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT, TARGET_LANG_PROMPT
@@ -89,6 +89,12 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
+
+    # NEW: сразу сохраним язык интерфейса в профиль
+    try:
+        save_user_profile(chat_id, interface_lang=lang_code)
+    except Exception:
+        logger.exception("Failed to save interface_lang=%s for chat_id=%s", lang_code, chat_id)
 
     # Не передаём ReplyKeyboardRemove в edit_message_text: Telegram ожидает inline-клавиатуру
     await query.edit_message_text(text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]))
@@ -180,6 +186,13 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     session = user_sessions.setdefault(chat_id, {})
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
+
+    # NEW: сохраняем язык изучения
+    try:
+        save_user_profile(chat_id, target_lang=lang_code)
+    except Exception:
+        logger.exception("Failed to save target_lang=%s for chat_id=%s", lang_code, chat_id)
+
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
@@ -229,6 +242,13 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
     session["level"] = level
     session["onboarding_stage"] = "awaiting_style"
+
+    # NEW: сохраняем уровень
+    try:
+        save_user_profile(chat_id, level=level)
+    except Exception:
+        logger.exception("Failed to save level=%s for chat_id=%s", level, chat_id)
+
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"]),
@@ -251,6 +271,13 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
     session["style"] = style
     session["onboarding_stage"] = "complete"
+
+    # NEW: сохраняем стиль
+    try:
+        save_user_profile(chat_id, style=style)
+    except Exception:
+        logger.exception("Failed to save style=%s for chat_id=%s", style, chat_id)
+
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=STYLE_SELECTED_MSG.get(interface_lang, STYLE_SELECTED_MSG["en"])
