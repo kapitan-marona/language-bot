@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import logging
-import asyncio  # <-- добавлено для неблокирующей обработки
+import asyncio  # неблокирующая обработка апдейтов
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -98,12 +98,11 @@ async def telegram_webhook(req: Request):
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     try:
         update = Update.de_json(data, bot_app.bot)
-        # Раньше здесь было: await bot_app.process_update(update)
-        # Теперь обрабатываем апдейт в фоне и сразу отдаём 200 OK Телеграму.
-        asyncio.create_task(bot_app.process_update(update))
+        # было: await bot_app.process_update(update)
+        asyncio.create_task(bot_app.process_update(update))  # неблокирующе
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
-        # Возвращаем 200, чтобы Телеграм не отрубал вебхук из-за ошибочного апдейта
+        # всё равно даём 200, чтобы Telegram не дропал вебхук
         return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
     return {"ok": True}
 
@@ -162,14 +161,26 @@ def setup_handlers(app_: Application):
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
 
+    # Универсальный роутер callback’ов онбординга/режимов — НЕ трогаем чужие префиксы
+    app_.add_handler(
+        CallbackQueryHandler(
+            handle_callback_query,
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_))",
+        ),
+        group=1,
+    )
+
     # Лимит-гейт — команды сюда не попадают
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
+    app_.add_handler(
+        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
+        group=0,
+    )
 
     # Основной диалог — команды сюда не попадают
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
-
-    # Универсальный роутер callback’ов онбординга/режимов
-    app_.add_handler(CallbackQueryHandler(handle_callback_query), group=1)
+    app_.add_handler(
+        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
+        group=1,
+    )
 
 # -------------------------------------------------------------------------
 # Инициализация
