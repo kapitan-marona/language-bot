@@ -7,6 +7,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
+from state.session import user_sessions
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -41,7 +42,7 @@ from handlers.callbacks import how_to_pay_game
 
 # Онбординг и сброс
 from handlers.commands.reset import reset_command
-from components.onboarding import send_onboarding
+from components.onboarding import send_onboarding, promo_code_message
 
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
@@ -139,6 +140,17 @@ async def paused_gate(update: Update, ctx):
         # Полностью останавливаем обработку этого апдейта (чтобы не дошло до handle_message)
         raise ApplicationHandlerStop
 
+async def promo_stage_router(update: Update, ctx):
+    """Перехватывает текст, когда ждём ввод промокода на онбординге."""
+    try:
+        session = user_sessions.setdefault(update.effective_chat.id, {})
+    except Exception:
+        session = {}
+    if session.get("onboarding_stage") == "awaiting_promo":
+        await promo_code_message(update, ctx)
+        # чтобы дальше не пошло ни в usage_gate, ни в handle_message
+        raise ApplicationHandlerStop
+
 # -------------------------------------------------------------------------
 # Хендлеры
 # -------------------------------------------------------------------------
@@ -195,6 +207,11 @@ def setup_handlers(app_: "Application"):
     )
 
     # Группа 0 — гейт лимитов/промо и пр.
+    app_.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router),
+        group=0,
+    )
+
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
         group=0,
