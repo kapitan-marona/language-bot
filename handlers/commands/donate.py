@@ -77,9 +77,9 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     # 3) Иначе — показываем пресеты
-    text = ("Поддержи проект любой суммой в звёздах ⭐\n"
+    text = ("Поддержи проект любой суммой в звёздах ⭐\n\n"
             "Выбери сумму или укажи другую." if ui == "ru" else
-            "Support the project with any amount of Stars ⭐\n"
+            "Support the project with any amount of Stars ⭐\n\n"
             "Pick an amount or enter a custom one.")
     await update.message.reply_text(text, reply_markup=_donate_keyboard(ui))
 

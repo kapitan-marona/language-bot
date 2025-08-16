@@ -11,5 +11,5 @@ def _parse_admin_ids(raw: str | None) -> set[int]:
             ids.add(int(chunk.strip()))
     return ids
 
-# Пример: ADMIN_IDS="978646307"
+# Пример: ADMIN_IDS="123456, 999000"
 ADMIN_IDS: set[int] = _parse_admin_ids(os.getenv("ADMIN_IDS"))

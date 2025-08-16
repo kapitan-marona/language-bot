@@ -5,15 +5,15 @@ from telegram.constants import MessageEntityType
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
-from components.promo import is_promo_valid          # ✅ проверка активного промо по профилю
-from components.profile_db import get_user_profile   # ✅ берём профиль пользователя
-from components.i18n import get_ui_lang              # NEW
-from state.session import user_sessions              # NEW
+from components.promo import is_promo_valid          
+from components.profile_db import get_user_profile   
+from components.i18n import get_ui_lang              
+from state.session import user_sessions              
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
-def _offer_text(key: str, lang: str) -> str:        # NEW: безопасное извлечение из OFFER
+def _offer_text(key: str, lang: str) -> str:        
     d = OFFER.get(key) if isinstance(OFFER, dict) else None
     if not isinstance(d, dict):
         return ""
