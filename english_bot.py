@@ -48,7 +48,13 @@ from components.training_db import init_training_db
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
-from handlers.commands import donate as donate_handlers
+
+# Новое: текст согласия (/consent)
+from handlers.commands.consent import consent_info_command
+
+# Новое: админы для ограничения /reset
+from components.admins import ADMIN_IDS
+from components.i18n import get_ui_lang  # для сообщений об ограничении
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -99,7 +105,6 @@ async def telegram_webhook(req: Request):
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     try:
         update = Update.de_json(data, bot_app.bot)
-        # было: await bot_app.process_update(update)
         asyncio.create_task(bot_app.process_update(update))  # неблокирующе
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
@@ -122,6 +127,18 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
     return {"ok": ok, "url": target}
 
 # -------------------------------------------------------------------------
+# Ограничение /reset только для админов
+# -------------------------------------------------------------------------
+async def reset_admin_only(update: Update, ctx):
+    uid = update.effective_user.id if update.effective_user else None
+    if not uid or uid not in ADMIN_IDS:
+        ui = get_ui_lang(update, ctx)
+        msg = "Эта команда доступна только администратору." if ui == "ru" else "This command is only available to the admin."
+        await update.effective_message.reply_text(msg)
+        return
+    await reset_command(update, ctx)
+
+# -------------------------------------------------------------------------
 # Хендлеры
 # -------------------------------------------------------------------------
 def setup_handlers(app_: "Application"):
@@ -129,7 +146,7 @@ def setup_handlers(app_: "Application"):
 
     # Команды
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
-    app_.add_handler(CommandHandler("reset", reset_command))
+    app_.add_handler(CommandHandler("reset", reset_admin_only))  # было reset_command
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
     app_.add_handler(CommandHandler("promo", promo_command))
@@ -141,7 +158,8 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
 
-    # Teach/Glossary
+    # Teach/Glossary/Consent
+    app_.add_handler(CommandHandler("consent", consent_info_command))  # новое
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
@@ -151,7 +169,8 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # Числовой ввод доната — ОБЯЗАТЕЛЬНО block=True, чтобы не шло в usage_gate/диалог
+    # DONATE: числовой ввод — блокируем дальнейшие хендлеры
+    from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
@@ -169,7 +188,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # Универсальный роутер callback’ов онбординга/режимов — НЕ трогаем чужие префиксы
+    # Универсальный роутер callback’ов онбординга/режимов — исключаем наши префиксы
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
