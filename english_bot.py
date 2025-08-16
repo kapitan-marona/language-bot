@@ -50,7 +50,7 @@ from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 
 # Новое: текст согласия (/consent)
-from handlers.commands.consent import consent_info_command
+from handlers.commands.consent import consent_info_command, codes_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
@@ -152,6 +152,9 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
+    app_.add_handler(CommandHandler("consent", consent_info_command))
+    app_.add_handler(CommandHandler("codes", codes_command))  # НОВОЕ
+
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))

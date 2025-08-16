@@ -73,18 +73,18 @@ def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
     # Снизу — "Продолжить..." для любителей кнопок
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Поменять язык" if ui == "ru" else "Change language",
+            InlineKeyboardButton("Язык" if ui == "ru" else "Language",
                                  callback_data="SETTINGS:LANG"),
-            InlineKeyboardButton("Поменять уровень" if ui == "ru" else "Change level",
+            InlineKeyboardButton("Уровень" if ui == "ru" else "Level",
                                  callback_data="SETTINGS:LEVEL"),
         ],
         [
-            InlineKeyboardButton("Поменять стиль" if ui == "ru" else "Change style",
+            InlineKeyboardButton("Стиль" if ui == "ru" else "Style",
                                  callback_data="SETTINGS:STYLE"),
         ],
         [
             InlineKeyboardButton(
-                "▶️ Продолжить с новыми настройками" if ui == "ru" else "▶️ Continue with new settings",
+                "▶️ Продолжить" if ui == "ru" else "▶️ Continue",
                 callback_data="SETTINGS:APPLY"
             )
         ],

@@ -18,7 +18,7 @@ async def language_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if chunk:
         rows.append(chunk)
     await update.effective_message.reply_text(
-        "Выбери язык интерфейса/практики:" if ui == "ru" else "Choose interface/practice language:",
+        "Выбери язык:" if ui == "ru" else "Choose language:",
         reply_markup=InlineKeyboardMarkup(rows)
     )
 
