@@ -1,23 +1,28 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from telegram.ext import ContextTypes, ConversationHandler
-from .keyboards import main_menu_keyboard
+from __future__ import annotations
+from telegram import Update
+from telegram.ext import ContextTypes
+from handlers import settings
+from handlers.commands.promo import promo_command
+from handlers.commands.donate import donate_command
+from handlers.commands.teach import teach_start, glossary_cmd
+from handlers.commands.payments import buy_command
 
-async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📋 Главное меню:", reply_markup=main_menu_keyboard)
+async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not q or not q.data:
+        return
+    await q.answer()
+    data = q.data
 
-async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TYPE): 
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "dictionary":
-        words = context.user_data.get("dictionary", set())
-        if not words:
-            await query.edit_message_text("📖 Пока что словарь пуст.")
-        else:
-            sorted_words = sorted(words)
-            word_list = "\n".join(f"• {w}" for w in sorted_words)
-            await query.edit_message_text(f"📚 Вот твои недавние слова:\n\n{word_list}")
-        return ConversationHandler.END
-
-    await query.edit_message_text("Меню пока пустое. Скоро тут появятся новые возможности! 🛠️")
-    return ConversationHandler.END
+    if data == "open:settings":
+        await settings.cmd_settings(update, ctx)
+    elif data == "open:donate":
+        await donate_command(update, ctx)
+    elif data == "open:promo":
+        await promo_command(update, ctx)
+    elif data == "open:sub":
+        await buy_command(update, ctx)
+    elif data == "open:teach":
+        await teach_start(update, ctx)
+    elif data == "open:glossary":
+        await glossary_cmd(update, ctx)

@@ -56,7 +56,7 @@ def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, englis
         "Что хочешь поменять?"
     )
     base_en = (
-        "⚙️ Settings\n\n"
+        "⚙Settings\n\n"
         f"• Language: {lang_name}\n"
         f"• Level: {level}\n"
         f"• Chat style: {style_name}\n\n"
