@@ -8,13 +8,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
 
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
     PreCheckoutQueryHandler,
+    ApplicationHandlerStop,
     filters,
 )
 
@@ -33,6 +34,7 @@ from handlers.commands.teach import (
     consent_on,
     consent_off,
     glossary_cmd,
+    resume_chat_callback,   # NEW
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -48,13 +50,8 @@ from components.training_db import init_training_db
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
-
-# Новое: текст согласия (/consent)
-from handlers.commands.consent import consent_info_command, codes_command
-
-# Новое: админы для ограничения /reset
-from components.admins import ADMIN_IDS
-from components.i18n import get_ui_lang  # для сообщений об ограничении
+from handlers.commands.consent import consent_info_command, codes_command  # уже были
+from components.i18n import get_ui_lang
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -108,7 +105,6 @@ async def telegram_webhook(req: Request):
         asyncio.create_task(bot_app.process_update(update))  # неблокирующе
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
-        # всё равно даём 200, чтобы Telegram не дропал вебхук
         return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
     return {"ok": True}
 
@@ -127,16 +123,21 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
     return {"ok": ok, "url": target}
 
 # -------------------------------------------------------------------------
-# Ограничение /reset только для админов
+# «Шлюз-пауза»: если включён teach-пауза — не пускаем в обычный диалог
 # -------------------------------------------------------------------------
-async def reset_admin_only(update: Update, ctx):
-    uid = update.effective_user.id if update.effective_user else None
-    if not uid or uid not in ADMIN_IDS:
+def _resume_kb_text(ui: str) -> InlineKeyboardMarkup:
+    txt = "▶️ Продолжить" if ui == "ru" else "▶️ Resume"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(txt, callback_data="TEACH:RESUME")]])
+
+async def paused_gate(update: Update, ctx):
+    if ctx.chat_data.get("dialog_paused"):
         ui = get_ui_lang(update, ctx)
-        msg = "Эта команда доступна только администратору." if ui == "ru" else "This command is only available to the admin."
-        await update.effective_message.reply_text(msg)
-        return
-    await reset_command(update, ctx)
+        msg = ("Сейчас активен режим /teach. Нажми кнопку, чтобы вернуться к разговору."
+               if ui == "ru"
+               else "Teaching mode is active. Tap the button to resume the chat.")
+        await (update.effective_message or update.message).reply_text(msg, reply_markup=_resume_kb_text(ui))
+        # Полностью останавливаем обработку этого апдейта (чтобы не дошло до handle_message)
+        raise ApplicationHandlerStop
 
 # -------------------------------------------------------------------------
 # Хендлеры
@@ -146,23 +147,16 @@ def setup_handlers(app_: "Application"):
 
     # Команды
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
-    app_.add_handler(CommandHandler("reset", reset_admin_only))  # было reset_command
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
-    app_.add_handler(CommandHandler("consent", consent_info_command))
-    app_.add_handler(CommandHandler("codes", codes_command))  # НОВОЕ
-
-
-    # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
-
-    # Teach/Glossary/Consent
-    app_.add_handler(CommandHandler("consent", consent_info_command))  # новое
+    app_.add_handler(CommandHandler("consent", consent_info_command))
+    app_.add_handler(CommandHandler("codes", codes_command))
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
@@ -172,14 +166,14 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # DONATE: числовой ввод — блокируем дальнейшие хендлеры
+    # DONATE: числовой ввод — блокируем дальнейшие хендлеры в группе 0
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
     )
 
-    # Callback’и меню, настроек, how-to-pay
+    # Callback’и меню, настроек, how-to-pay + наша кнопка возобновления
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
@@ -189,24 +183,30 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
-    app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
+    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))  # NEW
 
-    # Универсальный роутер callback’ов онбординга/режимов — исключаем наши префиксы
+    # Универсальный роутер callback’ов — исключаем наши префиксы
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
-            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:))",
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TEACH:RESUME))",
         ),
         group=1,
     )
 
-    # Лимит-гейт — команды сюда не попадают
+    # Группа 0 — гейт лимитов/промо и пр.
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
         group=0,
     )
 
-    # Основной диалог — команды сюда не попадают
+    # Группа 1 — наш «шлюз-пауза»
+    app_.add_handler(
+        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate),
+        group=1,
+    )
+
+    # Группа 1 — основной диалог
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
         group=1,
