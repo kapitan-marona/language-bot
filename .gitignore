@@ -4,8 +4,6 @@ venv/
 # Файлы окружения с секретами
 .env
 
-onboarding_flags.json
-
 # Кэш Python
 __pycache__/
 *.py[cod]
@@ -20,5 +18,3 @@ Thumbs.db
 # Файлы IDE (если используешь PyCharm, VSCode и т.п.)
 .vscode/
 .idea/
-
-
