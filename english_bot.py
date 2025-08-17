@@ -82,6 +82,7 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("english-bot")
 
+
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -210,7 +211,6 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler())
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
@@ -255,13 +255,12 @@ def setup_handlers(app_: "Application"):
     # === СВОБОДНЫЕ СООБЩЕНИЯ ===
     # Группа 0 — «входные фильтры»
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
-    # DONATE: числовой ввод — НЕ блокируем; останавливаем внутри при need
     app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
-    # лимиты
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
-    # Группа 1 — пауза teach + основной диалог
+    # Группа 1 — приоритет: пауза teach → teach → основной диалог
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=1)
+    app_.add_handler(build_teach_handler(), group=1)  
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
 
 # ---------------------- startup/shutdown ----------------------
