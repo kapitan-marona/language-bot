@@ -211,13 +211,13 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
+    # !!! Никаких build_teach_handler() здесь.
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
     # === CALLBACK-и: СПЕЦИФИЧЕСКИЕ СНАЧАЛА (block=True) ===
-    # меню/настройки/игра
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
@@ -225,12 +225,11 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit, pattern=r"^htp_exit$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))
 
-    # настройки через CMD:...
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
 
-    # онбординг — ЯВНО
+    # онбординг
     app_.add_handler(CallbackQueryHandler(interface_language_callback, pattern=r"^interface_lang:", block=True))
     app_.add_handler(CallbackQueryHandler(onboarding_ok_callback, pattern=r"^onboarding_ok$", block=True))
     app_.add_handler(CallbackQueryHandler(target_language_callback, pattern=r"^target_lang:", block=True))
@@ -243,7 +242,7 @@ def setup_handlers(app_: "Application"):
     from handlers.commands import donate as donate_handlers
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # универсальный колбэк-роутер (всё остальное), ставим в группу 1
+    # универсальный колбэк-роутер (остальное)
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
@@ -252,16 +251,18 @@ def setup_handlers(app_: "Application"):
         group=1,
     )
 
-    # === СВОБОДНЫЕ СООБЩЕНИЯ ===
-    # Группа 0 — «входные фильтры»
+    # === СООБЩЕНИЯ ===
+    # Группа 0 — входные фильтры/гейты
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
     app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
-    # Группа 1 — приоритет: пауза teach → teach → основной диалог
+    # Группа 1 — пауза teach + обычный чат
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=1)
-    app_.add_handler(build_teach_handler(), group=1)  
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
+
+    # Группа 2 — КОНВЕРСЕЙШН /teach (после общего чата, чтобы не глотал текст вне режима)
+    app_.add_handler(build_teach_handler(), group=2)  # ← перенесли сюда
 
 # ---------------------- startup/shutdown ----------------------
 def init_databases():
