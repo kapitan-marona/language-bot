@@ -11,9 +11,8 @@ from components.profile_db import get_user_profile
 from components.i18n import get_ui_lang
 from state.session import user_sessions
 
-logger = logging.getLogger("usage_gate")
-
-# >>> Диагностика: подтверждаем загрузку модуля при старте приложения
+# Используем тот же логгер, что и в основном приложении, чтобы точно видеть сообщения
+logger = logging.getLogger("english-bot")
 logger.info("[gate] module loaded")
 
 FREE_DAILY_LIMIT = 15
