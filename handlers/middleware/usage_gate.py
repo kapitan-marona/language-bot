@@ -1,19 +1,22 @@
 from __future__ import annotations
+import logging
 from telegram import Update
 from telegram.ext import ContextTypes, ApplicationHandlerStop
 from telegram.constants import MessageEntityType
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
-from components.promo import is_promo_valid          
-from components.profile_db import get_user_profile   
-from components.i18n import get_ui_lang              
-from state.session import user_sessions              
+from components.promo import is_promo_valid
+from components.profile_db import get_user_profile
+from components.i18n import get_ui_lang
+from state.session import user_sessions
+
+logger = logging.getLogger("usage_gate")
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
-def _offer_text(key: str, lang: str) -> str:        
+def _offer_text(key: str, lang: str) -> str:
     d = OFFER.get(key) if isinstance(OFFER, dict) else None
     if not isinstance(d, dict):
         return ""
@@ -22,7 +25,7 @@ def _offer_text(key: str, lang: str) -> str:
     # Фолбэк: сначала en, потом ru, потом любая доступная
     return d.get("en") or d.get("ru") or next(iter(d.values()), "")
 
-def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:  # CHANGED: через общий резолвер
+def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:
     try:
         lang = get_ui_lang(update, ctx)  # учитывает user_data / онбординг / профиль
         return lang
@@ -44,11 +47,22 @@ def _is_countable_message(update: Update) -> bool:
     return bool(msg.text or msg.voice or msg.audio)
 
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    # NEW: лог входа
+    try:
+        uid = getattr(update.effective_user, "id", None)
+        cid = getattr(update.effective_chat, "id", None)
+        snippet = (getattr(update.message, "text", "") or "")[:60]
+        logger.info("[gate] enter user=%s chat=%s text=%r", uid, cid, snippet)
+    except Exception:
+        pass
+
     # NEW: пока активна пауза (режим /teach), ничего не считаем и не блокируем
     if ctx.chat_data.get("dialog_paused"):
+        logger.info("[gate] dialog_paused=True -> pass through")
         return
 
     if not _is_countable_message(update):
+        logger.info("[gate] not countable -> pass through")
         return
 
     # NEW: не считаем и не блокируем ввод промокода на онбординге
@@ -56,6 +70,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
         sess = user_sessions.get(chat_id, {}) or {}
         if sess.get("onboarding_stage") == "awaiting_promo":
+            logger.info("[gate] onboarding awaiting_promo -> pass through")
             return
     except Exception:
         pass
@@ -64,36 +79,40 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # 1) Премиум — всегда пропускаем
     if has_access(user_id):
+        logger.info("[gate] has_access=True -> pass through")
         return
 
     # 2) Активный промокод — тоже пропускаем
     profile = get_user_profile(user_id) or {}
     if is_promo_valid(profile):
+        logger.info("[gate] promo valid -> pass through")
         return
 
     # 3) Счётчик бесплатных сообщений
     used = get_usage(user_id)
-    lang = _ui_lang(update, ctx)  # CHANGED
+    lang = _ui_lang(update, ctx)
 
-    # Достаем тексты OFFER безопасно
     limit_text = _offer_text("limit_reached", lang) or (
         "Лимит пробного дня достигнут." if lang == "ru" else "You’ve hit the daily trial limit."
-    )  # NEW
+    )
     reminder_text = _offer_text("reminder_after_10", lang) or (
         "Осталось 5 сообщений в пробном периоде." if lang == "ru" else "You’ve got 5 messages left on the trial."
-    )  # NEW
+    )
+
+    logger.info("[gate] usage before increment = %s (limit=%s)", used, FREE_DAILY_LIMIT)
 
     if used >= FREE_DAILY_LIMIT:
         hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
                 if lang == "ru"
                 else "\n\n💡 Enter /promo to activate a promo code and continue.")
         await (update.message or update.edited_message).reply_text(limit_text + hint)
+        logger.info("[gate] limit reached -> stop")
         raise ApplicationHandlerStop
 
     used = increment_usage(user_id)
+    logger.info("[gate] usage after increment = %s", used)
 
     if used == REMIND_AFTER:
-        # NEW: добавим мягкий хинт про /promo и тут тоже
         hint = ("\n\n💡 Есть промокод? Введите /promo <код>."
                 if lang == "ru"
                 else "\n\n💡 Have a promo code? Use /promo <code>.")
@@ -104,4 +123,5 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 if lang == "ru"
                 else "\n\n💡 Enter /promo to activate a promo code and continue.")
         await (update.message or update.edited_message).reply_text(limit_text + hint)
+        logger.info("[gate] limit exceeded after increment -> stop")
         raise ApplicationHandlerStop
