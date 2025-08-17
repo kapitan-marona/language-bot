@@ -17,7 +17,8 @@ from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MAT
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger  # <-- добавлено
 
-logger = logging.getLogger(__name__)
+# Используем общий логгер сервиса, чтобы точно видеть сообщения в Render
+logger = logging.getLogger("english-bot")
 
 MAX_HISTORY_LENGTH = 40
 RATE_LIMIT_SECONDS = 1.5
@@ -44,7 +45,17 @@ def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
 # --- Главный message handler ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    user_id = update.effective_user.id if update.effective_user else None
     session = user_sessions.setdefault(chat_id, {})
+
+    # === Диагностика входа в основной хендлер ===
+    try:
+        txt = (getattr(update.message, "text", "") or "")[:80]
+        stage = session.get("onboarding_stage")
+        logger.info("[chat] enter user=%s chat=%s stage=%r text=%r", user_id, chat_id, stage, txt)
+    except Exception:
+        pass
+    # === конец диагностического блока ===
 
     # === ВСТАВКА: если ждём промокод, отдаём в обработчик промокода и выходим ===
     try:
@@ -81,7 +92,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         style = session["style"]
 
         # === ОБРАБОТКА ВХОДЯЩЕГО СООБЩЕНИЯ: текст или голос ===
-        if update.message.voice:
+        if update.message and update.message.voice:
             # --- Распознавание голоса через Whisper ---
             voice_file = await context.bot.get_file(update.message.voice.file_id)
             with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
@@ -108,7 +119,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Failed to remove temp audio: %s", e_rm)
         else:
             # --- Обычный текст ---
-            user_input = update.message.text or ""
+            user_input = (update.message.text if update.message else "") or ""
 
         # Санитизация текста от слишком длинных сообщений
         user_input = _sanitize_user_text(user_input, max_len=2000)
