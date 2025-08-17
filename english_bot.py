@@ -36,7 +36,7 @@ from handlers.commands.teach import (
     consent_on,
     consent_off,
     glossary_cmd,
-    resume_chat_callback,  # ← используем ниже
+    resume_chat_callback,
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -86,7 +86,8 @@ logger = logging.getLogger("english-bot")
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-PROMO_CODE_RE = re.compile(r"^(?:[A-Za-z0-9]{4,32}|\d{1,32})$")
+# CHANGED: добавили поддержку кириллицы и сократили нижнюю границу до 2 символов
+PROMO_CODE_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9]{2,32}$")  # CHANGED
 NEG_WORDS = {"нет", "не", "no", "nope", "nah", "skip"}
 
 # ---------------------- errors ----------------------
@@ -176,36 +177,60 @@ async def promo_stage_router(update: Update, ctx):
     text = msg.text.strip()
     low = text.lower()
 
-    if low.startswith("/promo") or low in NEG_WORDS or PROMO_CODE_RE.fullmatch(text):
+    if low.startswith("/promo") or low in NEG_WORDS or PROMO_CODE_RE.fullmatch(text):  # CHANGED (regex уже поддерживает кириллицу)
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
     if not ctx.chat_data.get("promo_hint_shown"):
         ui = get_ui_lang(update, ctx)
-        hint = ("Отправь промокод так: /promo ВАШКОД"
-                if ui == "ru" else "Send your promo like: /promo YOURCODE")
+        # CHANGED: вернули исходную подсказку без форматирования и без «ВАШКОД»
+        hint = ("Отправь промокод так: /promo <code>"
+                if ui == "ru" else
+                "Send your promo like: /promo <code>")  # CHANGED
         try:
-            await msg.reply_text(hint)
+            await msg.reply_text(hint)  # CHANGED (убрали parse_mode)
         except Exception:
             pass
         ctx.chat_data["promo_hint_shown"] = True
     return
 
-# ---------------------- NEW: гейт текста на шагах онбординга ----------------------
+# ---------------------- гейт текста на шагах онбординга ----------------------
 async def onboarding_text_gate(update: Update, ctx):
-    """Если онбординг не закончен (и это не шаг промокода), подсказываем нажать кнопки и останавливаем обработку."""
+    """
+    Если онбординг не закончен:
+      • на шаге awaiting_ok — автопереход к выбору языка (без необходимости жать кнопку);
+      • на остальных шагах — мягкая подсказка «жми кнопки».
+    """
     msg = update.effective_message or update.message
     if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):
         return
+
     sess = user_sessions.setdefault(update.effective_chat.id, {}) or {}
     stage = sess.get("onboarding_stage")
-    if stage and stage != "complete" and stage != "awaiting_promo":
-        ui = get_ui_lang(update, ctx)
-        hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"
-                if ui == "ru" else
-                "Setup is in progress. Please use the buttons below 🙂")
-        await msg.reply_text(hint)
+    if not stage or stage == "complete" or stage == "awaiting_promo":
+        return
+
+    ui = get_ui_lang(update, ctx)
+
+    # если юзер пишет текст на этапе "OK" — идём дальше как будто он нажал кнопку
+    if stage == "awaiting_ok":
+        from handlers.chat.prompt_templates import TARGET_LANG_PROMPT
+        from components.language import get_target_language_keyboard
+        try:
+            sess["onboarding_stage"] = "awaiting_target_lang"
+            await msg.reply_text(
+                TARGET_LANG_PROMPT.get(ui, TARGET_LANG_PROMPT["en"]),
+                reply_markup=get_target_language_keyboard(sess),
+            )
+        except Exception:
+            pass
         raise ApplicationHandlerStop
+
+    # Остальные шаги — вежливо просим пользоваться кнопками
+    hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"
+            if ui == "ru" else "Setup is in progress. Please use the buttons below 🙂")
+    await msg.reply_text(hint)
+    raise ApplicationHandlerStop
 
 # ---------------------- handlers setup ----------------------
 def setup_handlers(app_: "Application"):
@@ -258,7 +283,7 @@ def setup_handlers(app_: "Application"):
     from handlers.commands import donate as donate_handlers
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # ✅ кнопка «Продолжить» из /teach — снимает паузу диалога
+    # кнопка «Продолжить» из /teach — снимает паузу диалога
     app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))
 
     # универсальный колбэк-роутер (остальное)
@@ -273,7 +298,7 @@ def setup_handlers(app_: "Application"):
     # === СООБЩЕНИЯ ===
     # Группа 0 — входные фильтры/гейты (порядок важен)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
-    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)  # ← добавили
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)
     app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
@@ -282,7 +307,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
 
     # Группа 2 — КОНВЕРСЕЙШН /teach (после общего чата, чтобы не глотал текст вне режима)
-    app_.add_handler(build_teach_handler(), group=2)  # ← перенесли сюда
+    app_.add_handler(build_teach_handler(), group=2)
 
 # ---------------------- startup/shutdown ----------------------
 def init_databases():
