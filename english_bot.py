@@ -36,7 +36,7 @@ from handlers.commands.teach import (
     consent_on,
     consent_off,
     glossary_cmd,
-    resume_chat_callback,
+    resume_chat_callback,  # уже импортирован
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -191,6 +191,21 @@ async def promo_stage_router(update: Update, ctx):
         ctx.chat_data["promo_hint_shown"] = True
     return
 
+# ---------------------- NEW: блокируем обычный текст пока идёт онбординг (кроме шага промокода) ----------------------
+async def onboarding_text_gate(update: Update, ctx):  # NEW
+    msg = update.effective_message or update.message  # NEW
+    if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):  # NEW
+        return  # NEW
+    sess = user_sessions.setdefault(update.effective_chat.id, {}) or {}  # NEW
+    stage = sess.get("onboarding_stage")  # NEW
+    if stage and stage != "complete" and stage != "awaiting_promo":  # NEW
+        ui = get_ui_lang(update, ctx)  # NEW
+        hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"  # NEW
+                if ui == "ru" else
+                "Setup is in progress. Please use the buttons below 🙂")  # NEW
+        await msg.reply_text(hint)  # NEW
+        raise ApplicationHandlerStop  # NEW
+
 # ---------------------- handlers setup ----------------------
 def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
@@ -211,13 +226,13 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    # ВАЖНО: НЕ РЕГИСТРИРУЕМ build_teach_handler() здесь (иначе он перехватывает текст раньше чата)
+    # !!! Никаких build_teach_handler() здесь.
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # === CALLBACK-и: СПЕЦИФИЧЕСКИЕ (block=True) ===
+    # === CALLBACK-и: СПЕЦИФИЧЕСКИЕ СНАЧАЛА (block=True) ===
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
@@ -226,26 +241,26 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))
 
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
-    app_.add_handler(CallbackQueryHandler(level_on_callback,  pattern=r"^CMD:LEVEL:", block=True))
-    app_.add_handler(CallbackQueryHandler(style_on_callback,  pattern=r"^CMD:STYLE:", block=True))
+    app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
+    app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
 
-    # Онбординг
+    # онбординг
     app_.add_handler(CallbackQueryHandler(interface_language_callback, pattern=r"^interface_lang:", block=True))
-    app_.add_handler(CallbackQueryHandler(onboarding_ok_callback,     pattern=r"^onboarding_ok$", block=True))
-    app_.add_handler(CallbackQueryHandler(target_language_callback,   pattern=r"^target_lang:", block=True))
-    app_.add_handler(CallbackQueryHandler(level_callback,             pattern=r"^level:", block=True))
-    app_.add_handler(CallbackQueryHandler(style_callback,             pattern=r"^style:", block=True))
-    app_.add_handler(CallbackQueryHandler(level_guide_callback,       pattern=r"^open_level_guide$", block=True))
+    app_.add_handler(CallbackQueryHandler(onboarding_ok_callback, pattern=r"^onboarding_ok$", block=True))
+    app_.add_handler(CallbackQueryHandler(target_language_callback, pattern=r"^target_lang:", block=True))
+    app_.add_handler(CallbackQueryHandler(level_callback, pattern=r"^level:", block=True))
+    app_.add_handler(CallbackQueryHandler(style_callback, pattern=r"^style:", block=True))
+    app_.add_handler(CallbackQueryHandler(level_guide_callback, pattern=r"^open_level_guide$", block=True))
     app_.add_handler(CallbackQueryHandler(close_level_guide_callback, pattern=r"^close_level_guide$", block=True))
 
-    # Donate callbacks
+    # donate callbacks
     from handlers.commands import donate as donate_handlers
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # ⬅️ НОВОЕ: хендлер для кнопки «▶️ Resume» из teach
-    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))
+    # ✅ NEW: кнопка «Продолжить» из /teach — снимает паузу диалога
+    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))  # NEW
 
-    # Универсальный колбэк-роутер (всё остальное) — в группу 1
+    # универсальный колбэк-роутер (остальное)
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
@@ -255,17 +270,18 @@ def setup_handlers(app_: "Application"):
     )
 
     # === СООБЩЕНИЯ ===
-    # Группа 0 — входные фильтры
+    # Группа 0 — входные фильтры/гейты (порядок важен)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)  # NEW
     app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
-    # Группа 1 — пауза teach → обычный чат
+    # Группа 1 — пауза teach + обычный чат
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=1)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
 
-    # Группа 2 — сам /teach (после общего чата, чтобы не «съедал» сообщения вне режима)
-    app_.add_handler(build_teach_handler(), group=2)
+    # Группа 2 — КОНВЕРСЕЙШН /teach (после общего чата, чтобы не глотал текст вне режима)
+    app_.add_handler(build_teach_handler(), group=2)  # ← перенесли сюда
 
 # ---------------------- startup/shutdown ----------------------
 def init_databases():
