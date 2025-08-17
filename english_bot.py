@@ -107,7 +107,7 @@ async def telegram_webhook(req: Request):
         logger.warning("Bad JSON in webhook: %s", e)
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
 
-    # === ДИАГНОСТИКА: что именно прислал Telegram (тип апдейта и краткий текст) ===
+    # Диагностика входящего апдейта
     try:
         keys = list(data.keys())
         msg = data.get("message") or data.get("edited_message") or {}
@@ -116,7 +116,6 @@ async def telegram_webhook(req: Request):
         logger.info("[webhook] update keys=%s, message_keys=%s, text=%r", keys, msg_keys, text_preview)
     except Exception:
         pass
-    # === конец диагностического блока ===
 
     try:
         update = Update.de_json(data, bot_app.bot)
@@ -154,8 +153,7 @@ async def paused_gate(update: Update, ctx):
                if ui == "ru"
                else "Teaching mode is active. Tap the button to resume the chat.")
         await (update.effective_message or update.message).reply_text(msg, reply_markup=_resume_kb_text(ui))
-        # Полностью останавливаем обработку этого апдейта (чтобы не дошло до handle_message)
-        raise ApplicationHandlerStop
+        raise ApplicationHandlerStop  # стопим, чтобы не ушло в handle_message
 
 async def promo_stage_router(update: Update, ctx):
     """Перехватывает ввод промокода на онбординге, не глушит обычный текст."""
@@ -168,36 +166,30 @@ async def promo_stage_router(update: Update, ctx):
     except Exception:
         session = {}
 
-    # === ДИАГНОСТИКА: стадия онбординга и краткий текст ===
+    # Диагностика: стадия онбординга и краткий текст
     try:
         logger.info("[promo_router] stage=%r, text=%r", session.get("onboarding_stage"), (msg.text or "")[:80])
     except Exception:
         pass
-    # === конец диагностического блока ===
 
-    # Только если реально ждём промокод — иначе ничего не делаем
     if session.get("onboarding_stage") != "awaiting_promo":
         return
 
     text = msg.text.strip()
     low = text.lower()
 
-    # 1) Явная команда /promo <код>
     if low.startswith("/promo"):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
-    # 2) Пользователь отказывается от промо
     if low in NEG_WORDS:
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
-    # 3) «Голый» промокод (по маске)
     if PROMO_CODE_RE.fullmatch(text):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
-    # 4) Это не похоже на код — подскажем ОДИН раз и отпустим дальше
     if not ctx.chat_data.get("promo_hint_shown"):
         ui = get_ui_lang(update, ctx)
         hint = ("Отправь промокод так: /promo ВАШКОД"
@@ -209,8 +201,7 @@ async def promo_stage_router(update: Update, ctx):
             pass
         ctx.chat_data["promo_hint_shown"] = True
 
-    # Важно: НЕТ ApplicationHandlerStop — текст пойдёт в usage_gate -> handle_message
-    return
+    return  # НЕ стопим — пускаем дальше в usage_gate/handle_message
 
 # -------------------------------------------------------------------------
 # Хендлеры
@@ -234,7 +225,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler())
+    app_.add_handler(build_teach_handler())  # остаётся как есть
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
@@ -268,35 +259,30 @@ def setup_handlers(app_: "Application"):
         group=1,
     )
 
-    # Группа 0 — гейт лимитов/промо и пр.
-    app_.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router),
-        group=0,
-    )
+    # Группа 0 — маршрутизация свободного текста
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
 
-    # DONATE: числовой ввод — блокируем дальнейшие хендлеры в группе 0
+    # DONATE: числовой ввод (дубликат у тебя уже был — оставляю как есть)
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
     )
 
+    # <<< ВАЖНО: три шага подряд в ОДНОЙ группе 0 >>>
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
         group=0,
     )
-
-    # Группа 1 — наш «шлюз-пауза»
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate),
-        group=1,
+        group=0,
     )
-
-    # Группа 1 — основной диалог
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
-        group=1,
+        group=0,
     )
+    # <<< конец цепочки группы 0 >>>
 
 # -------------------------------------------------------------------------
 # Инициализация
