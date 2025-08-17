@@ -1,14 +1,14 @@
+# handlers/commands/style_cmd.py
 from __future__ import annotations
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from handlers.settings import STYLES
 from components.profile_db import save_user_profile
-
-def _ui_lang(ctx: ContextTypes.DEFAULT_TYPE) -> str:
-    return ctx.user_data.get("ui_lang", "ru")
+from components.i18n import get_ui_lang
+from state.session import user_sessions
 
 async def style_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ui = _ui_lang(ctx)
+    ui = get_ui_lang(update, ctx)
     rows = [[InlineKeyboardButton(title, callback_data=f"CMD:STYLE:{code}")] for title, code in STYLES]
     await update.effective_message.reply_text(
         "Выбери стиль общения:" if ui == "ru" else "Choose chat style:",
@@ -22,11 +22,16 @@ async def style_on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     style = q.data.split(":", 2)[-1]
     chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
 
     ctx.user_data["style"] = style
-    save_user_profile(chat_id, style=style)
+    save_user_profile(user_id, style=style)
 
-    ui = _ui_lang(ctx)
+    # синхронизируем активную сессию
+    sess = user_sessions.setdefault(chat_id, {})
+    sess["style"] = style
+
+    ui = get_ui_lang(update, ctx)
     await q.edit_message_text(
         "Готово. Стиль сохранён." if ui == "ru" else "Done. Style saved."
     )
