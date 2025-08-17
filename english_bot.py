@@ -36,7 +36,7 @@ from handlers.commands.teach import (
     consent_on,
     consent_off,
     glossary_cmd,
-    resume_chat_callback,  # уже импортирован
+    resume_chat_callback,  # ← используем ниже
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -191,20 +191,21 @@ async def promo_stage_router(update: Update, ctx):
         ctx.chat_data["promo_hint_shown"] = True
     return
 
-# ---------------------- NEW: блокируем обычный текст пока идёт онбординг (кроме шага промокода) ----------------------
-async def onboarding_text_gate(update: Update, ctx):  # NEW
-    msg = update.effective_message or update.message  # NEW
-    if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):  # NEW
-        return  # NEW
-    sess = user_sessions.setdefault(update.effective_chat.id, {}) or {}  # NEW
-    stage = sess.get("onboarding_stage")  # NEW
-    if stage and stage != "complete" and stage != "awaiting_promo":  # NEW
-        ui = get_ui_lang(update, ctx)  # NEW
-        hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"  # NEW
+# ---------------------- NEW: гейт текста на шагах онбординга ----------------------
+async def onboarding_text_gate(update: Update, ctx):
+    """Если онбординг не закончен (и это не шаг промокода), подсказываем нажать кнопки и останавливаем обработку."""
+    msg = update.effective_message or update.message
+    if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):
+        return
+    sess = user_sessions.setdefault(update.effective_chat.id, {}) or {}
+    stage = sess.get("onboarding_stage")
+    if stage and stage != "complete" and stage != "awaiting_promo":
+        ui = get_ui_lang(update, ctx)
+        hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"
                 if ui == "ru" else
-                "Setup is in progress. Please use the buttons below 🙂")  # NEW
-        await msg.reply_text(hint)  # NEW
-        raise ApplicationHandlerStop  # NEW
+                "Setup is in progress. Please use the buttons below 🙂")
+        await msg.reply_text(hint)
+        raise ApplicationHandlerStop
 
 # ---------------------- handlers setup ----------------------
 def setup_handlers(app_: "Application"):
@@ -257,8 +258,8 @@ def setup_handlers(app_: "Application"):
     from handlers.commands import donate as donate_handlers
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # ✅ NEW: кнопка «Продолжить» из /teach — снимает паузу диалога
-    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))  # NEW
+    # ✅ кнопка «Продолжить» из /teach — снимает паузу диалога
+    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))
 
     # универсальный колбэк-роутер (остальное)
     app_.add_handler(
@@ -272,7 +273,7 @@ def setup_handlers(app_: "Application"):
     # === СООБЩЕНИЯ ===
     # Группа 0 — входные фильтры/гейты (порядок важен)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
-    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)  # NEW
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)  # ← добавили
     app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
