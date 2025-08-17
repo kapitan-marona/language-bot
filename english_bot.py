@@ -77,7 +77,9 @@ logger = logging.getLogger("english-bot")
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-PROMO_CODE_RE = re.compile(r"^[A-Za-z0-9]{4,32}$")
+PROMO_CODE_RE = re.compile(r"^(?:[A-Za-z0-9]{4,32}|\d{1,32})$")
+
+NEG_WORDS = {"нет", "не", "no", "nope", "nah", "skip"}
 
 # -------------------------------------------------------------------------
 # Ошибки
@@ -159,18 +161,24 @@ async def promo_stage_router(update: Update, ctx):
         return
 
     text = msg.text.strip()
+    low = text.lower()
 
     # 1) Явная команда /promo <код>
-    if text.startswith("/promo"):
+    if low.startswith("/promo"):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
-    # 2) «Голый» промокод (по маске)
+    # 2) Пользователь отказывается от промо
+    if low in NEG_WORDS:
+        await promo_code_message(update, ctx)
+        raise ApplicationHandlerStop
+
+    # 3) «Голый» промокод (по маске)
     if PROMO_CODE_RE.fullmatch(text):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
-    # 3) Это не похоже на код — подскажем ОДИН раз и отпустим дальше
+    # 4) Это не похоже на код — подскажем ОДИН раз и отпустим дальше
     if not ctx.chat_data.get("promo_hint_shown"):
         ui = get_ui_lang(update, ctx)
         hint = ("Отправь промокод так: /promo ВАШКОД"
@@ -244,6 +252,13 @@ def setup_handlers(app_: "Application"):
     # Группа 0 — гейт лимитов/промо и пр.
     app_.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router),
+        group=0,
+    )
+
+    # DONATE: числовой ввод — блокируем дальнейшие хендлеры в группе 0
+    from handlers.commands import donate as donate_handlers
+    app_.add_handler(
+        MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
     )
 
