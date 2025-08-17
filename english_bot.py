@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 import logging
 import asyncio  # неблокирующая обработка апдейтов
 from typing import Optional
@@ -76,6 +77,8 @@ logger = logging.getLogger("english-bot")
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+PROMO_CODE_RE = re.compile(r"^[A-Za-z0-9]{4,32}$")
+
 # -------------------------------------------------------------------------
 # Ошибки
 # -------------------------------------------------------------------------
@@ -141,15 +144,46 @@ async def paused_gate(update: Update, ctx):
         raise ApplicationHandlerStop
 
 async def promo_stage_router(update: Update, ctx):
-    """Перехватывает текст, когда ждём ввод промокода на онбординге."""
+    """Перехватывает ввод промокода на онбординге, не глушит обычный текст."""
+    msg = update.effective_message or update.message
+    if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):
+        return
+
     try:
-        session = user_sessions.setdefault(update.effective_chat.id, {})
+        session = user_sessions.setdefault(update.effective_chat.id, {}) or {}
     except Exception:
         session = {}
-    if session.get("onboarding_stage") == "awaiting_promo":
+
+    # Только если реально ждём промокод — иначе ничего не делаем
+    if session.get("onboarding_stage") != "awaiting_promo":
+        return
+
+    text = msg.text.strip()
+
+    # 1) Явная команда /promo <код>
+    if text.startswith("/promo"):
         await promo_code_message(update, ctx)
-        # чтобы дальше не пошло ни в usage_gate, ни в handle_message
         raise ApplicationHandlerStop
+
+    # 2) «Голый» промокод (по маске)
+    if PROMO_CODE_RE.fullmatch(text):
+        await promo_code_message(update, ctx)
+        raise ApplicationHandlerStop
+
+    # 3) Это не похоже на код — подскажем ОДИН раз и отпустим дальше
+    if not ctx.chat_data.get("promo_hint_shown"):
+        ui = get_ui_lang(update, ctx)
+        hint = ("Отправь промокод так: /promo ВАШКОД"
+                if ui == "ru"
+                else "Send your promo like: /promo YOURCODE")
+        try:
+            await msg.reply_text(hint)
+        except Exception:
+            pass
+        ctx.chat_data["promo_hint_shown"] = True
+
+    # Важно: НЕТ ApplicationHandlerStop — текст пойдёт в usage_gate -> handle_message
+    return
 
 # -------------------------------------------------------------------------
 # Хендлеры
@@ -159,6 +193,7 @@ def setup_handlers(app_: "Application"):
 
     # Команды
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
+    app_.add_handler(CommandHandler("reset", reset_command))
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
     app_.add_handler(CommandHandler("promo", promo_command))
