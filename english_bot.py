@@ -106,6 +106,18 @@ async def telegram_webhook(req: Request):
     except Exception as e:
         logger.warning("Bad JSON in webhook: %s", e)
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
+
+    # === ДИАГНОСТИКА: что именно прислал Telegram (тип апдейта и краткий текст) ===
+    try:
+        keys = list(data.keys())
+        msg = data.get("message") or data.get("edited_message") or {}
+        msg_keys = list(msg.keys()) if isinstance(msg, dict) else []
+        text_preview = (msg.get("text") or "")[:80] if isinstance(msg, dict) else ""
+        logger.info("[webhook] update keys=%s, message_keys=%s, text=%r", keys, msg_keys, text_preview)
+    except Exception:
+        pass
+    # === конец диагностического блока ===
+
     try:
         update = Update.de_json(data, bot_app.bot)
         asyncio.create_task(bot_app.process_update(update))  # неблокирующе
@@ -155,6 +167,13 @@ async def promo_stage_router(update: Update, ctx):
         session = user_sessions.setdefault(update.effective_chat.id, {}) or {}
     except Exception:
         session = {}
+
+    # === ДИАГНОСТИКА: стадия онбординга и краткий текст ===
+    try:
+        logger.info("[promo_router] stage=%r, text=%r", session.get("onboarding_stage"), (msg.text or "")[:80])
+    except Exception:
+        pass
+    # === конец диагностического блока ===
 
     # Только если реально ждём промокод — иначе ничего не делаем
     if session.get("onboarding_stage") != "awaiting_promo":
