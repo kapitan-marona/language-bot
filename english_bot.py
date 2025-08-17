@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import re
 import logging
-import asyncio  # неблокирующая обработка апдейтов
+import asyncio
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -21,7 +21,7 @@ from telegram.ext import (
     filters,
 )
 
-# === наши компоненты/хендлеры ===
+# === чат и другие хендлеры ===
 from handlers.chat.chat_handler import handle_message
 from handlers.conversation_callback import handle_callback_query
 from handlers.commands.help import help_command
@@ -36,28 +36,36 @@ from handlers.commands.teach import (
     consent_on,
     consent_off,
     glossary_cmd,
-    resume_chat_callback,   # NEW
+    resume_chat_callback,
 )
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
-# Онбординг и сброс
+# --- онбординг ---
 from handlers.commands.reset import reset_command
 from components.onboarding import send_onboarding, promo_code_message
+from components.onboarding import (
+    interface_language_callback,
+    onboarding_ok_callback,
+    target_language_callback,
+    level_guide_callback,
+    close_level_guide_callback,
+    level_callback,
+    style_callback,
+)
 
+# --- БД ---
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
 from components.training_db import init_training_db
 
+# --- команды настроек ---
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
-from handlers.commands.consent import consent_info_command, codes_command  # уже были
+from handlers.commands.consent import consent_info_command, codes_command
 from components.i18n import get_ui_lang
 
-# -------------------------------------------------------------------------
-# Инициализация
-# -------------------------------------------------------------------------
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -78,18 +86,13 @@ app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 PROMO_CODE_RE = re.compile(r"^(?:[A-Za-z0-9]{4,32}|\d{1,32})$")
-
 NEG_WORDS = {"нет", "не", "no", "nope", "nah", "skip"}
 
-# -------------------------------------------------------------------------
-# Ошибки
-# -------------------------------------------------------------------------
+# ---------------------- errors ----------------------
 async def on_error(update: Optional[Update], context):
     logger.exception("Unhandled error: %s", context.error)
 
-# -------------------------------------------------------------------------
-# Роуты
-# -------------------------------------------------------------------------
+# ---------------------- routes ----------------------
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
@@ -107,7 +110,7 @@ async def telegram_webhook(req: Request):
         logger.warning("Bad JSON in webhook: %s", e)
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
 
-    # Диагностика входящего апдейта
+    # лог входящего апдейта
     try:
         keys = list(data.keys())
         msg = data.get("message") or data.get("edited_message") or {}
@@ -119,7 +122,7 @@ async def telegram_webhook(req: Request):
 
     try:
         update = Update.de_json(data, bot_app.bot)
-        asyncio.create_task(bot_app.process_update(update))  # неблокирующе
+        asyncio.create_task(bot_app.process_update(update))
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
         return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
@@ -139,9 +142,7 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
     )
     return {"ok": ok, "url": target}
 
-# -------------------------------------------------------------------------
-# «Шлюз-пауза»: если включён teach-пауза — не пускаем в обычный диалог
-# -------------------------------------------------------------------------
+# ---------------------- gates ----------------------
 def _resume_kb_text(ui: str) -> InlineKeyboardMarkup:
     txt = "▶️ Продолжить" if ui == "ru" else "▶️ Resume"
     return InlineKeyboardMarkup([[InlineKeyboardButton(txt, callback_data="TEACH:RESUME")]])
@@ -150,23 +151,19 @@ async def paused_gate(update: Update, ctx):
     if ctx.chat_data.get("dialog_paused"):
         ui = get_ui_lang(update, ctx)
         msg = ("Сейчас активен режим /teach. Нажми кнопку, чтобы вернуться к разговору."
-               if ui == "ru"
-               else "Teaching mode is active. Tap the button to resume the chat.")
+               if ui == "ru" else "Teaching mode is active. Tap the button to resume the chat.")
         await (update.effective_message or update.message).reply_text(msg, reply_markup=_resume_kb_text(ui))
-        raise ApplicationHandlerStop  # стопим, чтобы не ушло в handle_message
+        raise ApplicationHandlerStop
 
 async def promo_stage_router(update: Update, ctx):
     """Перехватывает ввод промокода на онбординге, не глушит обычный текст."""
     msg = update.effective_message or update.message
     if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):
         return
-
     try:
         session = user_sessions.setdefault(update.effective_chat.id, {}) or {}
     except Exception:
         session = {}
-
-    # Диагностика: стадия онбординга и краткий текст
     try:
         logger.info("[promo_router] stage=%r, text=%r", session.get("onboarding_stage"), (msg.text or "")[:80])
     except Exception:
@@ -178,34 +175,22 @@ async def promo_stage_router(update: Update, ctx):
     text = msg.text.strip()
     low = text.lower()
 
-    if low.startswith("/promo"):
-        await promo_code_message(update, ctx)
-        raise ApplicationHandlerStop
-
-    if low in NEG_WORDS:
-        await promo_code_message(update, ctx)
-        raise ApplicationHandlerStop
-
-    if PROMO_CODE_RE.fullmatch(text):
+    if low.startswith("/promo") or low in NEG_WORDS or PROMO_CODE_RE.fullmatch(text):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
     if not ctx.chat_data.get("promo_hint_shown"):
         ui = get_ui_lang(update, ctx)
         hint = ("Отправь промокод так: /promo ВАШКОД"
-                if ui == "ru"
-                else "Send your promo like: /promo YOURCODE")
+                if ui == "ru" else "Send your promo like: /promo YOURCODE")
         try:
             await msg.reply_text(hint)
         except Exception:
             pass
         ctx.chat_data["promo_hint_shown"] = True
+    return
 
-    return  # НЕ стопим — пускаем дальше в usage_gate/paused_gate/handle_message
-
-# -------------------------------------------------------------------------
-# Хендлеры
-# -------------------------------------------------------------------------
+# ---------------------- handlers setup ----------------------
 def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
 
@@ -225,40 +210,61 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler())  # teach остаётся
+    app_.add_handler(build_teach_handler())
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # --- CALLBACK-и
+    # === CALLBACK-и: СПЕЦИФИЧЕСКИЕ СНАЧАЛА (block=True) ===
+    # меню/настройки/игра
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how, pattern=r"^htp_how$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit, pattern=r"^htp_exit$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))
+
+    # настройки через CMD:...
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
-    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))  # NEW
 
-    # --- СВОБОДНЫЙ ТЕКСТ: всё в одной цепочке группы 0 ---
-    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)  # не блокируем
-    # DONATE: числовой ввод — НЕ блокируем (см. donate.py ниже)
+    # онбординг — ЯВНО
+    app_.add_handler(CallbackQueryHandler(interface_language_callback, pattern=r"^interface_lang:", block=True))
+    app_.add_handler(CallbackQueryHandler(onboarding_ok_callback, pattern=r"^onboarding_ok$", block=True))
+    app_.add_handler(CallbackQueryHandler(target_language_callback, pattern=r"^target_lang:", block=True))
+    app_.add_handler(CallbackQueryHandler(level_callback, pattern=r"^level:", block=True))
+    app_.add_handler(CallbackQueryHandler(style_callback, pattern=r"^style:", block=True))
+    app_.add_handler(CallbackQueryHandler(level_guide_callback, pattern=r"^open_level_guide$", block=True))
+    app_.add_handler(CallbackQueryHandler(close_level_guide_callback, pattern=r"^close_level_guide$", block=True))
+
+    # donate callbacks
     from handlers.commands import donate as donate_handlers
-    app_.add_handler(
-        MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message),
-        group=0,
-    )
-    # лимиты → пауза teach → основной диалог
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=0)
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=0)
+    app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-# -------------------------------------------------------------------------
-# Инициализация
-# -------------------------------------------------------------------------
+    # универсальный колбэк-роутер (всё остальное), ставим в группу 1
+    app_.add_handler(
+        CallbackQueryHandler(
+            handle_callback_query,
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TEACH:RESUME|interface_lang:|onboarding_ok|target_lang:|level:|style:|close_level_guide|open_level_guide))",
+        ),
+        group=1,
+    )
+
+    # === СВОБОДНЫЕ СООБЩЕНИЯ ===
+    # Группа 0 — «входные фильтры»
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
+    # DONATE: числовой ввод — НЕ блокируем; останавливаем внутри при need
+    app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
+    # лимиты
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
+
+    # Группа 1 — пауза teach + основной диалог
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=1)
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
+
+# ---------------------- startup/shutdown ----------------------
 def init_databases():
     init_profiles_db()
     init_usage_db()
