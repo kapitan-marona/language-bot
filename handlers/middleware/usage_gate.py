@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
+import asyncio  # NEW
 from telegram import Update
 from telegram.ext import ContextTypes, ApplicationHandlerStop
 from telegram.constants import MessageEntityType
+
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
@@ -29,8 +31,8 @@ def _offer_text(key: str, lang: str) -> str:
 
 def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:
     try:
-        lang = get_ui_lang(update, ctx)  # учитывает user_data / онбординг / профиль
-        return lang
+        # быстрый синхронный резолвер (не блокирует)
+        return get_ui_lang(update, ctx)
     except Exception:
         return (ctx.user_data or {}).get("ui_lang", "en")
 
@@ -67,7 +69,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] not countable -> pass through")
         return
 
-    # Во время ввода промокода на онбординге
+    # Во время ввода промокода на онбординге — ничего не считаем
     try:
         chat_id = update.effective_chat.id
         sess = user_sessions.get(chat_id, {}) or {}
@@ -79,19 +81,36 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
 
-    # Премиум — пропускаем
-    if has_access(user_id):
+    # Премиум — пропускаем (вынесено в thread pool)
+    try:
+        premium = await asyncio.to_thread(has_access, user_id)  # NEW
+    except Exception:
+        logger.exception("[gate] has_access failed; treating as no access")
+        premium = False
+
+    if premium:
         logger.info("[gate] has_access=True -> pass through")
         return
 
     # Активный промокод — пропускаем
-    profile = get_user_profile(user_id) or {}
+    try:
+        profile = await asyncio.to_thread(get_user_profile, user_id)  # NEW
+        profile = profile or {}
+    except Exception:
+        logger.exception("[gate] get_user_profile failed; assuming empty profile")
+        profile = {}
+
     if is_promo_valid(profile):
         logger.info("[gate] promo valid -> pass through")
         return
 
-    # Счётчик бесплатных сообщений
-    used = get_usage(user_id)
+    # Счётчик бесплатных сообщений (в thread pool)
+    try:
+        used = await asyncio.to_thread(get_usage, user_id)  # NEW
+    except Exception:
+        logger.exception("[gate] get_usage failed; fallback used=0")
+        used = 0
+
     lang = _ui_lang(update, ctx)
 
     limit_text = _offer_text("limit_reached", lang) or (
@@ -111,7 +130,13 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] limit reached -> stop")
         raise ApplicationHandlerStop
 
-    used = increment_usage(user_id)
+    # Инкремент (в thread pool)
+    try:
+        used = await asyncio.to_thread(increment_usage, user_id)  # NEW
+    except Exception:
+        logger.exception("[gate] increment_usage failed; treating as exceeded")
+        used = FREE_DAILY_LIMIT + 1
+
     logger.info("[gate] usage after increment = %s", used)
 
     if used == REMIND_AFTER:
