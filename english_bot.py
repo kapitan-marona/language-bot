@@ -2,7 +2,6 @@ from __future__ import annotations
 import os
 import re
 import logging
-import asyncio
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -10,7 +9,7 @@ from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse
 from state.session import user_sessions
 
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -31,13 +30,6 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from handlers.commands.teach import (
-    build_teach_handler,
-    consent_on,
-    consent_off,
-    glossary_cmd,
-    resume_chat_callback,
-)
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
@@ -63,7 +55,6 @@ from components.training_db import init_training_db
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
-from handlers.commands.consent import consent_info_command, codes_command
 from components.i18n import get_ui_lang
 
 load_dotenv()
@@ -82,12 +73,11 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("english-bot")
 
-
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# CHANGED: добавили поддержку кириллицы и сократили нижнюю границу до 2 символов
-PROMO_CODE_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9]{2,32}$")  # CHANGED
+# CHANGED: регекс принимает кириллицу/латиницу/цифры, 2..32 символа
+PROMO_CODE_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9]{2,32}$")
 NEG_WORDS = {"нет", "не", "no", "nope", "nah", "skip"}
 
 # ---------------------- errors ----------------------
@@ -112,19 +102,17 @@ async def telegram_webhook(req: Request):
         logger.warning("Bad JSON in webhook: %s", e)
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
 
-    # лог входящего апдейта
     try:
-        keys = list(data.keys())
         msg = data.get("message") or data.get("edited_message") or {}
-        msg_keys = list(msg.keys()) if isinstance(msg, dict) else []
         text_preview = (msg.get("text") or "")[:80] if isinstance(msg, dict) else ""
-        logger.info("[webhook] update keys=%s, message_keys=%s, text=%r", keys, msg_keys, text_preview)
+        logger.info("[webhook] keys=%s, text=%r", list(data.keys()), text_preview)
     except Exception:
         pass
 
     try:
         update = Update.de_json(data, bot_app.bot)
-        asyncio.create_task(bot_app.process_update(update))
+        # CHANGED: обрабатываем синхронно, чтобы не терять апдейты
+        await bot_app.process_update(update)  # CHANGED
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
         return JSONResponse({"ok": False, "error": "internal"}, status_code=200)
@@ -144,28 +132,13 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
     )
     return {"ok": ok, "url": target}
 
-# ---------------------- gates ----------------------
-def _resume_kb_text(ui: str) -> InlineKeyboardMarkup:
-    txt = "▶️ Продолжить" if ui == "ru" else "▶️ Resume"
-    return InlineKeyboardMarkup([[InlineKeyboardButton(txt, callback_data="TEACH:RESUME")]])
-
-async def paused_gate(update: Update, ctx):
-    if ctx.chat_data.get("dialog_paused"):
-        ui = get_ui_lang(update, ctx)
-        msg = ("Сейчас активен режим /teach. Нажми кнопку, чтобы вернуться к разговору."
-               if ui == "ru" else "Teaching mode is active. Tap the button to resume the chat.")
-        await (update.effective_message or update.message).reply_text(msg, reply_markup=_resume_kb_text(ui))
-        raise ApplicationHandlerStop
-
+# ---------------------- promo during onboarding ----------------------
 async def promo_stage_router(update: Update, ctx):
     """Перехватывает ввод промокода на онбординге, не глушит обычный текст."""
     msg = update.effective_message or update.message
     if not msg or not getattr(msg, "text", None) or (msg.from_user and msg.from_user.is_bot):
         return
-    try:
-        session = user_sessions.setdefault(update.effective_chat.id, {}) or {}
-    except Exception:
-        session = {}
+    session = user_sessions.setdefault(update.effective_chat.id, {}) or {}
     try:
         logger.info("[promo_router] stage=%r, text=%r", session.get("onboarding_stage"), (msg.text or "")[:80])
     except Exception:
@@ -177,28 +150,25 @@ async def promo_stage_router(update: Update, ctx):
     text = msg.text.strip()
     low = text.lower()
 
-    if low.startswith("/promo") or low in NEG_WORDS or PROMO_CODE_RE.fullmatch(text):  # CHANGED (regex уже поддерживает кириллицу)
+    if low.startswith("/promo") or low in NEG_WORDS or PROMO_CODE_RE.fullmatch(text):
         await promo_code_message(update, ctx)
         raise ApplicationHandlerStop
 
     if not ctx.chat_data.get("promo_hint_shown"):
         ui = get_ui_lang(update, ctx)
-        # CHANGED: вернули исходную подсказку без форматирования и без «ВАШКОД»
         hint = ("Отправь промокод так: /promo <code>"
-                if ui == "ru" else
-                "Send your promo like: /promo <code>")  # CHANGED
+                if ui == "ru" else "Send your promo like: /promo <code>")
         try:
-            await msg.reply_text(hint)  # CHANGED (убрали parse_mode)
+            await msg.reply_text(hint)
         except Exception:
             pass
         ctx.chat_data["promo_hint_shown"] = True
-    return
 
-# ---------------------- гейт текста на шагах онбординга ----------------------
+# ---------------------- onboarding text gate ----------------------
 async def onboarding_text_gate(update: Update, ctx):
     """
     Если онбординг не закончен:
-      • на шаге awaiting_ok — автопереход к выбору языка (без необходимости жать кнопку);
+      • на шаге awaiting_ok — автопереход к выбору языка;
       • на остальных шагах — мягкая подсказка «жми кнопки».
     """
     msg = update.effective_message or update.message
@@ -212,7 +182,6 @@ async def onboarding_text_gate(update: Update, ctx):
 
     ui = get_ui_lang(update, ctx)
 
-    # если юзер пишет текст на этапе "OK" — идём дальше как будто он нажал кнопку
     if stage == "awaiting_ok":
         from handlers.chat.prompt_templates import TARGET_LANG_PROMPT
         from components.language import get_target_language_keyboard
@@ -226,7 +195,6 @@ async def onboarding_text_gate(update: Update, ctx):
             pass
         raise ApplicationHandlerStop
 
-    # Остальные шаги — вежливо просим пользоваться кнопками
     hint = ("Сейчас идёт настройка. Пожалуйста, выбери вариант на кнопках ниже 🙂"
             if ui == "ru" else "Setup is in progress. Please use the buttons below 🙂")
     await msg.reply_text(hint)
@@ -247,12 +215,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
-    app_.add_handler(CommandHandler("consent", consent_info_command))
-    app_.add_handler(CommandHandler("codes", codes_command))
-    app_.add_handler(CommandHandler("consent_on", consent_on))
-    app_.add_handler(CommandHandler("consent_off", consent_off))
-    app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    # !!! Никаких build_teach_handler() здесь.
+    # REMOVED TEACH: никаких consent/glossary/teach команд
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
@@ -283,14 +246,14 @@ def setup_handlers(app_: "Application"):
     from handlers.commands import donate as donate_handlers
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
 
-    # кнопка «Продолжить» из /teach — снимает паузу диалога
-    app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))
+    # REMOVED TEACH: убрали обработчик TEACH:RESUME
 
     # универсальный колбэк-роутер (остальное)
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
-            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TEACH:RESUME|interface_lang:|onboarding_ok|target_lang:|level:|style:|close_level_guide|open_level_guide))",
+            # CHANGED: убрали TEACH:RESUME из исключений в паттерне
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|interface_lang:|onboarding_ok|target_lang:|level:|style:|close_level_guide|open_level_guide))",
         ),
         group=1,
     )
@@ -299,15 +262,13 @@ def setup_handlers(app_: "Application"):
     # Группа 0 — входные фильтры/гейты (порядок важен)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, onboarding_text_gate), group=0)
-    app_.add_handler(MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message), group=0)
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
 
-    # Группа 1 — пауза teach + обычный чат
-    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=1)
+    # Группа 1 — основной диалог
+    # REMOVED TEACH: no paused_gate
     app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=1)
 
-    # Группа 2 — КОНВЕРСЕЙШН /teach (после общего чата, чтобы не глотал текст вне режима)
-    app_.add_handler(build_teach_handler(), group=2)
+    # REMOVED TEACH: никакого build_teach_handler()
 
 # ---------------------- startup/shutdown ----------------------
 def init_databases():

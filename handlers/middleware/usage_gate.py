@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-import asyncio  # NEW
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, ApplicationHandlerStop
 from telegram.constants import MessageEntityType
@@ -13,7 +13,6 @@ from components.profile_db import get_user_profile
 from components.i18n import get_ui_lang
 from state.session import user_sessions
 
-# Используем тот же логгер, что и в основном приложении, чтобы точно видеть сообщения
 logger = logging.getLogger("english-bot")
 logger.info("[gate] module loaded")
 
@@ -26,12 +25,10 @@ def _offer_text(key: str, lang: str) -> str:
         return ""
     if lang in d:
         return d[lang]
-    # Фолбэк: сначала en, потом ru, потом любая доступная
     return d.get("en") or d.get("ru") or next(iter(d.values()), "")
 
 def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:
     try:
-        # быстрый синхронный резолвер (не блокирует)
         return get_ui_lang(update, ctx)
     except Exception:
         return (ctx.user_data or {}).get("ui_lang", "en")
@@ -51,7 +48,6 @@ def _is_countable_message(update: Update) -> bool:
     return bool(msg.text or msg.voice or msg.audio)
 
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    # Диагностика входа в гейт
     try:
         uid = getattr(update.effective_user, "id", None)
         cid = getattr(update.effective_chat, "id", None)
@@ -60,30 +56,25 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # Пока активна пауза (режим /teach)
-    if ctx.chat_data.get("dialog_paused"):
-        logger.info("[gate] dialog_paused=True -> pass through")
-        return
-
+    # REMOVED TEACH: больше не блокируем по dialog_paused
     if not _is_countable_message(update):
         logger.info("[gate] not countable -> pass through")
         return
 
-    # Во время ввода промокода на онбординге — ничего не считаем
+    # Во время ввода промокода на онбординге — не считаем
     try:
         chat_id = update.effective_chat.id
         sess = user_sessions.get(chat_id, {}) or {}
         if sess.get("onboarding_stage") == "awaiting_promo":
-            logger.info("[gate] onboarding awaiting_promo -> pass through")
+            logger.info("[gate] awaiting_promo -> pass through")
             return
     except Exception:
         pass
 
     user_id = update.effective_user.id
 
-    # Премиум — пропускаем (вынесено в thread pool)
     try:
-        premium = await asyncio.to_thread(has_access, user_id)  # NEW
+        premium = await asyncio.to_thread(has_access, user_id)
     except Exception:
         logger.exception("[gate] has_access failed; treating as no access")
         premium = False
@@ -92,9 +83,8 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] has_access=True -> pass through")
         return
 
-    # Активный промокод — пропускаем
     try:
-        profile = await asyncio.to_thread(get_user_profile, user_id)  # NEW
+        profile = await asyncio.to_thread(get_user_profile, user_id)
         profile = profile or {}
     except Exception:
         logger.exception("[gate] get_user_profile failed; assuming empty profile")
@@ -104,9 +94,8 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] promo valid -> pass through")
         return
 
-    # Счётчик бесплатных сообщений (в thread pool)
     try:
-        used = await asyncio.to_thread(get_usage, user_id)  # NEW
+        used = await asyncio.to_thread(get_usage, user_id)
     except Exception:
         logger.exception("[gate] get_usage failed; fallback used=0")
         used = 0
@@ -130,9 +119,8 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] limit reached -> stop")
         raise ApplicationHandlerStop
 
-    # Инкремент (в thread pool)
     try:
-        used = await asyncio.to_thread(increment_usage, user_id)  # NEW
+        used = await asyncio.to_thread(increment_usage, user_id)
     except Exception:
         logger.exception("[gate] increment_usage failed; treating as exceeded")
         used = FREE_DAILY_LIMIT + 1
