@@ -1,4 +1,8 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+import re
+import random
+import logging
+import asyncio  # NEW
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
@@ -11,10 +15,6 @@ from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
-
-import random
-import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +90,12 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
 
-    # NEW: сразу сохраним язык интерфейса в профиль
+    # Сохраняем язык интерфейса в профиль АСИНХРОННО
     try:
-        save_user_profile(chat_id, interface_lang=lang_code)
+        await asyncio.to_thread(save_user_profile, chat_id, interface_lang=lang_code)  # NEW
     except Exception:
         logger.exception("Failed to save interface_lang=%s for chat_id=%s", lang_code, chat_id)
 
-    # Не передаём ReplyKeyboardRemove в edit_message_text: Telegram ожидает inline-клавиатуру
     await query.edit_message_text(text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]))
 
 # --- ШАГ 3. Обработка промокода от пользователя (или отказ) ---
@@ -123,12 +122,13 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     success, reason = activate_promo(session, promo_code)
     if success:
         # сохраняем промо в БД: /promo и кнопка в /help увидят тот же статус
-        profile = get_user_profile(chat_id) or {"chat_id": chat_id}
+        profile = (await asyncio.to_thread(get_user_profile, chat_id)) or {"chat_id": chat_id}  # NEW
         profile["promo_code_used"] = session.get("promo_code_used")
         profile["promo_type"] = session.get("promo_type")
         profile["promo_activated_at"] = session.get("promo_activated_at")
         profile["promo_days"] = session.get("promo_days")
-        save_user_profile(
+        await asyncio.to_thread(                                                             # NEW
+            save_user_profile,
             chat_id,
             promo_code_used=profile.get("promo_code_used"),
             promo_type=profile.get("promo_type"),
@@ -187,9 +187,9 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
 
-    # NEW: сохраняем язык изучения
+    # сохраняем язык изучения — ASYNC
     try:
-        save_user_profile(chat_id, target_lang=lang_code)
+        await asyncio.to_thread(save_user_profile, chat_id, target_lang=lang_code)  # NEW
     except Exception:
         logger.exception("Failed to save target_lang=%s for chat_id=%s", lang_code, chat_id)
 
@@ -223,7 +223,7 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
-        reply_markup=get_level_keyboard(interface_lang)
+        reply_markup=get_level_guide_keyboard(interface_lang)
     )
 
 # --- ШАГ 6. Выбор уровня — стиль общения ---
@@ -243,9 +243,9 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["level"] = level
     session["onboarding_stage"] = "awaiting_style"
 
-    # NEW: сохраняем уровень
+    # сохраняем уровень — ASYNC
     try:
-        save_user_profile(chat_id, level=level)
+        await asyncio.to_thread(save_user_profile, chat_id, level=level)  # NEW
     except Exception:
         logger.exception("Failed to save level=%s for chat_id=%s", level, chat_id)
 
@@ -272,9 +272,9 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["style"] = style
     session["onboarding_stage"] = "complete"
 
-    # NEW: сохраняем стиль
+    # сохраняем стиль — ASYNC
     try:
-        save_user_profile(chat_id, style=style)
+        await asyncio.to_thread(save_user_profile, chat_id, style=style)  # NEW
     except Exception:
         logger.exception("Failed to save style=%s for chat_id=%s", style, chat_id)
 
@@ -306,5 +306,5 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history.append({"role": "assistant", "content": intro_text})
     history.append({"role": "assistant", "content": question})
 
-    # (по желанию) можно отметить, что онбординг завершён
+    # отметить, что онбординг завершён
     session["onboarding_stage"] = "complete"
