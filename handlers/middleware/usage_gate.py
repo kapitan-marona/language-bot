@@ -13,6 +13,9 @@ from state.session import user_sessions
 
 logger = logging.getLogger("usage_gate")
 
+# >>> Диагностика: подтверждаем загрузку модуля при старте приложения
+logger.info("[gate] module loaded")
+
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
@@ -47,7 +50,7 @@ def _is_countable_message(update: Update) -> bool:
     return bool(msg.text or msg.voice or msg.audio)
 
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    # NEW: лог входа
+    # Диагностика входа в гейт
     try:
         uid = getattr(update.effective_user, "id", None)
         cid = getattr(update.effective_chat, "id", None)
@@ -56,7 +59,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # NEW: пока активна пауза (режим /teach), ничего не считаем и не блокируем
+    # Пока активна пауза (режим /teach)
     if ctx.chat_data.get("dialog_paused"):
         logger.info("[gate] dialog_paused=True -> pass through")
         return
@@ -65,7 +68,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         logger.info("[gate] not countable -> pass through")
         return
 
-    # NEW: не считаем и не блокируем ввод промокода на онбординге
+    # Во время ввода промокода на онбординге
     try:
         chat_id = update.effective_chat.id
         sess = user_sessions.get(chat_id, {}) or {}
@@ -77,18 +80,18 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
 
-    # 1) Премиум — всегда пропускаем
+    # Премиум — пропускаем
     if has_access(user_id):
         logger.info("[gate] has_access=True -> pass through")
         return
 
-    # 2) Активный промокод — тоже пропускаем
+    # Активный промокод — пропускаем
     profile = get_user_profile(user_id) or {}
     if is_promo_valid(profile):
         logger.info("[gate] promo valid -> pass through")
         return
 
-    # 3) Счётчик бесплатных сообщений
+    # Счётчик бесплатных сообщений
     used = get_usage(user_id)
     lang = _ui_lang(update, ctx)
 
