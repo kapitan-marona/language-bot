@@ -201,7 +201,7 @@ async def promo_stage_router(update: Update, ctx):
             pass
         ctx.chat_data["promo_hint_shown"] = True
 
-    return  # НЕ стопим — пускаем дальше в usage_gate/handle_message
+    return  # НЕ стопим — пускаем дальше в usage_gate/paused_gate/handle_message
 
 # -------------------------------------------------------------------------
 # Хендлеры
@@ -225,20 +225,13 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler())  # остаётся как есть
+    app_.add_handler(build_teach_handler())  # teach остаётся
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # DONATE: числовой ввод — блокируем дальнейшие хендлеры в группе 0
-    from handlers.commands import donate as donate_handlers
-    app_.add_handler(
-        MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
-        group=0,
-    )
-
-    # Callback’и меню, настроек, how-to-pay + наша кнопка возобновления
+    # --- CALLBACK-и
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
@@ -250,39 +243,18 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
     app_.add_handler(CallbackQueryHandler(resume_chat_callback, pattern=r"^TEACH:RESUME$", block=True))  # NEW
 
-    # Универсальный роутер callback’ов — исключаем наши префиксы
-    app_.add_handler(
-        CallbackQueryHandler(
-            handle_callback_query,
-            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TEACH:RESUME))",
-        ),
-        group=1,
-    )
-
-    # Группа 0 — маршрутизация свободного текста
-    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)
-
-    # DONATE: числовой ввод (дубликат у тебя уже был — оставляю как есть)
+    # --- СВОБОДНЫЙ ТЕКСТ: всё в одной цепочке группы 0 ---
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_stage_router), group=0)  # не блокируем
+    # DONATE: числовой ввод — НЕ блокируем (см. donate.py ниже)
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
-        MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
+        MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message),
         group=0,
     )
-
-    # <<< ВАЖНО: три шага подряд в ОДНОЙ группе 0 >>>
-    app_.add_handler(
-        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
-        group=0,
-    )
-    app_.add_handler(
-        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate),
-        group=0,
-    )
-    app_.add_handler(
-        MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
-        group=0,
-    )
-    # <<< конец цепочки группы 0 >>>
+    # лимиты → пауза teach → основной диалог
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate), group=0)
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, paused_gate), group=0)
+    app_.add_handler(MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message), group=0)
 
 # -------------------------------------------------------------------------
 # Инициализация
