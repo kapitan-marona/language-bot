@@ -267,9 +267,9 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
     """
     Главные правила языка:
     - Всегда общайся на target_lang.
-    - Если ui_lang != target_lang и уровень A0–A2: допускается короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
-      Затем полноценный ответ на target_lang и ОДИН очень простой вопрос на target_lang с переводом в скобках на ui_lang.
-    - Если уровень B1–C2: никакого ui_lang в основной части — только target_lang.
+    - Для A0–A2, если ui_lang != target_lang: допустима короткая правка на ui_lang (1–2 строки) перед основным ответом
+      и перевод финального ВОПРОСА в скобках.
+    - Для B1–C2: АБСОЛЮТНЫЙ ЗАПРЕТ любого ui_lang (никаких переводов, даже в скобках).
     """
     style = (style or "casual").lower()
     level = (level or "A2").upper()
@@ -279,7 +279,7 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
 
     beginner = level in BEGINNER_LEVELS
 
-    # Живой тон в casual
+    # «живой» тон для casual
     if style == "casual":
         style_line = (
             "Tone: friendly, playful, supportive; keep it concise. "
@@ -297,6 +297,7 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
     # Случайный префикс для текущего ответа
     chosen_preface = _pick_preface(style, ui_lang)
 
+    # Правила исправлений по уровням
     if beginner:
         correction_rules = (
             "For mistakes: write a very short correction/explanation in {ui_lang} (1–2 lines) "
@@ -323,6 +324,20 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
         "You may use more advanced grammar; keep clarity high."
     )
 
+    # Динамический блок ограничений
+    if beginner:
+        constraints = (
+            f"- Primary conversation language: {target_lang}. Never switch the whole message to {ui_lang}.\n"
+            f"- You may use {ui_lang} ONLY for a 1–2 line correction at the top and for the translation of your FINAL question in parentheses.\n"
+            f"- The main body MUST be in {target_lang}."
+        )
+    else:
+        constraints = (
+            f"- ABSOLUTE RULE for level {level}: produce the ENTIRE message in {target_lang} ONLY.\n"
+            f"- Do NOT use {ui_lang} anywhere: no lines, no parenthetical translations, no words.\n"
+            f"- Even if the user mixes languages, respond exclusively in {target_lang}."
+        )
+
     prompt = f"""
 You are Matt, a helpful AI conversation partner.
 
@@ -336,11 +351,7 @@ UI LANGUAGE: {ui_lang}
 {simplicity}
 
 LANGUAGE CONSTRAINTS:
-- Primary conversation language: {target_lang}. Never switch the whole message to {ui_lang}.
-- Use {ui_lang} only for a short correction/explanation at the top (beginners A0–A2)
-  and for the bracketed translation of your final question.
-- Do NOT continue the rest of the message in {ui_lang}. The main content must be in {target_lang}.
-- Do not translate or modify the provided correction preface; use it exactly as given.
+{constraints}
 
 CORRECTION POLICY:
 {correction_rules.format(target_lang=target_lang, ui_lang=ui_lang)}
@@ -351,7 +362,7 @@ FORMATTING FOR BEGINNERS (A0–A2):
   2) Blank line.
   3) Main reply in {target_lang}.
   4) One simple question in {target_lang} with a short translation in parentheses in {ui_lang}.
-- If level is B1–C2: only {target_lang}; no {ui_lang} lines at all.
+- If level is B1–C2: only {target_lang}; absolutely no {ui_lang} (no parentheses, no translations).
 
 GENERAL:
 - Be concise, friendly, supportive, and a bit witty.
