@@ -152,6 +152,7 @@ INTRO_QUESTIONS = {
     ]
 }
 
+# Префиксы для корректировок
 CASUAL_PREFACES = {
     "ru": [
         "Наверное, ты имел в виду:",
@@ -186,6 +187,12 @@ BUSINESS_PREFACES = {
     ],
 }
 
+def _pick_preface(style: str, ui_lang: str) -> str:
+    """Вернёт случайный префикс для исправления, учитывая стиль и язык интерфейса."""
+    pool = BUSINESS_PREFACES if (style or "").lower() == "business" else CASUAL_PREFACES
+    options = pool.get((ui_lang or "en").lower(), pool["en"])
+    return random.choice(options)
+
 def build_settings_intent_block(interface_lang: str) -> str:
     ru_hints = [
         "Если хочешь поменять язык/уровень/стиль — применяй команду /settings. Полный список команд — /help 🙂 А я пока кофе сделаю ☕️",
@@ -206,7 +213,7 @@ def build_settings_intent_block(interface_lang: str) -> str:
     return block
 
 def build_soft_correction_block(style: str, level: str, interface_lang: str, target_lang: str) -> str:
-    # выбираем пул по стилю
+    """(Опционально) Генерация текстового блока про политику исправлений с рандом-префиксами."""
     if (style or "").lower() == "business":
         ru_pool = BUSINESS_PREFACES["ru"]
         en_pool = BUSINESS_PREFACES["en"]
@@ -214,7 +221,6 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         ru_pool = CASUAL_PREFACES["ru"]
         en_pool = CASUAL_PREFACES["en"]
 
-    # берём случайный вариант для текущей сборки промпта
     preface_ru = random.choice(ru_pool)
     preface_en = random.choice(en_pool)
 
@@ -227,7 +233,7 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         f"- Then add a blank line and continue the dialogue in the target language ({target_lang}).\n"
         f"  Add a concise translation in parentheses into the interface language."
     )
-    
+
     b1_b2_block = (
         "For levels B1–B2:\n"
         f"- Provide the preface and the fully corrected version ONLY in {target_lang}.\n"
@@ -259,15 +265,12 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
 
 def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mode: str) -> str:
     """
-    Правила языка:
-    - ВСЕГДА веди диалог на target_lang.
-    - Если ui_lang != target_lang и level ∈ A0–A2:
-        * Короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
-        * Затем — полноценный ответ на target_lang.
-        * Заверши простым вопросом на target_lang + короткий перевод в скобках на ui_lang.
-    - Если level ∈ B1–C2: НИКАКОГО ui_lang в основной части. Только target_lang.
+    Главные правила языка:
+    - Всегда общайся на target_lang.
+    - Если ui_lang != target_lang и уровень A0–A2: допускается короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
+      Затем полноценный ответ на target_lang и ОДИН очень простой вопрос на target_lang с переводом в скобках на ui_lang.
+    - Если уровень B1–C2: никакого ui_lang в основной части — только target_lang.
     """
-
     style = (style or "casual").lower()
     level = (level or "A2").upper()
     ui_lang = (ui_lang or "en").lower()
@@ -275,9 +278,8 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
     mode = (mode or "text").lower()
 
     beginner = level in BEGINNER_LEVELS
-    same_lang = (ui_lang == target_lang)
 
-    # Тон — вернули «живого» Мэтта в casual
+    # Живой тон в casual
     if style == "casual":
         style_line = (
             "Tone: friendly, playful, supportive; keep it concise. "
@@ -292,12 +294,17 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
         "You are chatting in VOICE mode. Keep sentences natural and speakable."
     )
 
+    # Случайный префикс для текущего ответа
+    chosen_preface = _pick_preface(style, ui_lang)
+
     if beginner:
         correction_rules = (
-            "For mistakes: give a short correction/explanation in {ui_lang} (1–2 lines), "
-            "starting with something like “Наверное, ты имел в виду:” (if ru) or "
-            "“You probably meant:” (if en/fr/...). Then leave a blank line and write your main reply in {target_lang}.\n"
-            "Finish with ONE simple question in {target_lang} and add its translation in parentheses in {ui_lang}."
+            "For mistakes: write a very short correction/explanation in {ui_lang} (1–2 lines) "
+            f'and start it with EXACTLY this preface (use it verbatim): "{chosen_preface}" '
+            "On the SAME line, show the fully corrected version of the user's message in quotes.\n"
+            "Add ONE short example line that shows the key word/phrase in use.\n"
+            "Leave a blank line, then write your main reply in {target_lang}.\n"
+            "Finish with ONE very simple question in {target_lang} and add its translation in parentheses in {ui_lang}."
         )
     elif level in {"B1", "B2"}:
         correction_rules = (
@@ -333,13 +340,14 @@ LANGUAGE CONSTRAINTS:
 - Use {ui_lang} only for a short correction/explanation at the top (beginners A0–A2)
   and for the bracketed translation of your final question.
 - Do NOT continue the rest of the message in {ui_lang}. The main content must be in {target_lang}.
+- Do not translate or modify the provided correction preface; use it exactly as given.
 
 CORRECTION POLICY:
 {correction_rules.format(target_lang=target_lang, ui_lang=ui_lang)}
 
 FORMATTING FOR BEGINNERS (A0–A2):
 - If level is A0–A2 and ui_lang != target_lang:
-  1) One short correction/explanation in {ui_lang} (1–2 lines).
+  1) One short correction/explanation in {ui_lang} (1–2 lines) starting with the exact preface above.
   2) Blank line.
   3) Main reply in {target_lang}.
   4) One simple question in {target_lang} with a short translation in parentheses in {ui_lang}.
