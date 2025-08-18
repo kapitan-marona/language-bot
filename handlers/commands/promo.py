@@ -48,6 +48,8 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             promo_type=profile.get("promo_type"),
             promo_activated_at=profile.get("promo_activated_at"),
             promo_days=profile.get("promo_days"),
+            promo_minutes=profile.get("promo_minutes"),        
+            promo_used_codes=profile.get("promo_used_codes"),  
         )
         await safe_reply(update, context, format_promo_status_for_user(profile, ui))
         tail = ("✅ Лимит сообщений снят — можно продолжать!"

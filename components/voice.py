@@ -1,28 +1,30 @@
+# components/voice.py
+from __future__ import annotations
 import os
 import tempfile
-import subprocess
-import shutil
 import logging
+from pathlib import Path
 from typing import Tuple
-from openai import OpenAI
+import asyncio
+
+from openai import AsyncOpenAI
 from config.config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+# Асинхронный клиент OpenAI
+client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 _LEVEL_SET = {"A0", "A1", "A2", "B1", "B2", "C1", "C2"}
 
 def _normalize_style_level(style: str, level: str) -> Tuple[str, str]:
     """
     Если в параметр 'style' по ошибке прилетел уровень (A1..C2),
-    а в 'level' — нормальный уровень пустой/что-то иное — аккуратно разрулим.
+    а в 'level' — пусто/что-то иное — аккуратно разрулим.
     """
     s = (style or "").strip()
     l = (level or "").strip() or "A2"
     if s in _LEVEL_SET:
-        # значит, вызов был synthesize_voice(..., language_code, level)
-        # переставим местами: level = s, style = 'casual'
         return "casual", s
     return (s or "casual"), l
 
@@ -30,70 +32,81 @@ def _sanitize_tts_text(text: str, max_len: int = 4000) -> str:
     t = (text or "").strip()
     return t[:max_len] if len(t) > max_len else t
 
-def synthesize_voice(text: str, language_code: str, style: str = "casual", level: str = "A2") -> str:
+# Карта «мягких пауз» для низких уровней: мы НЕ меняем показываемый пользователю текст,
+# только аудио-вариант, чтобы звучало медленнее/разборчивее.
+LEVEL_SPEED = {
+    "A0": 0.5, "A1": 0.5, "A2": 0.5,
+    "B1": 0.7, "B2": 0.7,
+    "C1": 0.9, "C2": 0.9,
+}
+
+def _with_soft_pauses(text: str, level: str) -> str:
     """
-    Генерирует озвучку с использованием OpenAI TTS (TTS-1), с выбором голоса по стилю.
-    Возвращает путь к .ogg (или к файлу-результату), готовому для отправки в Telegram.
-    Перекодировка через ffmpeg выполняется ТОЛЬКО если ffmpeg доступен в системе.
+    Простая эвристика: для A0–B1 вставляем лёгкие паузы (запятые/многоточия)
+    после коротких смысловых фраз, чтобы TTS звучал медленнее.
+    Визуальный текст пользователю НЕ меняем — только аудио-вход.
+    """
+    spd = LEVEL_SPEED.get(level, 0.9)
+    if spd >= 0.9:
+        return text
+    # максимально деликатно: меняем только пробелы между предложениями
+    # и добавляем небольшие паузы после ~каждых 5–7 слов
+    import re
+    words = re.split(r"(\s+)", text)
+    out, cnt, step = [], 0, 6 if spd >= 0.7 else 4
+    for w in words:
+        out.append(w)
+        if w.strip() and not re.match(r"\s+", w):
+            cnt += 1
+            if cnt % step == 0:
+                out.append(", ")
+    return "".join(out)
+
+# Подбор голоса по стилю
+STYLE_TO_VOICE = {
+    "casual": "alloy",
+    "business": "fable",
+}
+
+async def synthesize_voice(text: str, language_code: str, style: str = "casual", level: str = "A2") -> str:
+    """
+    Асинхронно генерирует озвучку через OpenAI TTS и сохраняет сразу в OGG.
+    Возвращает путь к готовому файлу (для send_voice).
+    Никакого ffmpeg: полагаемся на OpenAI, format='ogg'.
     """
     if not client:
         logger.error("OPENAI_API_KEY is missing for TTS")
         return ""
 
     style, level = _normalize_style_level(style, level)
-    text = _sanitize_tts_text(text, max_len=4000)
+    clean_text = _sanitize_tts_text(text, max_len=4000)
+    audio_text = _with_soft_pauses(clean_text, level)  # только для аудио
 
-    style_to_voice = {
-        "casual": "alloy",        # 😎 Разговорный стиль
-        "business": "fable"       # 🤓 Деловой стиль
-    }
-    voice = style_to_voice.get(style.lower(), "alloy")
+    voice = STYLE_TO_VOICE.get(style.lower(), "alloy")
 
-    logger.info("TTS: voice=%s lang=%s style=%s level=%s", voice, language_code, style, level)
+    # Файл-назначение
+    tmpdir = tempfile.gettempdir()
+    out_path = Path(tmpdir) / f"matt_tts_{os.getpid()}_{next(tempfile._get_candidate_names())}.ogg"
 
-    tmp_path = None
-    output_path = None
     try:
-        # Генерация TTS
-        resp = client.audio.speech.create(
-            model="tts-1",
+        # Стримим прямо в файл (async)
+        async with client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",   # актуальная TTS-модель
             voice=voice,
-            input=text
-        )
+            input=audio_text,
+            format="ogg",              # сразу OGG, без ffmpeg
+        ) as response:
+            await response.stream_to_file(str(out_path))
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out_file:
-            out_file.write(resp.content)
-            tmp_path = out_file.name
-
-        # Попробуем перекодировать ТОЛЬКО если есть ffmpeg (например, чтобы гарантировать opus)
-        if shutil.which("ffmpeg"):
-            fixed_path = tmp_path.replace(".ogg", "_fixed.ogg")
-            try:
-                subprocess.run(
-                    ["ffmpeg", "-y", "-i", tmp_path, "-c:a", "libopus", fixed_path],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                output_path = fixed_path
-                logger.info("TTS reencoded via ffmpeg: %s", fixed_path)
-            except subprocess.CalledProcessError:
-                logger.warning("FFMPEG reencode failed; using original: %s", tmp_path)
-                output_path = tmp_path
-        else:
-            # ffmpeg недоступен — используем исходный файл
-            output_path = tmp_path
-
-        logger.info("TTS done: %s", output_path)
-        return output_path
+        logger.info("TTS ready: %s (voice=%s lang=%s style=%s level=%s)", out_path, voice, language_code, style, level)
+        return str(out_path)
 
     except Exception:
         logger.exception("[TTS Error] Ошибка при генерации речи")
-        return ""
-    finally:
-        # Если делали перекодировку и она успешна — удалим сырой файл
+        # на всякий случай удалим пустой файл
         try:
-            if output_path and tmp_path and output_path != tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            if out_path.exists() and out_path.stat().st_size == 0:
+                out_path.unlink(missing_ok=True)
         except Exception:
-            logger.debug("Failed to remove temp TTS raw file")
+            pass
+        return ""

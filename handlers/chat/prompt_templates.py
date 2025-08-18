@@ -17,9 +17,61 @@ START_MESSAGE = {
     )
 }
 
+INTRO_QUESTIONS_EASY = {
+    'en': [
+        "Hi! How are you today?",
+        "What is your name?",
+        "Do you like music?",
+        "What is your favorite food?",
+        "Where are you from?",
+    ],
+    'ru': [
+        "Привет! Как дела сегодня?",
+        "Как тебя зовут?",
+        "Ты любишь музыку?",
+        "Какое твоё любимое блюдо?",
+        "Откуда ты?",
+    ],
+    'fr': [
+        "Salut ! Ça va aujourd’hui ?",
+        "Comment tu t’appelles ?",
+        "Tu aimes la musique ?",
+        "Quel est ton plat préféré ?",
+        "Tu viens d’où ?",
+    ],
+    'es': [
+        "¡Hola! ¿Cómo estás hoy?",
+        "¿Cómo te llamas?",
+        "¿Te gusta la música?",
+        "¿Cuál es tu comida favorita?",
+        "¿De dónde eres?",
+    ],
+    'de': [
+        "Hallo! Wie geht’s dir heute?",
+        "Wie heißt du?",
+        "Magst du Musik?",
+        "Was ist dein Lieblingsessen?",
+        "Woher kommst du?",
+    ],
+    'sv': [
+        "Hej! Hur mår du idag?",
+        "Vad heter du?",
+        "Gillar du musik?",
+        "Vad är din favoritmat?",
+        "Var kommer du ifrån?",
+    ],
+    'fi': [
+        "Moikka! Mitä kuuluu tänään?",
+        "Mikä sinun nimesi on?",
+        "Tykkäätkö musiikista?",
+        "Mikä on lempiruokasi?",
+        "Mistä olet kotoisin?",
+    ],
+}
+
 TARGET_LANG_PROMPT = {
-    "ru": "🌍 Выбери язык для изучения:",
-    "en": "🌍 Choose a language to learn:"
+    'ru': "🌍 Выбери язык для изучения:",
+    'en': "🌍 Choose a language to learn:"
 }
 
 # Приветствие от Мэтта (после онбординга) на разных языках

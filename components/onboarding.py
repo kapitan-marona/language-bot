@@ -14,7 +14,7 @@ from components.language import get_target_language_keyboard, LANGUAGES
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
+from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS, INTRO_QUESTIONS_EASY
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,8 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             promo_type=profile.get("promo_type"),
             promo_activated_at=profile.get("promo_activated_at"),
             promo_days=profile.get("promo_days"),
+            promo_minutes=profile.get("promo_minutes"),        
+            promo_used_codes=profile.get("promo_used_codes"),  
         )
 
         await context.bot.send_message(
@@ -291,20 +293,29 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
 
     interface_lang = session.get("interface_lang", "en")
+    level = session.get("level", "A2")
     target_lang = session.get("target_lang", interface_lang)
 
-    # 1) Текст приветствия и вопрос
+    # 1) Приветствие на языке интерфейса
     intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
-    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
 
-    # 2) Отправляем пользователю
+    # 2) Вопрос по уровню: A0–A2 → лёгкий пул, иначе обычный
+    if level in ("A0", "A1", "A2"):
+        pool = INTRO_QUESTIONS_EASY.get(target_lang, INTRO_QUESTIONS_EASY.get("en", ["Hi! How are you today?"]))
+    else:
+        pool = INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS.get("en", ["What’s up?"]))
+    # берём случайный элемент
+    question = random.choice(pool) if isinstance(pool, list) else str(pool)
+
+    # 3) Отправляем
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
     await context.bot.send_message(chat_id=chat_id, text=question)
 
-    # 3) ВАЖНО: записываем обе реплики в историю как ответы ассистента
+    # 4) Пишем в историю как ответы ассистента
     history = session.setdefault("history", [])
     history.append({"role": "assistant", "content": intro_text})
     history.append({"role": "assistant", "content": question})
 
-    # отметить, что онбординг завершён
+    # 5) Флаги/хвосты сессии
     session["onboarding_stage"] = "complete"
+    session["last_assistant_text"] = question  # полезно для одноразовой озвучки

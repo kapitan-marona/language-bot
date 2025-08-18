@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Tuple
 import logging
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -9,6 +10,7 @@ from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
 from components.i18n import get_ui_lang
 from state.session import user_sessions
+from handlers.chat.prompt_templates import INTRO_QUESTIONS, INTRO_QUESTIONS_EASY
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ STYLES: List[Tuple[str, str]] = [
     ("🤓 Деловой", "business"),
 ]
 
-# ---------- helpers ----------
+# --- helpers (нейминг для UI) ---
 
 def _name_for_lang(code: str) -> str:
     for title, c in LANGS:
@@ -70,23 +72,16 @@ def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, englis
     return text
 
 def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
-    # Снизу — "Продолжить..." для любителей кнопок
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Язык" if ui == "ru" else "Language",
-                                 callback_data="SETTINGS:LANG"),
-            InlineKeyboardButton("Уровень" if ui == "ru" else "Level",
-                                 callback_data="SETTINGS:LEVEL"),
+            InlineKeyboardButton("Язык" if ui == "ru" else "Language", callback_data="SETTINGS:LANG"),
+            InlineKeyboardButton("Уровень" if ui == "ru" else "Level", callback_data="SETTINGS:LEVEL"),
         ],
         [
-            InlineKeyboardButton("Стиль" if ui == "ru" else "Style",
-                                 callback_data="SETTINGS:STYLE"),
+            InlineKeyboardButton("Стиль" if ui == "ru" else "Style", callback_data="SETTINGS:STYLE"),
         ],
         [
-            InlineKeyboardButton(
-                "▶️ Продолжить" if ui == "ru" else "▶️ Continue",
-                callback_data="SETTINGS:APPLY"
-            )
+            InlineKeyboardButton("▶️ Продолжить" if ui == "ru" else "▶️ Continue", callback_data="SETTINGS:APPLY"),
         ],
     ])
 
@@ -115,41 +110,56 @@ def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
-# Короткая стартовая фраза для продолжения диалога на целевом языке
-_STARTERS = {
-    "casual": {
-        "ru": "Продолжаем! Как прошёл твой день?",
-        "en": "Let's continue! How's your day going?",
-        "fr": "On continue ! Comment s'est passée ta journée ?",
-        "es": "¡Continuemos! ¿Cómo va tu día?",
-        "de": "Lass uns weitermachen! Wie läuft dein Tag?",
-        "sv": "Vi fortsätter! Hur har din dag varit?",
-        "fi": "Jatketaan! Miten päiväsi on sujunut?",
-    },
-    "business": {
-        "ru": "Продолжим. Какая у тебя главная задача на сегодня?",
-        "en": "Let's continue. What's your top task today?",
-        "fr": "On continue. Quelle est ta priorité aujourd'hui ?",
-        "es": "Sigamos. ¿Cuál es tu prioridad de hoy?",
-        "de": "Weiter geht's. Was ist deine wichtigste Aufgabe heute?",
-        "sv": "Vi fortsätter. Vad är din huvuduppgift idag?",
-        "fi": "Jatketaan. Mikä on päivän tärkein tehtäväsi?",
-    }
+# --- продолжение разговора после применения настроек ---
+
+_BRIDGES = {
+    # максимально простые, чтобы подходили для всех уровней
+    "ru": ["Продолжаем!", "Давай продолжим.", "На чём остановились?", "Вернёмся к теме.", "Продолжим разговор."],
+    "en": ["Let's continue!", "Shall we continue?", "Where did we stop?", "Back to the topic.", "Let's pick up the thread."],
+    "fr": ["On continue !", "On reprend ?", "Où en était-on ?", "Revenons au sujet.", "On poursuit."],
+    "es": ["¡Continuemos!", "¿Seguimos?", "¿Dónde nos quedamos?", "Volvamos al tema.", "Sigamos hablando."],
+    "de": ["Weiter geht's!", "Machen wir weiter?", "Wo waren wir stehen geblieben?", "Zurück zum Thema.", "Lass uns fortfahren."],
+    "sv": ["Vi fortsätter!", "Ska vi fortsätta?", "Var var vi?", "Tillbaka till ämnet.", "Låt oss fortsätta."],
+    "fi": ["Jatketaan!", "Jatketaanko?", "Mihin jäimme?", "Takaisin aiheeseen.", "Jatketaan juttua."],
 }
 
-def _starter_phrase(lang: str, level: str, style: str) -> str:
-    style_key = "business" if style == "business" else "casual"
-    table = _STARTERS.get(style_key, _STARTERS["casual"])
-    # Если язык неизвестен — по умолчанию английский
-    return table.get(lang, table["en"])
+def _bridge_line(lang: str) -> str:
+    return (_BRIDGES.get(lang) or _BRIDGES["en"])[0 if lang in ("ru","en") else 0]
+
+def _find_last_assistant_question(sess: dict) -> str | None:
+    """Берём последний вопрос ассистента из истории, чтобы не терять тему."""
+    hist = sess.get("history") or []
+    for m in reversed(hist):
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        text = (m.get("content") or "").strip()
+        if not text:
+            continue
+        q = None
+        # попробуем выделить последнее предложение с вопросительным знаком
+        if "?" in text:
+            parts = re.split(r'(?<=\?)', text)
+            candidates = [p.strip() for p in parts if p.strip().endswith("?")]
+            if candidates:
+                q = candidates[-1]
+        # если нет явного вопроса — возьмём последнюю строку
+        if not q:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            if lines:
+                q = lines[-1]
+        if q:
+            if len(q) > 180:
+                q = q[:177] + "…"
+            return q
+    return None
+
+def _level_is_easy(level: str) -> bool:
+    return (level or "").upper() in {"A0", "A1", "A2"}
 
 # ---------- public handlers ----------
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /settings — показать главное меню настроек.
-    Если вызов из callback — редактируем текущее сообщение.
-    """
+    """ /settings — показать главное меню настроек. """
     ui = get_ui_lang(update, context)
     chat_id = update.effective_chat.id
 
@@ -184,7 +194,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     ui = get_ui_lang(update, context)
     chat_id = q.message.chat.id
 
-    # Назад в главное меню
     if data == "SETTINGS:BACK":
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -208,7 +217,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data == "SETTINGS:LEVEL":
-        # необязательный короткий гайд из онбординга, если есть
         guide = None
         try:
             from components.onboarding import get_level_guide  # type: ignore
@@ -228,16 +236,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.answer()
         return
 
-    # --- Конкретные изменения: авто-применяем в активную сессию ---
+    # --- Конкретные изменения: сохраняем и не отправляем «универсалку» ---
     if data.startswith("SET:LANG:"):
         code = data.split(":", 2)[-1]
-        # user_data + БД
         context.user_data["language"] = code
         save_user_profile(chat_id, target_lang=code)
-        # активная сессия чата (то, что читает чат)
         sess = user_sessions.setdefault(chat_id, {})
         sess["target_lang"] = code
-
         await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -257,7 +262,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         save_user_profile(chat_id, level=level)
         sess = user_sessions.setdefault(chat_id, {})
         sess["level"] = level
-
         await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -276,7 +280,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         save_user_profile(chat_id, style=style)
         sess = user_sessions.setdefault(chat_id, {})
         sess["style"] = style
-
         await q.answer("✅")
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -289,7 +292,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # --- Кнопка: "Продолжить..." — просто инициируем диалог по текущим настройкам ---
+    # --- "Продолжить" — не сбрасываем тему, продолжаем от последнего вопроса ---
     if data == "SETTINGS:APPLY":
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -297,7 +300,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         new_level = p.get("level") or s.get("level", "B1")
         new_style = p.get("style") or s.get("style", "casual")
 
-        # на всякий случай дублируем в активную сессию (если пользователь не нажимал SET:* в этот раз)
         sess = user_sessions.setdefault(chat_id, {})
         if new_lang:  sess["target_lang"] = new_lang
         if new_level: sess["level"] = new_level
@@ -308,7 +310,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except Exception:
             pass
 
-        # Подтверждение + стартовая реплика на целевом языке
         confirm = (
             f"✅ Настройки применены.\nЯзык: {_name_for_lang(new_lang)} • Уровень: {new_level} • Стиль: {_name_for_style(new_style)}"
             if ui == "ru" else
@@ -316,6 +317,29 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         await context.bot.send_message(chat_id, confirm)
 
-        starter = _starter_phrase(new_lang, new_level, new_style)
-        await context.bot.send_message(chat_id, starter)
+        # 1) Пытаемся продолжить предыдущую тему (берём последний вопрос ассистента)
+        last_q = _find_last_assistant_question(sess)
+
+        # 2) Если нет — берём уровневую «первую реплику»
+        if not last_q:
+            if _level_is_easy(new_level):
+                pool = INTRO_QUESTIONS_EASY.get(new_lang, INTRO_QUESTIONS_EASY.get("en", ["Hi! How are you today?"]))
+            else:
+                pool = INTRO_QUESTIONS.get(new_lang, INTRO_QUESTIONS.get("en", ["What’s up?"]))
+            line = pool[0] if not isinstance(pool, list) else (pool[0] if not pool else pool[0])
+            # чуть рандома: если это список, выберем случайный
+            if isinstance(pool, list) and pool:
+                import random
+                line = random.choice(pool)
+            msg = line
+        else:
+            # короткий мостик + предыдущий вопрос — в ЦЕЛЕВОМ языке
+            bridge = _bridge_line(new_lang)
+            msg = f"{bridge} {last_q}"
+
+        await context.bot.send_message(chat_id, msg)
+
+        # Запишем в историю как реплику ассистента — чтобы GPT «помнил» этот ход
+        hist = sess.setdefault("history", [])
+        hist.append({"role": "assistant", "content": msg})
         return
