@@ -48,6 +48,7 @@ def _is_countable_message(update: Update) -> bool:
     return bool(msg.text or msg.voice or msg.audio)
 
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    # Диагностика входа
     try:
         uid = getattr(update.effective_user, "id", None)
         cid = getattr(update.effective_chat, "id", None)
@@ -56,69 +57,78 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # REMOVED TEACH: больше не блокируем по dialog_paused
+    # Считаем только «диалоговые» сообщения (не команды, не от бота и т.п.)
     if not _is_countable_message(update):
         logger.info("[gate] not countable -> pass through")
         return
 
-    # Во время ввода промокода на онбординге — не считаем
-    try:
-        chat_id = update.effective_chat.id
-        sess = user_sessions.get(chat_id, {}) or {}
-        if sess.get("onboarding_stage") == "awaiting_promo":
-            logger.info("[gate] awaiting_promo -> pass through")
-            return
-    except Exception:
-        pass
+    # Достаём chat_id/session один раз
+    chat_id = getattr(update.effective_chat, "id", None)
+    sess = user_sessions.get(chat_id, {}) or {}
 
-    user_id = update.effective_user.id
+    # Во время ввода промокода на онбординге — ничего не считаем/не блокируем
+    if sess.get("onboarding_stage") == "awaiting_promo":
+        logger.info("[gate] awaiting_promo -> pass through")
+        return
 
+    user_id = getattr(update.effective_user, "id", None)
+
+    # Премиум — пропускаем
     try:
         premium = await asyncio.to_thread(has_access, user_id)
     except Exception:
         logger.exception("[gate] has_access failed; treating as no access")
         premium = False
-
     if premium:
         logger.info("[gate] has_access=True -> pass through")
         return
 
+    # Профиль берём по chat_id (в твоей БД ключ — chat_id)
     try:
-        profile = await asyncio.to_thread(get_user_profile, user_id)
+        profile = await asyncio.to_thread(get_user_profile, chat_id)
         profile = profile or {}
     except Exception:
         logger.exception("[gate] get_user_profile failed; assuming empty profile")
         profile = {}
 
+    # «Дольём» недостающие промо-поля из session (важно для минутных кодов и т.п.)
+    for k in ("promo_code_used", "promo_type", "promo_activated_at", "promo_days", "promo_minutes", "promo_used_codes"):
+        if k not in profile and k in sess:
+            profile[k] = sess[k]
+
+    # Активный промо — пропускаем
     if is_promo_valid(profile):
         logger.info("[gate] promo valid -> pass through")
         return
 
+    # Счётчик бесплатных сообщений считаем по user_id (как и раньше)
     try:
         used = await asyncio.to_thread(get_usage, user_id)
     except Exception:
         logger.exception("[gate] get_usage failed; fallback used=0")
         used = 0
 
-    lang = _ui_lang(update, ctx)
+    ui = _ui_lang(update, ctx)
 
-    limit_text = _offer_text("limit_reached", lang) or (
-        "Лимит пробного дня достигнут." if lang == "ru" else "You’ve hit the daily trial limit."
+    limit_text = _offer_text("limit_reached", ui) or (
+        "Лимит пробного дня достигнут." if ui == "ru" else "You’ve hit the daily trial limit."
     )
-    reminder_text = _offer_text("reminder_after_10", lang) or (
-        "Осталось 5 сообщений в пробном периоде." if lang == "ru" else "You’ve got 5 messages left on the trial."
+    reminder_text = _offer_text("reminder_after_10", ui) or (
+        "Осталось 5 сообщений в пробном периоде." if ui == "ru" else "You’ve got 5 messages left on the trial."
     )
 
     logger.info("[gate] usage before increment = %s (limit=%s)", used, FREE_DAILY_LIMIT)
 
+    # Уже достигли лимита — блокируем до промо/покупки
     if used >= FREE_DAILY_LIMIT:
         hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
-                if lang == "ru"
+                if ui == "ru"
                 else "\n\n💡 Enter /promo to activate a promo code and continue.")
         await (update.message or update.edited_message).reply_text(limit_text + hint)
         logger.info("[gate] limit reached -> stop")
         raise ApplicationHandlerStop
 
+    # Инкремент
     try:
         used = await asyncio.to_thread(increment_usage, user_id)
     except Exception:
@@ -127,15 +137,17 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     logger.info("[gate] usage after increment = %s", used)
 
+    # Напоминание на 10-м
     if used == REMIND_AFTER:
         hint = ("\n\n💡 Есть промокод? Введите /promo <код>."
-                if lang == "ru"
+                if ui == "ru"
                 else "\n\n💡 Have a promo code? Use /promo <code>.")
         await (update.message or update.edited_message).reply_text(reminder_text + hint)
 
+    # Перешагнули лимит после инкремента — блокируем
     if used > FREE_DAILY_LIMIT:
         hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
-                if lang == "ru"
+                if ui == "ru"
                 else "\n\n💡 Enter /promo to activate a promo code and continue.")
         await (update.message or update.edited_message).reply_text(limit_text + hint)
         logger.info("[gate] limit exceeded after increment -> stop")

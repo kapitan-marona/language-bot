@@ -1,4 +1,3 @@
-# handlers/commands/help.py
 from __future__ import annotations
 import asyncio
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -8,10 +7,11 @@ from components.i18n import get_ui_lang
 from components.profile_db import get_user_profile
 from components.usage_db import get_usage
 from components.access import has_access
+from components.promo import is_promo_valid  # NEW
 
-FREE_DAILY_LIMIT = 15  # для отображения в free-карточке
+FREE_DAILY_LIMIT = 15  # отображение в free-карточке
 
-# --------- Тексты справки (без /teach) ---------
+# --------- Справка (без /teach) ---------
 HELP_BODY_RU = (
     "🆘 Команды и инструкции\n\n"
     "Доступные команды:\n"
@@ -79,22 +79,29 @@ def _kb(ui: str) -> InlineKeyboardMarkup:
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ui = get_ui_lang(update, context)
     chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
 
-    # CHANGED: читаем профиль по chat_id (ключ твоей БД) — раньше был user_id
+    # всё — через thread pool
     is_premium, used, profile = await asyncio.gather(
-        asyncio.to_thread(has_access, user_id),        # допуcкаю, что has_access по user_id (как было)
-        asyncio.to_thread(get_usage, user_id),         # счётчик исторически по user_id
-        asyncio.to_thread(get_user_profile, chat_id),  # ← FIX: профиль по chat_id
+        asyncio.to_thread(has_access, chat_id),           # ВЕЗДЕ chat_id
+        asyncio.to_thread(get_usage, chat_id),
+        asyncio.to_thread(get_user_profile, chat_id),
     )
     profile = profile or {}
+    promo_active = is_promo_valid(profile)
 
-    # Карточка статуса (динамика как в старой версии)
+    # Карточка статуса
     if ui == "ru":
         if is_premium:
             until = (profile.get("premium_expires_at") or "—")
             header = f"*🌟 Премиум активен*\nДоступ до: `{until}`"
             card = ""
+        elif promo_active:
+            header = "*🎟 Промокод активен*"
+            # краткая пометка, если это english_only
+            if profile.get("promo_type") == "english_only":
+                card = "\nДоступен только английский язык."
+            else:
+                card = ""
         else:
             header = "*🆓 Бесплатный режим*"
             card = f"\nСегодня использовано: *{used}/{FREE_DAILY_LIMIT}*"
@@ -104,6 +111,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             until = (profile.get("premium_expires_at") or "—")
             header = f"*🌟 Premium is active*\nAccess until: `{until}`"
             card = ""
+        elif promo_active:
+            header = "*🎟 Promo is active*"
+            if profile.get("promo_type") == "english_only":
+                card = "\nEnglish only."
+            else:
+                card = ""
         else:
             header = "*🆓 Free plan*"
             card = f"\nUsed today: *{used}/{FREE_DAILY_LIMIT}*"

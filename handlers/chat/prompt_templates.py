@@ -1,5 +1,6 @@
 # Приветствие при /start на разных языках
 from __future__ import annotations
+import random
 
 BEGINNER_LEVELS = {"A0", "A1", "A2"}
 
@@ -151,13 +152,41 @@ INTRO_QUESTIONS = {
     ]
 }
 
+CASUAL_PREFACES = {
+    "ru": [
+        "Наверное, ты имел в виду:",
+        "Думаю, правильнее так:",
+        "Кажется, ты хотел сказать:",
+        "Корректнее будет так:",
+        "Скорее так:",
+    ],
+    "en": [
+        "You probably meant:",
+        "A better way to say it:",
+        "I think you meant:",
+        "More natural would be:",
+        "Probably like this:",
+    ],
+}
+
+BUSINESS_PREFACES = {
+    "ru": [
+        "Корректнее сказать так:",
+        "Правильная формулировка:",
+        "Рекомендуемая формулировка:",
+        "Так будет точнее:",
+        "Лучше сказать так:",
+    ],
+    "en": [
+        "A more accurate phrasing:",
+        "Correct phrasing:",
+        "Recommended phrasing:",
+        "This is more precise:",
+        "A better formulation:",
+    ],
+}
+
 def build_settings_intent_block(interface_lang: str) -> str:
-    """
-    Правила реакции на намерение «поменять настройки».
-    Мэтт не меняет настройки сам — направляет в /settings, но при этом поддерживает живой диалог.
-    """
-    # 5 вариантов подсказки на русском с «человечными» эмодзи.
-    # Если интерфейс не ru — ассистент должен перевести выбранную строку на язык интерфейса, сохранив смысл и эмодзи.
     ru_hints = [
         "Если хочешь поменять язык/уровень/стиль — применяй команду /settings. Полный список команд — /help 🙂 А я пока кофе сделаю ☕️",
         "Правильно понимаю, что ты ищешь настройки? Окей! Я в этом не разбираюсь 🙈 — вызови /help, там всё, что нужно 🙂",
@@ -165,37 +194,29 @@ def build_settings_intent_block(interface_lang: str) -> str:
         "Могу ошибаться, но кажется, ты намекаешь на настройки 😅 — используй /settings 😉 Справка — /help 🙂 А я пока разомнусь 🕺",
         "Если хочешь поменять язык/уровень/стиль — применяй команду /settings. А я пока проверю, всё ли работает 😎 Кстати, если нужна ещё какая-то информация — /help 😉",
     ]
-
     block = (
         "Settings intent handling:\n"
-        "- If the user asks to change language/level/style (e.g., «поменяй язык», «другой уровень», «хочу другой стиль», or similar in any language), do NOT attempt to change settings yourself.\n"
-        "- Reply with ONE friendly hint that directs them to /settings. Use one of the following Russian lines at random.\n"
-        f"- If interface language is not 'ru' ({interface_lang}), translate the chosen line into the interface language while keeping the emojis and tone.\n"
-        "- Immediately after the hint, continue the conversation in the target language as usual.\n"
-        "- If the very next user message is a soft decline like “нет”, “no”, “not now”, “потом”, briefly reply in the interface language “Ок, тогда продолжаем” and then continue in the target language.\n"
-        "\n"
+        "- If the user asks to change language/level/style (any language), do NOT change settings yourself.\n"
+        "- Reply with ONE friendly hint that directs them to /settings. Use one Russian line at random and translate it to the interface language if needed.\n"
+        "- Immediately after the hint, continue the conversation in the target language.\n"
+        "- If the next user message is a soft decline like “нет / no / not now”, reply briefly in the interface language and continue in the target language.\n\n"
         "Russian hint options (pick ONE at random):\n"
         + "\n".join(f"- {s}" for s in ru_hints)
     )
     return block
 
 def build_soft_correction_block(style: str, level: str, interface_lang: str, target_lang: str) -> str:
-    """
-    Политика корректировок (исправляем всё сообщение целиком).
-
-    Общая идея:
-    • Всегда исправляй ВСЁ сообщение пользователя целиком (если есть ошибки).
-    • Покажи одну «исправленную версию» в кавычках, где учтены все ошибки; не перечисляй правила.
-    • Если пользователь явно просит правила/подробный разбор — дай краткое объяснение (без «простыней»).
-      Для A0–A2 — на языке интерфейса.
-      Для B1+ — на целевом языке.
-    """
-    if style == "business":
-        preface_ru = "Корректнее сказать так:"
-        preface_en = "A more accurate phrasing:"
+    # выбираем пул по стилю
+    if (style or "").lower() == "business":
+        ru_pool = BUSINESS_PREFACES["ru"]
+        en_pool = BUSINESS_PREFACES["en"]
     else:
-        preface_ru = "Наверное, ты имел в виду:"
-        preface_en = "Probably you meant:"
+        ru_pool = CASUAL_PREFACES["ru"]
+        en_pool = CASUAL_PREFACES["en"]
+
+    # берём случайный вариант для текущей сборки промпта
+    preface_ru = random.choice(ru_pool)
+    preface_en = random.choice(en_pool)
 
     a0_a2_block = (
         "For levels A0–A2:\n"
@@ -206,12 +227,12 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         f"- Then add a blank line and continue the dialogue in the target language ({target_lang}).\n"
         f"  Add a concise translation in parentheses into the interface language."
     )
-
+    
     b1_b2_block = (
         "For levels B1–B2:\n"
-        f"- Provide the preface and the fully corrected version ONLY in the target language ({target_lang}).\n"
+        f"- Provide the preface and the fully corrected version ONLY in {target_lang}.\n"
         "- No examples. No interface language.\n"
-        "- Then continue the dialogue in the target language."
+        f"- Then continue the dialogue in {target_lang}."
     )
 
     c_block = (
@@ -219,7 +240,7 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         "- Do NOT correct unless the user explicitly asks.\n"
         "- It's fine to mention once that advanced speakers often ignore minor grammar.\n"
         "- Always continue entirely in the target language.\n"
-        "- If they ask for corrections/rules, act like B1–B2 (fully corrected version, then continue)."
+        "- If they ask for corrections/rules, act like B1–B2."
     )
 
     tail = (
@@ -236,16 +257,15 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         + tail
     )
 
-
 def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mode: str) -> str:
     """
-    Главные правила языка:
+    Правила языка:
     - ВСЕГДА веди диалог на target_lang.
     - Если ui_lang != target_lang и level ∈ A0–A2:
-        * Разрешается короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
+        * Короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
         * Затем — полноценный ответ на target_lang.
-        * Заверши очень простым вопросом на target_lang и добавь его перевод в скобках на ui_lang.
-    - Если level ∈ B1–C2: НИКАКОГО ui_lang. Только target_lang.
+        * Заверши простым вопросом на target_lang + короткий перевод в скобках на ui_lang.
+    - Если level ∈ B1–C2: НИКАКОГО ui_lang в основной части. Только target_lang.
     """
 
     style = (style or "casual").lower()
@@ -257,10 +277,14 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
     beginner = level in BEGINNER_LEVELS
     same_lang = (ui_lang == target_lang)
 
-    style_line = (
-        "Tone: friendly, informal, concise." if style == "casual"
-        else "Tone: polite, professional, concise."
-    )
+    # Тон — вернули «живого» Мэтта в casual
+    if style == "casual":
+        style_line = (
+            "Tone: friendly, playful, supportive; keep it concise. "
+            "Use light humor and 0–2 tasteful emojis per message (not more)."
+        )
+    else:
+        style_line = "Tone: polite, professional, concise."
 
     mode_line = (
         "You are chatting in TEXT mode."
@@ -268,7 +292,6 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
         "You are chatting in VOICE mode. Keep sentences natural and speakable."
     )
 
-    # Правила исправлений по уровням
     if beginner:
         correction_rules = (
             "For mistakes: give a short correction/explanation in {ui_lang} (1–2 lines), "
@@ -287,22 +310,12 @@ def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mo
             "then continue with a natural, native-level reply in {target_lang}."
         )
 
-    # Жёсткий запрет переключения на язык интерфейса
-    lang_constraints = [
-        "Primary conversation language: {target_lang}. Never switch the whole message to {ui_lang}.",
-        "Use {ui_lang} only for a short correction/explanation at the top (beginners A0–A2) "
-        "and for the bracketed translation of your final question.",
-        "Do NOT continue the rest of the message in {ui_lang}. The main content must be in {target_lang}."
-    ]
-
-    # Упрощение формулировок для новичков
     simplicity = (
         "Keep sentences very simple and short. Avoid idioms and rare words."
         if beginner else
         "You may use more advanced grammar; keep clarity high."
     )
 
-    # Сборка промпта
     prompt = f"""
 You are Matt, a helpful AI conversation partner.
 
@@ -316,9 +329,10 @@ UI LANGUAGE: {ui_lang}
 {simplicity}
 
 LANGUAGE CONSTRAINTS:
-- {lang_constraints[0].format(target_lang=target_lang, ui_lang=ui_lang)}
-- {lang_constraints[1].format(target_lang=target_lang, ui_lang=ui_lang)}
-- {lang_constraints[2].format(target_lang=target_lang, ui_lang=ui_lang)}
+- Primary conversation language: {target_lang}. Never switch the whole message to {ui_lang}.
+- Use {ui_lang} only for a short correction/explanation at the top (beginners A0–A2)
+  and for the bracketed translation of your final question.
+- Do NOT continue the rest of the message in {ui_lang}. The main content must be in {target_lang}.
 
 CORRECTION POLICY:
 {correction_rules.format(target_lang=target_lang, ui_lang=ui_lang)}
@@ -332,7 +346,7 @@ FORMATTING FOR BEGINNERS (A0–A2):
 - If level is B1–C2: only {target_lang}; no {ui_lang} lines at all.
 
 GENERAL:
-- Be concise, friendly, and supportive.
+- Be concise, friendly, supportive, and a bit witty.
 - Ask exactly ONE follow-up question each time to keep the conversation going.
 """.strip()
 
