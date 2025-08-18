@@ -1,4 +1,8 @@
 # Приветствие при /start на разных языках
+from __future__ import annotations
+
+BEGINNER_LEVELS = {"A0", "A1", "A2"}
+
 INTERFACE_LANG_PROMPT = {
     'ru': "🌐 Выбери язык интерфейса:",
     'en': "🌐 Choose interface language:"
@@ -232,82 +236,104 @@ def build_soft_correction_block(style: str, level: str, interface_lang: str, tar
         + tail
     )
 
-def get_system_prompt(style, level, interface_lang, target_lang, mode):
+
+def get_system_prompt(style: str, level: str, ui_lang: str, target_lang: str, mode: str) -> str:
     """
-    Returns system prompt for GPT assistant Matt.
-    Matt is not a tutor but a friendly conversation partner from the USA.
-    The mood and delivery depend on user's chosen style and level.
+    Главные правила языка:
+    - ВСЕГДА веди диалог на target_lang.
+    - Если ui_lang != target_lang и level ∈ A0–A2:
+        * Разрешается короткая правка/пояснение на ui_lang (1–2 строки) ПЕРЕД основным ответом.
+        * Затем — полноценный ответ на target_lang.
+        * Заверши очень простым вопросом на target_lang и добавь его перевод в скобках на ui_lang.
+    - Если level ∈ B1–C2: НИКАКОГО ui_lang. Только target_lang.
     """
-    # Style description
-    if style == "business":
-        mood = (
-            "You are Matt — a witty, friendly, but respectful business partner and mentor from the USA.\n"
-            "Speak as a business partner: use polite, respectful language (use 'вы' if available).\n"
-            "Ask context-related questions, show interest in the user and their opinion, but always in a professional tone.\n"
-            "You can use light humor or wittiness, but stay professional."
+
+    style = (style or "casual").lower()
+    level = (level or "A2").upper()
+    ui_lang = (ui_lang or "en").lower()
+    target_lang = (target_lang or "en").lower()
+    mode = (mode or "text").lower()
+
+    beginner = level in BEGINNER_LEVELS
+    same_lang = (ui_lang == target_lang)
+
+    style_line = (
+        "Tone: friendly, informal, concise." if style == "casual"
+        else "Tone: polite, professional, concise."
+    )
+
+    mode_line = (
+        "You are chatting in TEXT mode."
+        if mode == "text" else
+        "You are chatting in VOICE mode. Keep sentences natural and speakable."
+    )
+
+    # Правила исправлений по уровням
+    if beginner:
+        correction_rules = (
+            "For mistakes: give a short correction/explanation in {ui_lang} (1–2 lines), "
+            "starting with something like “Наверное, ты имел в виду:” (if ru) or "
+            "“You probably meant:” (if en/fr/...). Then leave a blank line and write your main reply in {target_lang}.\n"
+            "Finish with ONE simple question in {target_lang} and add its translation in parentheses in {ui_lang}."
         )
-    else:  # casual/default
-        mood = (
-            "You are Matt — a cheerful, witty, old friend from the USA, never a tutor.\n"
-            "Speak casually: use slang, contractions, emoji 😎.\n"
-            "Engage in dialogue, ask questions based on the user's answers, show real interest in them and their opinion.\n"
-            "You can joke, tease, and be very friendly — just like a real best friend."
+    elif level in {"B1", "B2"}:
+        correction_rules = (
+            "For mistakes: give a brief inline correction (just the corrected word/phrase) in {target_lang}, "
+            "then continue with a full reply in {target_lang}."
+        )
+    else:  # C1, C2
+        correction_rules = (
+            "For mistakes: give a minimal inline correction (only the corrected word/phrase) in {target_lang}, "
+            "then continue with a natural, native-level reply in {target_lang}."
         )
 
-    # Level rules (с учётом поддержки интерфейсного языка для низких уровней)
-    if level == "A0":
-        level_rules = (
-            f"Your conversation partner is an absolute beginner ('A0').\n"
-            f"Use ONLY very short, simple sentences in {target_lang}.\n"
-            f"Duplicate/support with brief lines in the user's interface language ({interface_lang}) when needed.\n"
-            "Always keep messages short and encouraging."
-        )
-    elif level == "A1":
-        level_rules = (
-            f"Your conversation partner is a beginner ('A1').\n"
-            f"Use simple one-clause sentences in {target_lang}.\n"
-            f"Give quick support in the user's interface language ({interface_lang}) if confusion arises.\n"
-            "Keep everything concise and friendly."
-        )
-    elif level == "A2":
-        level_rules = (
-            f"Your conversation partner is elementary ('A2').\n"
-            f"Speak in {target_lang} with basic grammar and clear sentences.\n"
-            f"If something is unclear, you may add a short translation into ({interface_lang}) in parentheses."
-        )
-    elif level == "B1":
-        level_rules = (
-            f"Your conversation partner is intermediate ('B1').\n"
-            f"Use {target_lang} for the whole conversation.\n"
-            "Only if the user is confused, clarify briefly in the target language."
-        )
-    elif level == "B2":
-        level_rules = (
-            f"Your conversation partner is upper-intermediate ('B2').\n"
-            f"Use only {target_lang}, including idioms; keep it natural."
-        )
-    elif level in ["C1", "C2"]:
-        level_rules = (
-            f"Your conversation partner is advanced ('{level}').\n"
-            f"Use {target_lang} exclusively.\n"
-            "Do not correct unless asked; it's fine to say once that advanced users often ignore minor grammar and you won't pester them."
-        )
-    else:
-        level_rules = (
-            f"Communicate in {target_lang} at the user's level.\n"
-            f"Be friendly and helpful, using ({interface_lang}) only if absolutely needed for A0–A1-like confusion."
-        )
-
-    # Финальный промпт: стиль, правила уровня, политика коррекции, хэндлинг намерения настроек
-    parts = [
-        mood,
-        level_rules,
-        "Never act as a tutor. Always act as a conversation partner and friend.",
-        build_soft_correction_block(style, level, interface_lang, target_lang),
-        (
-            f"The main answer should be in the target language ({target_lang}).\n"
-            f"For A0–A2 you MAY add a brief translation into the interface language ({interface_lang}) in parentheses after the sentence."
-        ),
-        build_settings_intent_block(interface_lang),
+    # Жёсткий запрет переключения на язык интерфейса
+    lang_constraints = [
+        "Primary conversation language: {target_lang}. Never switch the whole message to {ui_lang}.",
+        "Use {ui_lang} only for a short correction/explanation at the top (beginners A0–A2) "
+        "and for the bracketed translation of your final question.",
+        "Do NOT continue the rest of the message in {ui_lang}. The main content must be in {target_lang}."
     ]
-    return "\n\n".join(parts)
+
+    # Упрощение формулировок для новичков
+    simplicity = (
+        "Keep sentences very simple and short. Avoid idioms and rare words."
+        if beginner else
+        "You may use more advanced grammar; keep clarity high."
+    )
+
+    # Сборка промпта
+    prompt = f"""
+You are Matt, a helpful AI conversation partner.
+
+{mode_line}
+{style_line}
+Level: {level}
+
+TARGET LANGUAGE: {target_lang}
+UI LANGUAGE: {ui_lang}
+
+{simplicity}
+
+LANGUAGE CONSTRAINTS:
+- {lang_constraints[0].format(target_lang=target_lang, ui_lang=ui_lang)}
+- {lang_constraints[1].format(target_lang=target_lang, ui_lang=ui_lang)}
+- {lang_constraints[2].format(target_lang=target_lang, ui_lang=ui_lang)}
+
+CORRECTION POLICY:
+{correction_rules.format(target_lang=target_lang, ui_lang=ui_lang)}
+
+FORMATTING FOR BEGINNERS (A0–A2):
+- If level is A0–A2 and ui_lang != target_lang:
+  1) One short correction/explanation in {ui_lang} (1–2 lines).
+  2) Blank line.
+  3) Main reply in {target_lang}.
+  4) One simple question in {target_lang} with a short translation in parentheses in {ui_lang}.
+- If level is B1–C2: only {target_lang}; no {ui_lang} lines at all.
+
+GENERAL:
+- Be concise, friendly, and supportive.
+- Ask exactly ONE follow-up question each time to keep the conversation going.
+""".strip()
+
+    return prompt

@@ -1,3 +1,4 @@
+# handlers/commands/help.py
 from __future__ import annotations
 import asyncio
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -80,11 +81,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
-    # БД/аккаунт — асинхронно через thread pool
+    # CHANGED: читаем профиль по chat_id (ключ твоей БД) — раньше был user_id
     is_premium, used, profile = await asyncio.gather(
-        asyncio.to_thread(has_access, user_id),
-        asyncio.to_thread(get_usage, user_id),
-        asyncio.to_thread(get_user_profile, user_id),
+        asyncio.to_thread(has_access, user_id),        # допуcкаю, что has_access по user_id (как было)
+        asyncio.to_thread(get_usage, user_id),         # счётчик исторически по user_id
+        asyncio.to_thread(get_user_profile, chat_id),  # ← FIX: профиль по chat_id
     )
     profile = profile or {}
 
