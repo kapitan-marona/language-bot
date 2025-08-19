@@ -1,6 +1,16 @@
 from __future__ import annotations
 import random
 
+# === НОВОЕ: промпты, которые ждёт онбординг ===
+INTERFACE_LANG_PROMPT = {
+    'ru': "Выбери язык интерфейса:",
+    'en': "Choose your interface language:",
+}
+TARGET_LANG_PROMPT = {
+    'ru': "Выбери язык для изучения:",
+    'en': "Choose a language to learn:",
+}
+
 # Стартовое сообщение (двуязычное)
 START_MESSAGE = {
     'ru': (
@@ -82,7 +92,7 @@ INTRO_QUESTIONS = {
     ]
 }
 
-# --- Новые простые старт-вопросы (для онбординга/стартов по уровню и стилю) ---
+# --- Простые старт-вопросы для низких уровней и делового стиля ---
 
 # A0–A2: «старые друзья», с эмодзи
 INTRO_QUESTIONS_CASUAL_A = {
@@ -278,15 +288,13 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
         f"Primary goal: help the user practice the TARGET language: {tgt}.",
         f"User interface language: {ui}.",
         f"Current mode: {md} (voice/text).",
-
-        # Главная линия и перевод для новичков
         "Always produce your MAIN sentence(s) in the TARGET language.",
         "Beginner support (A0–A2): you may add ONE short translation in the interface language in parentheses — only if it is a different language from the main line.",
         "Never output duplicates like “Как твои дела? (как твои дела?)”. If the main line is already in the interface language, do not add a translation.",
         "If the user writes in the interface language or says they don't understand, keep using the target language but simplify strongly; a tiny translation is OK.",
-
-        # Вопросы про настройки — без лишнего small talk
         "If the user asks how to change language/level/style or uses /settings, answer briefly with the command or a short instruction. Do not add unrelated small talk or extra questions. After that, wait for the user's next message.",
+        # Всегда позитивно и остроумно
+        "Regardless of style, keep a positive, witty, and well-rounded tone. Be curious, friendly, and engaging.",
     ]
 
     if lvl == "A0":
@@ -315,7 +323,10 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
     if style in ("business", "formal", "professional"):
         rules += ["Style: professional, concise, clear."]
     else:
-        rules += ["Style: friendly, like old friends; light emoji allowed at A-levels."]
+        rules += [
+            "Style: friendly, like old friends.",
+            "Actively use emojis, light jokes, and playful quips; keep it tasteful and supportive (0–2 emojis per message).",
+        ]
 
     if md == "voice":
         rules += [
