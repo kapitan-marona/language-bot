@@ -1,12 +1,8 @@
 from __future__ import annotations
 import re
-import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
 from components.training_db import set_consent, has_consent, add_glossary, get_glossary
-from components.i18n import get_ui_lang
-from components.profile_db import get_user_profile
-from handlers.chat.prompt_templates import INTRO_QUESTIONS
 
 ASK_SRC_DST = 1
 ASK_LIST    = 2
@@ -52,28 +48,6 @@ def _parse_lang_pair(s: str):
         return None, None
     return m.group(1).lower(), m.group(2).lower()
 
-def _resume_kb(ui: str) -> InlineKeyboardMarkup:
-    text = "▶️ Продолжить" if ui == "ru" else "▶️ Resume"
-    return InlineKeyboardMarkup([[InlineKeyboardButton(text, callback_data="TEACH:RESUME")]])
-
-# ----- НОВОЕ: реплики Мэтта после «Продолжить/Resume» -----
-RESUME_LINES = {
-    "ru": [
-        "Круто, что мы пополняем словарный запас друг друга — это честный обмен, почти алхимия ✨",
-        "Спасибо за новое словечко ❤️ Так на чём мы остановились?",
-        "Всю жизнь мы учимся новому — спасибо, что расширяешь мой словарь 🙌 Есть любимое слово?",
-        "Классные примеры! Давай проверим их в деле — продолжим?",
-        "С новыми знаниями — вперёд! Выберем тему: путешествия, фильмы или работа?",
-    ],
-    "en": [
-        "Love that we’re trading vocabulary — fair exchange, almost like alchemy ✨",
-        "Thanks for the new word ❤️ So, where did we leave off?",
-        "We’re always learning — thanks for expanding my vocab 🙌 Do you have a favorite word?",
-        "Great examples! Let’s put them to work — shall we keep going?",
-        "Armed with new words — let’s roll! Pick a topic: travel, movies, or work?",
-    ],
-}
-
 # --------- СОГЛАСИЕ НА РЕЖИМ TEACH ----------
 async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_consent(update.effective_user.id, True)
@@ -97,9 +71,6 @@ async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_consent(update.effective_user.id):
         await update.effective_message.reply_text("Сначала включи согласие: /consent_on 🙂")
         return ConversationHandler.END
-
-    # ❄️ Ставим паузу диалога Мэтта
-    ctx.chat_data["dialog_paused"] = True
 
     await update.effective_message.reply_text(
         "Отправь языковую пару (например, en-ru или ru-en). Я на связи 😉"
@@ -160,27 +131,23 @@ async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         add_glossary(update.effective_user.id, src, dst, phrase, corr)
         saved.append(f"{phrase} — {corr}")
 
-    ui = get_ui_lang(update, ctx)
-
     if not saved and skipped_bad > 0:
         await update.effective_message.reply_text(
-            "❌ Не сохранил: найден ненормативный контент. Давай без этого, ок? 😉",
-            reply_markup=_resume_kb(ui),
+            "❌ Не сохранил: найден ненормативный контент. Давай без этого, ок? 😉"
         )
         return ConversationHandler.END
 
     if saved:
         header = "✅ Всё получилось, спасибо!\nВ глоссарий добавлено:\n"
         body = "\n".join(saved[:50])
-        footer = "\n\nЕщё примеры — снова /teach. Или вернёмся к разговору:"
+        footer = "\n\nЕщё примеры — снова /teach. Посмотреть — /glossary."
         if skipped_bad:
             footer += f"\n(Пропущено из-за ненормативной лексики: {skipped_bad})"
-        await update.effective_message.reply_text(header + body + footer, reply_markup=_resume_kb(ui))
+        await update.effective_message.reply_text(header + body + footer)
     else:
         await update.effective_message.reply_text(
             "Я не увидел пар «фраза — перевод». Пришли их по одной на строку.\n"
-            "Например: I feel you — Понимаю тебя 🙂",
-            reply_markup=_resume_kb(ui),
+            "Например: I feel you — Понимаю тебя 🙂"
         )
 
     return ConversationHandler.END
@@ -196,21 +163,18 @@ async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if p and c:
             phrase, corr = p, c
 
-    ui = get_ui_lang(update, ctx)
-
     if not phrase or not corr:
         await update.effective_message.reply_text(
-            "Нужны две части: «фраза — перевод». Попробуй ещё раз через /teach? 🙂",
-            reply_markup=_resume_kb(ui),
+            "Нужны две части: «фраза — перевод». Попробуй ещё раз через /teach? 🙂"
         )
         return ConversationHandler.END
 
     if _contains_bad_words(phrase) or _contains_bad_words(corr):
-        await update.effective_message.reply_text("❌ Не сохранил: найден ненормативный контент.", reply_markup=_resume_kb(ui))
+        await update.effective_message.reply_text("❌ Не сохранил: найден ненормативный контент.")
         return ConversationHandler.END
 
     add_glossary(update.effective_user.id, src, dst, phrase, corr)
-    await update.effective_message.reply_text("✅ Готово. Ещё — /teach. Или вернёмся к разговору:", reply_markup=_resume_kb(ui))
+    await update.effective_message.reply_text("✅ Готово. Ещё — /teach. Посмотреть — /glossary.")
     return ConversationHandler.END
 
 async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -224,24 +188,6 @@ async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for src, dst, phrase, corr in rows[:200]:
         lines.append(f"{src}→{dst}: {phrase} — {corr}")
     await update.effective_message.reply_text("\n".join(lines))
-
-# ---------- КНОПКА «ПРОДОЛЖИТЬ» (снять паузу) ----------
-async def resume_chat_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ui = get_ui_lang(update, ctx)
-    ctx.chat_data["dialog_paused"] = False
-    await update.callback_query.answer("OK")
-
-    profile = get_user_profile(update.effective_user.id) or {}
-    tgt = (profile.get("target_lang") or "en").lower()
-
-    # Если есть набор реплик для целевого языка — используем его, иначе fallback на INTRO_QUESTIONS
-    if tgt in RESUME_LINES:
-        line = random.choice(RESUME_LINES[tgt])
-        await update.effective_message.reply_text(line)
-    else:
-        question = random.choice(INTRO_QUESTIONS.get(tgt, INTRO_QUESTIONS.get("en", ["So, shall we continue?"])))
-        pre = "Продолжаем! " if ui == "ru" else "Back to chat! "
-        await update.effective_message.reply_text(pre + question)
 
 def build_teach_handler():
     return ConversationHandler(

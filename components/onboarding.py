@@ -1,11 +1,8 @@
-# components/onboarding.py
-from __future__ import annotations
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
-from components.profile_db import get_user_profile  # читаем как раньше
-from components.safety import safe_save_user_profile  # <-- ИСПОЛЬЗУЕМ АДАПТЕР
+from components.profile_db import get_user_profile, save_user_profile  # сохраняем выборы в БД
 from utils.decorators import safe_handler
 from components.promo_texts import PROMO_ASK, PROMO_SUCCESS, PROMO_FAIL, PROMO_ALREADY_USED
 from handlers.chat.prompt_templates import INTERFACE_LANG_PROMPT, TARGET_LANG_PROMPT
@@ -13,7 +10,7 @@ from components.language import get_target_language_keyboard, LANGUAGES
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS, INTRO_QUESTIONS_EASY
+from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
 
 import random
 import logging
@@ -25,6 +22,7 @@ logger = logging.getLogger(__name__)
 _LANG_CODE_RE = re.compile(r"^(en|ru|fr|es|de|sv|fi)$")
 
 def _parse_callback_value(data: str, expected_prefix: str) -> str | None:
+    """Безопасно достаёт значение из callback_data формата '<prefix>:<value>'."""
     if not data or ":" not in data:
         return None
     prefix, value = data.split(":", 1)
@@ -36,6 +34,7 @@ def _parse_callback_value(data: str, expected_prefix: str) -> str | None:
 def _is_lang_code(value: str) -> bool:
     return bool(value and _LANG_CODE_RE.match(value))
 
+# Локализованное сообщение после выбора стиля
 STYLE_SELECTED_MSG = {
     "ru": "Отличный выбор 🌷",
     "en": "Great choice 🌷"
@@ -50,10 +49,14 @@ def get_interface_language_keyboard():
     ])
 
 def get_ok_keyboard():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🆗 OK", callback_data="onboarding_ok")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🆗 OK", callback_data="onboarding_ok")]
+    ])
 
 def get_level_guide_keyboard(lang):
-    return InlineKeyboardMarkup([[InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON.get(lang, LEVEL_GUIDE_CLOSE_BUTTON["en"]), callback_data="close_level_guide")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON.get(lang, LEVEL_GUIDE_CLOSE_BUTTON["en"]), callback_data="close_level_guide")]
+    ])
 
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
 @safe_handler
@@ -62,12 +65,12 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.setdefault(chat_id, {})
     session["onboarding_stage"] = "awaiting_language"
 
-    # На первом шаге — русский по умолчанию (как было)
-    lang = "ru"
+    # На первом шаге по умолчанию язык интерфейса русский
+    lang = 'ru'
     await context.bot.send_message(
         chat_id=chat_id,
-        text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT["en"]),
-        reply_markup=get_interface_language_keyboard(),
+        text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
+        reply_markup=get_interface_language_keyboard()
     )
 
 # --- ШАГ 2. Выбран язык — спрашиваем промокод ---
@@ -87,15 +90,16 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
 
-    # Сразу сохраним язык интерфейса в профиль
+    # NEW: сразу сохраним язык интерфейса в профиль
     try:
-        safe_save_user_profile(chat_id, interface_lang=lang_code)
+        save_user_profile(chat_id, interface_lang=lang_code)
     except Exception:
         logger.exception("Failed to save interface_lang=%s for chat_id=%s", lang_code, chat_id)
 
+    # Не передаём ReplyKeyboardRemove в edit_message_text: Telegram ожидает inline-клавиатуру
     await query.edit_message_text(text=PROMO_ASK.get(lang_code, PROMO_ASK["en"]))
 
-# --- ШАГ 3. Обработка промокода (или отказ) ---
+# --- ШАГ 3. Обработка промокода от пользователя (или отказ) ---
 @safe_handler
 async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -103,57 +107,56 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang_code = session.get("interface_lang", "en")
     promo_code = (update.message.text or "").strip()
 
-    # Отказ от промокода
+    # Пользователь может отказаться вводить промокод
     if promo_code.lower() in ["нет", "no"]:
         session["promo_code_used"] = None
         session["promo_type"] = None
         await context.bot.send_message(
             chat_id=chat_id,
             text=START_MESSAGE.get(lang_code, START_MESSAGE["en"]),
-            reply_markup=get_ok_keyboard(),
+            reply_markup=get_ok_keyboard()
         )
         session["onboarding_stage"] = "awaiting_ok"
         return
 
-    # Пытаемся активировать промо в session (он модифицируется на месте)
+    # Активируем промокод
     success, reason = activate_promo(session, promo_code)
     if success:
-        # Переносим значения из session в профиль и сохраняем ЧЕРЕЗ АДАПТЕР
+        # сохраняем промо в БД: /promo и кнопка в /help увидят тот же статус
         profile = get_user_profile(chat_id) or {"chat_id": chat_id}
-
         profile["promo_code_used"] = session.get("promo_code_used")
         profile["promo_type"] = session.get("promo_type")
         profile["promo_activated_at"] = session.get("promo_activated_at")
         profile["promo_days"] = session.get("promo_days")
-        # Возможно присутствуют новые поля — передадим, адаптер отбросит, если схема старая:
-        extra_minutes = session.get("promo_minutes")
-        used_codes = session.get("promo_used_codes")
-
-        safe_save_user_profile(
+        save_user_profile(
             chat_id,
             promo_code_used=profile.get("promo_code_used"),
             promo_type=profile.get("promo_type"),
             promo_activated_at=profile.get("promo_activated_at"),
             promo_days=profile.get("promo_days"),
-            promo_minutes=extra_minutes,           # может отсутствовать — адаптер отбросит
-            promo_used_codes=used_codes,           # список — адаптер отбросит, если не поддерживается
         )
 
         await context.bot.send_message(
             chat_id=chat_id,
             text=PROMO_SUCCESS.get(lang_code, PROMO_SUCCESS["en"]),
-            reply_markup=get_ok_keyboard(),
+            reply_markup=get_ok_keyboard()
         )
         session["onboarding_stage"] = "awaiting_ok"
     else:
         if reason == "invalid":
-            await context.bot.send_message(chat_id=chat_id, text=PROMO_FAIL.get(lang_code, PROMO_FAIL["en"]))
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=PROMO_FAIL.get(lang_code, PROMO_FAIL["en"]),
+            )
         elif reason == "already_used":
-            await context.bot.send_message(chat_id=chat_id, text=PROMO_ALREADY_USED.get(lang_code, PROMO_ALREADY_USED["en"]))
-        # остаёмся на этом шаге
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=PROMO_ALREADY_USED.get(lang_code, PROMO_ALREADY_USED["en"]),
+            )
+        # Остаёмся на этапе ввода промокода — ждём новый ввод или "нет"
         session["onboarding_stage"] = "awaiting_promo"
 
-# --- ШАГ 4. OK — выбор языка для изучения ---
+# --- ШАГ 4. OK — Выбор языка для изучения ---
 @safe_handler
 async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -164,7 +167,7 @@ async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_T
     session["onboarding_stage"] = "awaiting_target_lang"
     await query.edit_message_text(
         text=TARGET_LANG_PROMPT.get(lang_code, TARGET_LANG_PROMPT["en"]),
-        reply_markup=get_target_language_keyboard(session),
+        reply_markup=get_target_language_keyboard(session)  # Учитывает промокоды (например, только EN)
     )
 
 # --- ШАГ 5. Выбор языка для изучения — выбор уровня ---
@@ -184,15 +187,16 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
 
+    # NEW: сохраняем язык изучения
     try:
-        safe_save_user_profile(chat_id, target_lang=lang_code)
+        save_user_profile(chat_id, target_lang=lang_code)
     except Exception:
         logger.exception("Failed to save target_lang=%s for chat_id=%s", lang_code, chat_id)
 
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
-        reply_markup=get_level_keyboard(interface_lang),
+        reply_markup=get_level_keyboard(interface_lang)
     )
 
 # --- Гайд по уровням ---
@@ -206,7 +210,7 @@ async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(
         text=get_level_guide(interface_lang),
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON.get(interface_lang, LEVEL_GUIDE_CLOSE_BUTTON["en"]), callback_data="close_level_guide")]]),
+        reply_markup=get_level_guide_keyboard(interface_lang)
     )
 
 # --- Закрыть гайд по уровням ---
@@ -219,7 +223,7 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
-        reply_markup=get_level_keyboard(interface_lang),
+        reply_markup=get_level_keyboard(interface_lang)
     )
 
 # --- ШАГ 6. Выбор уровня — стиль общения ---
@@ -239,18 +243,19 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["level"] = level
     session["onboarding_stage"] = "awaiting_style"
 
+    # NEW: сохраняем уровень
     try:
-        safe_save_user_profile(chat_id, level=level)
+        save_user_profile(chat_id, level=level)
     except Exception:
         logger.exception("Failed to save level=%s for chat_id=%s", level, chat_id)
 
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"]),
-        reply_markup=get_style_keyboard(interface_lang),
+        reply_markup=get_style_keyboard(interface_lang)
     )
 
-# --- ШАГ 7. Стиль — финал онбординга ---
+# --- ШАГ 7. Выбор стиля — приветствие и вовлекающий вопрос ---
 @safe_handler
 async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -267,41 +272,39 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["style"] = style
     session["onboarding_stage"] = "complete"
 
+    # NEW: сохраняем стиль
     try:
-        safe_save_user_profile(chat_id, style=style)
+        save_user_profile(chat_id, style=style)
     except Exception:
         logger.exception("Failed to save style=%s for chat_id=%s", style, chat_id)
 
     interface_lang = session.get("interface_lang", "ru")
-    await query.edit_message_text(text={"ru": "Отличный выбор 🌷", "en": "Great choice 🌷"}.get(interface_lang, "Great choice 🌷"))
+    await query.edit_message_text(
+        text=STYLE_SELECTED_MSG.get(interface_lang, STYLE_SELECTED_MSG["en"])
+    )
     await onboarding_final(update, context)
 
 # --- Приветствие Мэтта и первый вопрос ---
 @safe_handler
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import random
     chat_id = update.effective_chat.id if hasattr(update, "effective_chat") else update.callback_query.message.chat_id
     session = user_sessions.setdefault(chat_id, {})
 
     interface_lang = session.get("interface_lang", "en")
-    level = session.get("level", "A2")
-    target_lang = session.get("target_lang", session.get("interface_lang", "en"))
+    target_lang = session.get("target_lang", interface_lang)
 
-    # Вопросы — зависят от уровня
-    if level in ("A0", "A1", "A2"):
-        pool = INTRO_QUESTIONS_EASY.get(target_lang, INTRO_QUESTIONS_EASY.get("en", ["Hi! How are you today?"]))
-    else:
-        pool = INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS.get("en", ["What’s up?"]))
-    question = random.choice(pool)
-
-    # 1) Приветствие + вопрос
+    # 1) Текст приветствия и вопрос
     intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
+    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
+
+    # 2) Отправляем пользователю
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
     await context.bot.send_message(chat_id=chat_id, text=question)
 
-    # 2) Записываем обе реплики как ответы ассистента в историю
+    # 3) ВАЖНО: записываем обе реплики в историю как ответы ассистента
     history = session.setdefault("history", [])
     history.append({"role": "assistant", "content": intro_text})
     history.append({"role": "assistant", "content": question})
 
+    # (по желанию) можно отметить, что онбординг завершён
     session["onboarding_stage"] = "complete"

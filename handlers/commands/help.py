@@ -1,18 +1,10 @@
+# handlers/commands/help.py
 from __future__ import annotations
-import asyncio
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update
 from telegram.ext import ContextTypes
-
 from components.i18n import get_ui_lang
-from components.profile_db import get_user_profile
-from components.usage_db import get_usage
-from components.access import has_access
-from components.promo import is_promo_valid  # NEW
 
-FREE_DAILY_LIMIT = 15  # отображение в free-карточке
-
-# --------- Справка (без /teach) ---------
-HELP_BODY_RU = (
+HELP_RU = (
     "🆘 Команды и инструкции\n\n"
     "Доступные команды:\n"
     "• /help — показать это сообщение\n"
@@ -25,16 +17,25 @@ HELP_BODY_RU = (
     "• /buy — купить доступ\n"
     "• /promo — ввести промокод\n"
     "• /donate — поддержать проект\n"
+    "• /teach — сказать Мэтту, как правильно\n"
+    "• /glossary — посмотреть собственный глоссарий\n"
+    "• /consent — почитать текст согласия на обучение\n"
     "\n"
-    "Советы по общению с Мэттом:\n"
+    "Как эффективно общаться с Мэттом:\n"
     "• Мэтт — собеседник. Он не видит ваши настройки и оплату. Фразы вроде «поменяй уровень/язык/стиль» не сработают — "
     "для этого есть команды: /settings, /language, /level, /style; оплата — /buy, /donate и /promo для промокода.\n"
-    "• Можно общаться голосом или текстом. Если хочешь услышать, как что-то звучит, напиши «озвучь» — "
+    "• Общайся голосом или текстом. Если интересно, как что-то звучит — скажи «озвучь» — "
     "Мэтт пришлёт аудио (разовая озвучка, режим не меняется).\n"
+    "• Если у Мэтта что-то звучит неестественно или с произношением промах — используй /teach. "
+    "После согласия — /consent_on — можно поправить его. Все корректировки сохранятся в /glossary.\n"
     "• Подсказка: в /settings изменения применяются сразу после выбора — можно просто продолжать диалог.\n"
+    "• Помни: в бесплатном режиме доступно 15 сообщений в день; /start не обнуляет этот лимит.\n"
+    "\n"
+    "Обратная связь:\n"
+    "Ты всегда можешь связаться с разработчиком и оставить отзыв о работе Мэтта: @marrona\n"
 )
 
-HELP_BODY_EN = (
+HELP_EN = (
     "🆘 Commands & Instructions\n\n"
     "Available commands:\n"
     "• /help — show this message\n"
@@ -47,86 +48,25 @@ HELP_BODY_EN = (
     "• /buy — purchase access\n"
     "• /promo — enter a promo code\n"
     "• /donate — support the project\n"
+    "• /teach — tell Matt the correct phrasing\n"
+    "• /glossary — view your personal glossary\n"
+    "• /consent — read the teaching consent\n"
     "\n"
-    "Tips for chatting with Matt:\n"
+    "How to get the most out of Matt:\n"
     "• Matt is a conversation partner. He doesn’t see your settings or billing. Saying “change my level/language/style” won’t work — "
     "use /settings, /language, /level, /style. Payments/promos go through /buy, /donate, and /promo.\n"
     "• You can chat in voice or text. If you want to hear how something sounds, say “voice it” — "
     "Matt will send a one-off audio reply (it doesn’t switch the mode).\n"
-    "• Pro tip: in /settings, changes apply immediately after selection — just keep chatting.\n"
+    "• If Matt’s pronunciation or phrasing feels off, use /teach. After you agree — /consent_on — you can correct him. "
+    "All your corrections are saved in /glossary.\n"
+    "• Tip: in /settings, changes apply immediately after you pick them — you can just keep chatting.\n"
+    "• Remember: on the free plan you have 15 messages per day; /start does not reset this limit.\n"
+    "\n"
+    "Feedback:\n"
+    "You can always contact the developer and leave feedback about Matt: @marrona\n"
 )
-
-def _kb(ui: str) -> InlineKeyboardMarkup:
-    buy_label = "Buy 30 days — 149 ⭐" if ui == "en" else "Купить 30 дней — 149 ⭐"
-    how_label = "How to pay?" if ui == "en" else "Как оплатить?"
-    settings_label = "⚙️ Settings" if ui == "en" else "⚙️ Настройки"
-    promo_label = "Promo code" if ui == "en" else "Промокод"
-    donate_label = "Support" if ui == "en" else "Поддержать"
-
-    rows = [
-        [InlineKeyboardButton(settings_label, callback_data="open:settings")],
-        [
-            InlineKeyboardButton(buy_label, callback_data="htp_buy"),
-            InlineKeyboardButton(how_label, callback_data="htp_start"),
-        ],
-        [
-            InlineKeyboardButton(promo_label, callback_data="open:promo"),
-            InlineKeyboardButton(donate_label, callback_data="open:donate"),
-        ],
-    ]
-    return InlineKeyboardMarkup(rows)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ui = get_ui_lang(update, context)
-    chat_id = update.effective_chat.id
-
-    # всё — через thread pool
-    is_premium, used, profile = await asyncio.gather(
-        asyncio.to_thread(has_access, chat_id),           # ВЕЗДЕ chat_id
-        asyncio.to_thread(get_usage, chat_id),
-        asyncio.to_thread(get_user_profile, chat_id),
-    )
-    profile = profile or {}
-    promo_active = is_promo_valid(profile)
-
-    # Карточка статуса
-    if ui == "ru":
-        if is_premium:
-            until = (profile.get("premium_expires_at") or "—")
-            header = f"*🌟 Премиум активен*\nДоступ до: `{until}`"
-            card = ""
-        elif promo_active:
-            header = "*🎟 Промокод активен*"
-            # краткая пометка, если это english_only
-            if profile.get("promo_type") == "english_only":
-                card = "\nДоступен только английский язык."
-            else:
-                card = ""
-        else:
-            header = "*🆓 Бесплатный режим*"
-            card = f"\nСегодня использовано: *{used}/{FREE_DAILY_LIMIT}*"
-        body = HELP_BODY_RU
-    else:
-        if is_premium:
-            until = (profile.get("premium_expires_at") or "—")
-            header = f"*🌟 Premium is active*\nAccess until: `{until}`"
-            card = ""
-        elif promo_active:
-            header = "*🎟 Promo is active*"
-            if profile.get("promo_type") == "english_only":
-                card = "\nEnglish only."
-            else:
-                card = ""
-        else:
-            header = "*🆓 Free plan*"
-            card = f"\nUsed today: *{used}/{FREE_DAILY_LIMIT}*"
-        body = HELP_BODY_EN
-
-    text = f"{header}{card}\n\n{body}"
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        parse_mode="Markdown",
-        reply_markup=_kb(ui),
-    )
+    text = HELP_RU if ui == "ru" else HELP_EN
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
