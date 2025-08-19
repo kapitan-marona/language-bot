@@ -72,11 +72,38 @@ if not WEBHOOK_SECRET_PATH:
 PUBLIC_URL = os.getenv("PUBLIC_URL")
 TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")
 
+# Новое: защита внутренних ручек и режим окружения
+ADMIN_PANEL_TOKEN = os.getenv("ADMIN_PANEL_TOKEN")
+ENV = os.getenv("ENV", "dev")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("english-bot")
 
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+# -------------------------------------------------------------------------
+# Утилиты
+# -------------------------------------------------------------------------
+def fire_and_forget(coro, *, name: str = "task"):
+    """Безопасный запуск фоновой задачи с логированием исключения."""
+    task = asyncio.create_task(coro, name=name)
+    def _done(t: asyncio.Task):
+        try:
+            exc = t.exception()
+        except asyncio.CancelledError:
+            return
+        if exc:
+            logger.exception("Background task %s failed: %s", name, exc)
+    task.add_done_callback(_done)
+    return task
+
+def _check_admin_token(req: Request) -> bool:
+    """Проверка секрета для внутренних эндпоинтов (обязательна в prod)."""
+    if ENV == "prod":
+        token = req.headers.get("X-Admin-Token") or req.query_params.get("token")
+        return bool(token and ADMIN_PANEL_TOKEN and token == ADMIN_PANEL_TOKEN)
+    return True  # в dev разрешаем без токена
 
 # -------------------------------------------------------------------------
 # Ошибки
@@ -105,7 +132,8 @@ async def telegram_webhook(req: Request):
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     try:
         update = Update.de_json(data, bot_app.bot)
-        asyncio.create_task(bot_app.process_update(update))  # неблокирующе
+        # неблокирующе + с отлавливанием исключений
+        fire_and_forget(bot_app.process_update(update), name=f"upd-{getattr(update, 'update_id', 'n/a')}")
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
         # всё равно даём 200, чтобы Telegram не дропал вебхук
@@ -113,7 +141,10 @@ async def telegram_webhook(req: Request):
     return {"ok": True}
 
 @app.get("/set_webhook")
-async def set_webhook(url: Optional[str] = Query(default=None)):
+async def set_webhook(request: Request, url: Optional[str] = Query(default=None)):
+    if not _check_admin_token(request):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
     target = url or (f"{PUBLIC_URL.rstrip('/')}/{WEBHOOK_SECRET_PATH}" if PUBLIC_URL else None)
     if not target:
         return JSONResponse({"ok": False, "error": "PUBLIC_URL is not set"}, status_code=400)
@@ -121,7 +152,7 @@ async def set_webhook(url: Optional[str] = Query(default=None)):
     ok = await bot_app.bot.set_webhook(
         url=target,
         drop_pending_updates=True,
-        allowed_updates=["message", "edited_message", "callback_query", "pre_checkout_query"],
+        allowed_updates=["message", "callback_query", "pre_checkout_query"],  # сузили список
         secret_token=TELEGRAM_WEBHOOK_SECRET_TOKEN or None,
     )
     return {"ok": ok, "url": target}
@@ -155,14 +186,13 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("consent", consent_info_command))
     app_.add_handler(CommandHandler("codes", codes_command))  # НОВОЕ
 
-
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
 
     # Teach/Glossary/Consent
-    app_.add_handler(CommandHandler("consent", consent_info_command))  # новое
+    # Убрали дубль команды /consent (оставили регистрацию выше)
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
