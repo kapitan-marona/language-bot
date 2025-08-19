@@ -89,6 +89,11 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
     if not sp:  # защита
         return
 
+    # Идемпотентность: если такой charge уже обрабатывали — выходим
+    profile = get_user_profile(update.effective_user.id)
+    if profile and profile.get("last_payment_charge_id") == sp.telegram_payment_charge_id:
+        return
+
     payload = sp.invoice_payload or ""
 
     # --- Донат: просто благодарим, ничего не меняем в доступе ---
@@ -106,14 +111,28 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(msg)
         return
 
-    # --- Покупка тарифа (как было) ---
-    profile = get_user_profile(update.effective_user.id)
+    # --- Покупка тарифа (как было), с базовой валидацией ---
+    if not payload.startswith("pro_30d:"):
+        return  # неизвестный payload
+
+    # проверим, что чек адресован этому же пользователю
+    try:
+        _, uid_str = payload.split(":", 1)
+        if int(uid_str) != update.effective_user.id:
+            return
+    except Exception:
+        return
+
+    # проверка валюты и суммы
+    if sp.currency != XTR_CURRENCY or sp.total_amount != 149:
+        return
+
     until = compute_expiry(profile, days=30)
     save_user_profile(
         update.effective_user.id,
         is_premium=1,
         premium_expires_at=until.isoformat(),
-        last_payment_charge_id=sp.telegram_payment_charge_id,
+        last_payment_charge_id=sp.telegram_payment_charge_id,  # ключ идемпотентности
     )
     ui = get_ui_lang(update, ctx)
     msg = (
