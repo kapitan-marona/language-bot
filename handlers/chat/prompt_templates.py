@@ -338,9 +338,17 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
             "Prefer short, pausable sentences that sound good in TTS.",
         ]
 
+    # --- Conversational continuity: keep the chat going naturally ---
+    rules += [
+        "End your reply with ONE short, natural follow-up question in the TARGET language to keep the conversation going.",
+        "Skip the follow-up question when the user used a command (/start, /help, /settings, /teach, /promo, /buy, /donate), said thanks/goodbye, asked you not to ask questions, or when you just asked for a confirmation.",
+        "For A0–A2, prefer yes/no or simple choice questions; for B1+, prefer open questions.",
+        "The follow-up question must be context-relevant (no generic fillers). Do not ask more than one question.",
+        "Avoid ending with a standalone 'You're welcome' — keep the flow unless the user is clearly closing the chat.",
+    ]
+
     rules += [
         "Keep answers short (1–3 sentences).",
-        "Avoid filler questions that are not related to the user's last message.",
     ]
 
     return "\n".join(rules)
