@@ -10,7 +10,8 @@ from components.language import get_target_language_keyboard, LANGUAGES
 from components.levels import get_level_keyboard, LEVEL_PROMPT
 from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
-from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
+from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO
+from handlers.chat.prompt_templates import pick_intro_question  # <-- используем подбор по уровню/стилю
 
 import random
 import logging
@@ -108,7 +109,7 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     promo_code = (update.message.text or "").strip()
 
     # Пользователь может отказаться вводить промокод
-    if promo_code.lower() in ["нет", "no"]:
+    if promo_code.lower() in ["нет", "no", "не", "nope", "nah", "неа", "нету"]:
         session["promo_code_used"] = None
         session["promo_type"] = None
         await context.bot.send_message(
@@ -293,9 +294,13 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
 
-    # 1) Текст приветствия и вопрос
+    # 1) Текст приветствия и вопрос (вопрос — по уровню/стилю)
     intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
-    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
+    question = pick_intro_question(
+        session.get("level", "A2"),
+        session.get("style", "casual"),
+        target_lang,
+    )
 
     # 2) Отправляем пользователю
     await context.bot.send_message(chat_id=chat_id, text=intro_text)

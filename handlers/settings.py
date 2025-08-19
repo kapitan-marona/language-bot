@@ -115,34 +115,6 @@ def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
-# Короткая стартовая фраза для продолжения диалога на целевом языке
-_STARTERS = {
-    "casual": {
-        "ru": "Продолжаем! Как прошёл твой день?",
-        "en": "Let's continue! How's your day going?",
-        "fr": "On continue ! Comment s'est passée ta journée ?",
-        "es": "¡Continuemos! ¿Cómo va tu día?",
-        "de": "Lass uns weitermachen! Wie läuft dein Tag?",
-        "sv": "Vi fortsätter! Hur har din dag varit?",
-        "fi": "Jatketaan! Miten päiväsi on sujunut?",
-    },
-    "business": {
-        "ru": "Продолжим. Какая у тебя главная задача на сегодня?",
-        "en": "Let's continue. What's your top task today?",
-        "fr": "On continue. Quelle est ta priorité aujourd'hui ?",
-        "es": "Sigamos. ¿Cuál es tu prioridad de hoy?",
-        "de": "Weiter geht's. Was ist deine wichtigste Aufgabe heute?",
-        "sv": "Vi fortsätter. Vad är din huvuduppgift idag?",
-        "fi": "Jatketaan. Mikä on päivän tärkein tehtäväsi?",
-    }
-}
-
-def _starter_phrase(lang: str, level: str, style: str) -> str:
-    style_key = "business" if style == "business" else "casual"
-    table = _STARTERS.get(style_key, _STARTERS["casual"])
-    # Если язык неизвестен — по умолчанию английский
-    return table.get(lang, table["en"])
-
 # ---------- public handlers ----------
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -289,7 +261,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # --- Кнопка: "Продолжить..." — просто инициируем диалог по текущим настройкам ---
+    # --- Кнопка: "Продолжить..." — подтверждаем и всё, без лишних вопросов ---
     if data == "SETTINGS:APPLY":
         p = get_user_profile(chat_id) or {}
         s = context.user_data or {}
@@ -308,14 +280,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except Exception:
             pass
 
-        # Подтверждение + стартовая реплика на целевом языке
         confirm = (
             f"✅ Настройки применены.\nЯзык: {_name_for_lang(new_lang)} • Уровень: {new_level} • Стиль: {_name_for_style(new_style)}"
             if ui == "ru" else
             f"✅ Settings applied.\nLanguage: {_name_for_lang(new_lang)} • Level: {new_level} • Style: {_name_for_style(new_style)}"
         )
         await context.bot.send_message(chat_id, confirm)
-
-        starter = _starter_phrase(new_lang, new_level, new_style)
-        await context.bot.send_message(chat_id, starter)
         return

@@ -192,11 +192,11 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("style", style_command))
 
     # Teach/Glossary/Consent
-    # Убрали дубль команды /consent (оставили регистрацию выше)
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler())
+    # >>> единственная новая настройка — блокируем, чтобы основной диалог не шёл параллельно
+    app_.add_handler(build_teach_handler(), block=True, group=1)
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
