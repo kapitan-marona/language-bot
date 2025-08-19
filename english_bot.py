@@ -192,24 +192,24 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("style", style_command))
 
     # Teach/Glossary/Consent
+    # Убрали дубль команды /consent (оставили регистрацию выше)
     app_.add_handler(CommandHandler("consent_on", consent_on))
     app_.add_handler(CommandHandler("consent_off", consent_off))
     app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    # >>> единственная новая настройка — блокируем, чтобы основной диалог не шёл параллельно
-    app_.add_handler(build_teach_handler(), block=True, group=1)
+    app_.add_handler(build_teach_handler())  # <-- без block=, только сам handler
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # DONATE: числовой ввод — блокируем дальнейшие хендлеры
+    # DONATE: числовой ввод — блокируем дальнейшие хендлеры (block в КОНСТРУКТОРЕ)
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
     )
 
-    # Callback’и меню, настроек, how-to-pay
+    # Callback’и меню, настроек, how-to-pay (block в КОНСТРУКТОРЕ)
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
