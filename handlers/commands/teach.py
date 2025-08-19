@@ -3,6 +3,7 @@ import re
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
 from components.training_db import set_consent, has_consent, add_glossary, get_glossary
+from state.session import user_sessions  # флаг teach_active для читаемости
 
 ASK_SRC_DST = 1
 ASK_LIST    = 2
@@ -55,25 +56,34 @@ async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "✅ Режим корректировок включён.\n\n"
         "Как пользоваться:\n"
         "1) Отправь языковую пару двумя буквами: en-ru, ru-en, en-fi… Если сомневаешься — /codes.\n"
-        "2) Затем списком пришли строки «фраза — перевод», по одной на строку.\n\n"
+        "   Важно: это два шага — сначала языковая пара. Я отвечу, что принял.\n"
+        "2) Затем отдельным сообщением пришли список строк «фраза — перевод», по одной на строку.\n\n"
         "Пример:\n"
         "I feel you — Понимаю тебя\n"
         "Break a leg — Удачи!\n\n"
-        "Готово — я сохраню всё в /glossary. Спасибо! Ты делаешь Мэтта лучше ❤️"
+        "Готово — я сохраню всё в /glossary. В любой момент можно выйти командой /cancel."
     )
 
 async def consent_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_consent(update.effective_user.id, False)
     await update.effective_message.reply_text("Окей, режим корректировок выключен. Вернёшься — скажи /consent_on 🙂")
-# -------------------------------------------------------
 
+# -------------------------------------------------------
 async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_consent(update.effective_user.id):
         await update.effective_message.reply_text("Сначала включи согласие: /consent_on 🙂")
         return ConversationHandler.END
 
+    # помечаем, что пользователь в teach — пригодится для отладки/логики
+    try:
+        sess = user_sessions.setdefault(update.effective_chat.id, {})
+        sess["teach_active"] = True
+    except Exception:
+        pass
+
     await update.effective_message.reply_text(
-        "Отправь языковую пару (например, en-ru или ru-en). Я на связи 😉"
+        "Отправь языковую пару (например, en-ru или ru-en). Подсказка по кодам — /codes.\n"
+        "Выйти — /cancel."
     )
     return ASK_SRC_DST
 
@@ -135,6 +145,11 @@ async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(
             "❌ Не сохранил: найден ненормативный контент. Давай без этого, ок? 😉"
         )
+        # снимаем флаг teach_active
+        try:
+            user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+        except Exception:
+            pass
         return ConversationHandler.END
 
     if saved:
@@ -150,6 +165,11 @@ async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "Например: I feel you — Понимаю тебя 🙂"
         )
 
+    # снимаем флаг teach_active
+    try:
+        user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+    except Exception:
+        pass
     return ConversationHandler.END
 
 async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -167,14 +187,27 @@ async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(
             "Нужны две части: «фраза — перевод». Попробуй ещё раз через /teach? 🙂"
         )
+        try:
+            user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+        except Exception:
+            pass
         return ConversationHandler.END
 
     if _contains_bad_words(phrase) or _contains_bad_words(corr):
         await update.effective_message.reply_text("❌ Не сохранил: найден ненормативный контент.")
+        try:
+            user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+        except Exception:
+            pass
         return ConversationHandler.END
 
     add_glossary(update.effective_user.id, src, dst, phrase, corr)
     await update.effective_message.reply_text("✅ Готово. Ещё — /teach. Посмотреть — /glossary.")
+
+    try:
+        user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+    except Exception:
+        pass
     return ConversationHandler.END
 
 async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -189,15 +222,23 @@ async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{src}→{dst}: {phrase} — {corr}")
     await update.effective_message.reply_text("\n".join(lines))
 
+async def teach_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_sessions.setdefault(update.effective_chat.id, {})["teach_active"] = False
+    except Exception:
+        pass
+    await update.effective_message.reply_text("Отменено. Возвращаемся к обычному диалогу 🙂")
+    return ConversationHandler.END
+
 def build_teach_handler():
     return ConversationHandler(
-        entry_points=[CommandHandler("teach", teach_start)],
+        entry_points=[CommandHandler("teach", teach_start, block=True)],
         states={
-            ASK_SRC_DST: [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_src_dst)],
-            ASK_LIST:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_list)],
-            ASK_CORR:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_correction)],
+            ASK_SRC_DST: [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_src_dst, block=True)],
+            ASK_LIST:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_list, block=True)],
+            ASK_CORR:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_correction, block=True)],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: u.message.reply_text("Отменено"))],
+        fallbacks=[CommandHandler("cancel", teach_cancel, block=True)],
         allow_reentry=True,
         per_message=False,
     )
