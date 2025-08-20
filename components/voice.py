@@ -29,8 +29,8 @@ _EMOJI_RE = re.compile(
     "\U0001F900-\U0001F9FF"
     "\U0001FA00-\U0001FA6F"
     "\U0001FA70-\U0001FAFF"
-    "\u2600-\u26FF"           # разное
-    "\u2700-\u27BF"           # Dingbats
+    "\u2600-\u26FF"
+    "\u2700-\u27BF"
     "]+",
     flags=re.UNICODE
 )
@@ -79,9 +79,9 @@ def _prepare_tts_text(raw: str, level: str, max_len: int = 4000) -> str:
     base = _strip_parenthesized_tail(raw or "")
     # 2) Не озвучиваем эмодзи/пиктограммы
     base = _strip_emojis(base)
-    # 3) Замедление по уровню (для TTS, а не для чата)
+    # 3) Замедление по уровню (для TTS)
     base = _slowdown_by_level(base, level)
-    # 4) Ограничим длину для API
+    # 4) Ограничим длину
     if len(base) > max_len:
         base = base[:max_len]
     return base
@@ -109,7 +109,7 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
 
     - Эмодзи и перевод в скобках не озвучиваем.
     - Скорость/паузы зависят от уровня (A0…C2).
-    - Если format='opus' недоступен, пробуем mp3 и (если есть ffmpeg) перекодируем в OGG/Opus.
+    - Сначала просим opus (идеально для voice). Если не вышло — mp3 и (если есть ffmpeg) перекодируем в OGG/Opus.
     """
     if not client:
         logger.error("OPENAI_API_KEY is missing for TTS")
@@ -129,29 +129,26 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
     tmp_path = None
     output_path = None
     try:
-        # 1) Пытаемся сразу получить OGG/Opus — это идеальный формат для Telegram voice
+        # 1) Прямо просим OGG/Opus — это правильный формат для send_voice
         resp = client.audio.speech.create(
             model="tts-1",
             voice=voice,
             input=prepared,
-            format="opus",   # КРИТИЧЕСКОЕ: иначе вернёт mp3
+            format="opus",   # если не указать, вернёт mp3
         )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out_file:
-            # В новых версиях SDK это bytes в .content
+            # В разных версиях SDK: либо bytes в .content, либо поток через .read()
             data = getattr(resp, "content", None)
             if isinstance(data, (bytes, bytearray)):
                 out_file.write(data)
+            elif hasattr(resp, "read"):
+                out_file.write(resp.read())
+            elif isinstance(resp, (bytes, bytearray)):
+                out_file.write(resp)
             else:
-                # На всякий случай попробуем .read(), если объект потоковый
-                if hasattr(resp, "read"):
-                    out_file.write(resp.read())
-                elif isinstance(resp, (bytes, bytearray)):
-                    out_file.write(resp)
-                else:
-                    raise RuntimeError("TTS opus returned empty/unknown payload")
+                raise RuntimeError("TTS opus returned empty/unknown payload")
             tmp_path = out_file.name
 
-        # Опус уже правильный — перекодировка не нужна
         output_path = tmp_path
         logger.info("TTS done (opus): %s", output_path)
         return output_path
@@ -179,7 +176,6 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
                 raise RuntimeError("TTS mp3 returned empty/unknown payload")
             mp3_path = out_mp3.name
 
-        # Если есть ffmpeg — перекодируем в ogg/opus (иначе вернём пусто, чтобы чат послал текст)
         if shutil.which("ffmpeg"):
             ogg_fixed = mp3_path.replace(".mp3", "_fixed.ogg")
             try:
@@ -189,7 +185,6 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-                # удалим mp3
                 try:
                     os.remove(mp3_path)
                 except Exception:
@@ -198,18 +193,16 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
                 return ogg_fixed
             except subprocess.CalledProcessError:
                 logger.warning("FFMPEG reencode failed; dropping to text fallback")
-                # упадём на текстовый фолбэк ниже
         else:
             logger.warning("ffmpeg not found: cannot convert mp3→opus for Telegram voice")
 
-        return ""  # без корректного ogg/opus лучше вернуть пусто — код выше отправит текст
+        return ""  # без корректного ogg/opus лучше вернуть пусто — верхний код отправит текст
 
     except Exception:
         logger.exception("[TTS fallback mp3] failed")
         return ""
 
     finally:
-        # если где-то сделали промежуточные файлы — подчищаем максимально аккуратно
         try:
             if tmp_path and output_path and tmp_path != output_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)

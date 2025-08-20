@@ -36,15 +36,15 @@ def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
 
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
-    text = (text or "").strip()
+    text = (text or "").trim()
     if len(text) > max_len:
         text = text[:max_len]
     return text
 
 def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int, file_path: str):
     """
-    Если у нас .ogg — шлём как voice, иначе (.mp3) — как audio.
-    Это избавляет от «ровной линии», если TTS вернул не-OGG.
+    Если .ogg — шлём как voice, иначе (.mp3) — как audio.
+    Это исключает «ровную линию», если TTS вернул не-OGG.
     """
     async def _inner():
         if file_path.lower().endswith(".ogg"):
@@ -111,7 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 user_input = (transcript or "").strip()
                 logger.info("Whisper recognized text: %r", user_input)
-            except Exception as e:
+            except Exception:
                 await context.bot.send_message(chat_id=chat_id, text="❗️Ошибка распознавания голоса. Попробуй ещё раз.")
                 logger.exception("[Whisper Error]")
                 user_input = ""
@@ -144,13 +144,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             try:
                 voice_path = synthesize_voice(
-                    last_text,  # озвучиваем ТОЛЬКО основную часть (очистка — внутри synthesize_voice)
+                    last_text,
                     LANGUAGE_CODES.get(target_lang, "en-US"),
-                    level
+                    level  # (совместимость по стилю/уровню учтена в voice.py)
                 )
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
-                    # Дублирование текстом для A0–A2
                     if level in ["A0", "A1", "A2"]:
                         await context.bot.send_message(chat_id=chat_id, text=last_text)
                 else:
@@ -238,16 +237,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await _send_voice_or_audio(context, chat_id, voice_path)
                 else:
                     raise RuntimeError("No TTS data")
-
-                # Дублирование текстом для A0–A2
                 if level in ["A0", "A1", "A2"]:
                     await context.bot.send_message(chat_id=chat_id, text=assistant_reply)
-
             except Exception:
-                logger.exception("[Ошибка отправки голоса]")
+                # фолбэк на текст
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + assistant_reply)
             finally:
-                session["last_assistant_text"] = assistant_reply  # фиксируем последний ответ ассистента
+                # важно фиксировать последний ответ всегда
+                session["last_assistant_text"] = assistant_reply
         else:
             await update.message.reply_text(assistant_reply)
             session["last_assistant_text"] = assistant_reply  # фиксируем последний ответ ассистента
