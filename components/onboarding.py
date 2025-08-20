@@ -294,22 +294,43 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
 
-    # 1) Текст приветствия и вопрос (вопрос — по уровню/стилю)
+    # 1) Приветствие Мэтта
     intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
-    question = pick_intro_question(
-        session.get("level", "A2"),
-        session.get("style", "casual"),
-        target_lang,
-    )
-
-    # 2) Отправляем пользователю
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
+
+    # 2) Тарифное сообщение (free/premium/друг/прочие промо)
+    tariff_msg = None
+    try:
+        from components.profile_db import get_user_profile  # локальный импорт, чтобы не плодить циклы
+        prof = get_user_profile(chat_id) or {}
+        is_premium = bool(prof.get("is_premium"))
+        promo_code_used = session.get("promo_code_used") or prof.get("promo_code_used")
+        promo_type = session.get("promo_type") or prof.get("promo_type")
+        promo_days = session.get("promo_days") if session.get("promo_days") is not None else prof.get("promo_days")
+
+        from handlers.chat.prompt_templates import get_tariff_intro_msg
+        tariff_msg = get_tariff_intro_msg(
+            interface_lang,
+            is_premium=is_premium,
+            promo_code_used=promo_code_used,
+            promo_type=promo_type,
+            promo_days=promo_days,
+            free_daily_limit=15,  # соответствует FREE_DAILY_LIMIT в usage_gate
+        )
+        if tariff_msg:
+            await context.bot.send_message(chat_id=chat_id, text=tariff_msg)
+    except Exception:
+        logger.exception("tariff intro message failed")
+
+    # 3) Первый вопрос на целевом языке (как было)
+    question = random.choice(INTRO_QUESTIONS.get(target_lang, INTRO_QUESTIONS["en"]))
     await context.bot.send_message(chat_id=chat_id, text=question)
 
-    # 3) ВАЖНО: записываем обе реплики в историю как ответы ассистента
+    # 4) Сохраняем в историю
     history = session.setdefault("history", [])
     history.append({"role": "assistant", "content": intro_text})
+    if tariff_msg:
+        history.append({"role": "assistant", "content": tariff_msg})
     history.append({"role": "assistant", "content": question})
 
-    # (по желанию) можно отметить, что онбординг завершён
     session["onboarding_stage"] = "complete"

@@ -27,17 +27,104 @@ START_MESSAGE = {
 
 # Короткое представление Мэтта (двуязычное)
 MATT_INTRO = {
-    'ru': (
-        "🤖 Я Мэтт — твой AI-собеседник. Подстраиваюсь под уровень (A0–C2) и стиль (разговорный или деловой), "
-        "говорю на выбранном языке и, если нужно, кратко подсказываю на языке интерфейса. "
-        "В голосовом режиме отвечаю аудио. Готов(а) начать?"
+    "ru": (
+        "👋 Я Мэтт — полиглот и твой AI-собеседник для живой практики. "
+        "Подстраиваюсь под уровень (A0–C2) и стиль общения: "
+        "😎 разговорный — с эмодзи и лёгкими шутками; 🤓 деловой — короче и по делу. "
+        "Говорю на выбранном языке и обычно завершаю ответ одним коротким вопросом, "
+        "чтобы беседа шла легко. Хочешь сменить язык/уровень/стиль — это в /settings."
     ),
-    'en': (
-        "🤖 I’m Matt — your AI conversation buddy. I adapt to your level (A0–C2) and style (casual or business), "
-        "speak the target language, and add tiny hints in your interface language only when needed. "
-        "In voice mode, I reply with audio. Ready to start?"
+    "en": (
+        "👋 I’m Matt — your multilingual AI partner for real conversation. "
+        "I adapt to your level (A0–C2) and style: "
+        "😎 casual — with emojis and light jokes; 🤓 business — concise and focused. "
+        "I speak the target language and usually end with one short follow-up "
+        "question to keep the flow. Change language/level/style anytime via /settings."
     ),
 }
+
+def get_tariff_intro_msg(
+    lang: str,
+    *,
+    is_premium: bool | int | None,
+    promo_code_used: str | None,
+    promo_type: str | None,
+    promo_days: int | None,
+    free_daily_limit: int = 15,
+) -> str | None:
+    """
+    Возвращает второе сообщение после интро — в зависимости от тарифа.
+    Ничего, кроме текстов, не меняет.
+    """
+    L = "ru" if lang == "ru" else "en"
+
+    def _ru_days(n: int) -> str:
+        n = abs(int(n))
+        if n % 10 == 1 and n % 100 != 11:
+            return "день"
+        if 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
+            return "дня"
+        return "дней"
+
+    # 1) Premium активен
+    if is_premium:
+        return (
+            "✨ У тебя премиум — безлимитные диалоги в тексте и голосе. "
+            "Хочешь задания, истории или разбор правил — просто скажи. Поехали!"
+            if L == "ru" else
+            "✨ You’re on Premium — unlimited text & voice chats. "
+            "Want tasks, stories, or grammar explanations? Just say the word. Let’s go!"
+        )
+
+    # 2) Промокод «друг» (разрешим по коду или типу; если дней нет — считаем 3)
+    code = (promo_code_used or "").strip().lower()
+    is_friend = (code in {"друг", "friend"}) or (promo_type or "").strip().lower() in {"friend", "friend_3d", "trial_friend"}
+    if is_friend:
+        days = int(promo_days or 3)
+        if L == "ru":
+            return (
+                "🧩 Хей, друг! Кажется, у тебя особенный промокод — такие не раздают кому попало. "
+                f"Можем болтать {days} {_ru_days(days)} и обсуждать всё, что захочешь: новости, кино, путешествия. "
+                "Нужно объяснить правило — легко. Нужны новые слова — подберу и потренирую."
+            )
+        else:
+            return (
+                "🧩 Hey, friend! Looks like you’ve got a special promo — not everyone gets one. "
+                f"We can chat for {days} days about anything: news, movies, travel. "
+                "Need a grammar rule explained? Easy. Want fresh vocab? I’ll supply and drill it."
+            )
+
+    # 3) Любой другой промо (если есть дни — скажем про дни; иначе — общий)
+    if promo_type or (promo_days and promo_days > 0):
+        if promo_days and promo_days > 0:
+            if L == "ru":
+                return (
+                    f"🎁 Промокод активирован: расширенный доступ на {promo_days} {_ru_days(promo_days)}. "
+                    "Готов обсудить сериалы, путешествия, могу давать задания или рассказывать истории."
+                )
+            else:
+                return (
+                    f"🎁 Promo activated: extended access for {promo_days} days. "
+                    "We can dive into shows, travel, tasks, or storytelling — your pick."
+                )
+        else:
+            return (
+                "🎁 Промокод активирован. Готов обсуждать сериалы и путешествия, давать задания или истории — по запросу."
+                if L == "ru" else
+                "🎁 Promo activated. Happy to chat about shows and travel, give tasks or stories — just ask."
+            )
+
+    # 4) Free (без промо и без премиума)
+    return (
+        f"🧪 У тебя есть {free_daily_limit} сообщений, чтобы протестировать мои навыки. "
+        "Можем обсудить новые сериалы или планы на путешествия. "
+        "Нужны задания или тексты для практики — расскажу историю или поделюсь локальными шуточками."
+        if L == "ru" else
+        f"🧪 You’ve got {free_daily_limit} messages to try me out. "
+        "We can chat about new shows or travel plans. "
+        "Prefer exercises or reading practice? I can tell a story or drop some local jokes."
+    )
+
 
 # Вовлекающие вопросы на изучаемых языках (исходный список)
 INTRO_QUESTIONS = {

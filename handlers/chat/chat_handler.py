@@ -36,7 +36,7 @@ def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
 
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
-    text = (text or "").trim()
+    text = (text or "").strip()   # ← FIX: было .trim()
     if len(text) > max_len:
         text = text[:max_len]
     return text
