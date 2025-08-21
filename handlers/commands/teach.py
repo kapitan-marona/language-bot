@@ -227,13 +227,13 @@ def build_teach_handler():
     return ConversationHandler(
         entry_points=[
             CommandHandler("teach", teach_start),
-            CallbackQueryHandler(teach_start, pattern=r"^open:teach$"),  # ← клик из меню
+            CallbackQueryHandler(teach_start, pattern=r"^open:teach$"),  # клик из меню
         ],
         states={
             ASK_SRC_DST: [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_src_dst)],
             ASK_LIST:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_list)],
             ASK_CORR:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_correction)],
-        ],
+        },  # ← ВАЖНО: закрываем фигурной скобкой
         fallbacks=[CommandHandler("cancel", lambda u, c: u.message.reply_text("Отменено"))],
         allow_reentry=True,
         per_message=False,
