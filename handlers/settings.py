@@ -203,10 +203,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # --- Конкретные изменения: авто-применяем в активную сессию ---
     if data.startswith("SET:LANG:"):
         code = data.split(":", 2)[-1]
-        # user_data + БД
         context.user_data["language"] = code
         save_user_profile(chat_id, target_lang=code)
-        # активная сессия чата (то, что читает чат)
         sess = user_sessions.setdefault(chat_id, {})
         sess["target_lang"] = code
 
@@ -269,7 +267,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         new_level = p.get("level") or s.get("level", "B1")
         new_style = p.get("style") or s.get("style", "casual")
 
-        # на всякий случай дублируем в активную сессию (если пользователь не нажимал SET:* в этот раз)
+        # дублируем в активную сессию
         sess = user_sessions.setdefault(chat_id, {})
         if new_lang:  sess["target_lang"] = new_lang
         if new_level: sess["level"] = new_level

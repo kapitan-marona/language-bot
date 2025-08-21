@@ -54,7 +54,6 @@ def get_tariff_intro_msg(
 ) -> str | None:
     """
     Возвращает второе сообщение после интро — в зависимости от тарифа.
-    Ничего, кроме текстов, не меняет.
     """
     L = "ru" if lang == "ru" else "en"
 
@@ -76,7 +75,7 @@ def get_tariff_intro_msg(
             "Want tasks, stories, or grammar explanations? Just say the word. Let’s go!"
         )
 
-    # 2) Промокод «друг» (разрешим по коду или типу; если дней нет — считаем 3)
+    # 2) Промокод «друг»
     code = (promo_code_used or "").strip().lower()
     is_friend = (code in {"друг", "friend"}) or (promo_type or "").strip().lower() in {"friend", "friend_3d", "trial_friend"}
     if is_friend:
@@ -94,7 +93,7 @@ def get_tariff_intro_msg(
                 "Need a grammar rule explained? Easy. Want fresh vocab? I’ll supply and drill it."
             )
 
-    # 3) Любой другой промо (если есть дни — скажем про дни; иначе — общий)
+    # 3) Любой другой промо
     if promo_type or (promo_days and promo_days > 0):
         if promo_days and promo_days > 0:
             if L == "ru":
