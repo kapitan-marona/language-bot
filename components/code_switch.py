@@ -77,7 +77,7 @@ async def rewrite_mixed_input(
         highlighted = _bold_once(highlighted, dst)
 
     if (ui_lang or "").lower() == "ru":
-        preface = f"Понял(а)! Ты имел(а) в виду: {highlighted}"
+        preface = f"Понял! Ты имеешь в виду: {highlighted}"
     else:
         preface = f"Got it! You meant: {highlighted}"
 
