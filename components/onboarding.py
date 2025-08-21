@@ -277,24 +277,35 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Приветствие Мэтта и первый вопрос ---
 @safe_handler
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id if hasattr(update, "effective_chat") else update.callback_query.message.chat_id
+    chat_id = (
+        update.effective_chat.id
+        if hasattr(update, "effective_chat") and update.effective_chat
+        else update.callback_query.message.chat_id
+    )
     session = user_sessions.setdefault(chat_id, {})
 
     interface_lang = session.get("interface_lang", "en")
     target_lang = session.get("target_lang", interface_lang)
+    level = session.get("level", "A2")
+    style = session.get("style", "casual")
 
     # 1) Приветствие Мэтта
     intro_text = MATT_INTRO.get(interface_lang, MATT_INTRO["en"])
     await context.bot.send_message(chat_id=chat_id, text=intro_text)
 
-    # 2) Тарифное сообщение
+    # 2) Тарифное сообщение (free/premium/друг/прочие промо)
     tariff_msg = None
     try:
+        from components.profile_db import get_user_profile  # локальный импорт, чтобы не плодить циклы
         prof = get_user_profile(chat_id) or {}
         is_premium = bool(prof.get("is_premium"))
         promo_code_used = session.get("promo_code_used") or prof.get("promo_code_used")
         promo_type = session.get("promo_type") or prof.get("promo_type")
-        promo_days = session.get("promo_days") if session.get("promo_days") is not None else prof.get("promo_days")
+        promo_days = (
+            session.get("promo_days")
+            if session.get("promo_days") is not None
+            else prof.get("promo_days")
+        )
 
         from handlers.chat.prompt_templates import get_tariff_intro_msg
         tariff_msg = get_tariff_intro_msg(
@@ -303,24 +314,23 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
             promo_code_used=promo_code_used,
             promo_type=promo_type,
             promo_days=promo_days,
-            free_daily_limit=15,
+            free_daily_limit=15,  # должно совпадать с FREE_DAILY_LIMIT в usage_gate
         )
         if tariff_msg:
             await context.bot.send_message(chat_id=chat_id, text=tariff_msg)
     except Exception:
         logger.exception("tariff intro message failed")
 
-    # 3) Первый вопрос (учёт уровня/стиля)
-    level = session.get("level", "A2")
-    style = session.get("style", "casual")
+    # 3) Первый вопрос на целевом языке (с учётом уровня/стиля)
     question = pick_intro_question(level, style, target_lang)
     await context.bot.send_message(chat_id=chat_id, text=question)
 
-    # 4) Сохраняем в историю
+    # 4) Сохраняем всё в историю
     history = session.setdefault("history", [])
     history.append({"role": "assistant", "content": intro_text})
     if tariff_msg:
         history.append({"role": "assistant", "content": tariff_msg})
     history.append({"role": "assistant", "content": question})
 
+    # Отмечаем завершение онбординга
     session["onboarding_stage"] = "complete"

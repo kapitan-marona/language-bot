@@ -424,6 +424,65 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
             "Prefer short, pausable sentences that sound good in TTS.",
         ]
 
+    rules += [
+    # --- Code-switch / gentle correction (expanded) ---
+    "If the user's message mixes the INTERFACE language (UI) into the TARGET language (code-switch),"
+    " treat it as a small error and fix it gently.",
+
+    "Start your reply with ONE short paraphrase in the TARGET language that corrects the mixed tokens;"
+    " bold only the replaced word(s) or short phrase(s).",
+    "For A0–A2 you may add ONE tiny parenthetical translation of the bold replacement in the UI language"
+    " if it clearly helps (and only if UI != TARGET).",
+    "Do not overcorrect proper nouns, brand names, or widely accepted international words (London, Netflix, pizza).",
+    "Correct at most 1–3 tokens per message; if unsure, ask a short clarifying question instead of guessing.",
+    "You may vary the short preface naturally (e.g., 'Got it!', 'Understood!', 'So, if I got you right…'),"
+    " but keep it to one short clause.",
+
+    # ---------------- Examples: UI = ru ----------------
+    # TARGET = en
+    "Example (UI=ru, TARGET=en): user: 'I have been to London, it was дождливо every day.'"
+    " → 'Got it! You’ve been to London — it was **rainy** every day.'",
+    # TARGET = es
+    "Example (UI=ru, TARGET=es): user: 'Me gusta смотреть películas españolas.'"
+    " → '¡Entiendo! Me gusta **ver** películas españolas.'",
+    # TARGET = de
+    "Example (UI=ru, TARGET=de): user: 'Ich will прокачать mein Deutsch.'"
+    " → 'Verstanden! Ich will mein Deutsch **verbessern**.'",
+    # TARGET = fr
+    "Example (UI=ru, TARGET=fr): user: 'J’aime читать des livres français.'"
+    " → 'Compris ! J’aime **lire** des livres français.'",
+    # TARGET = sv
+    "Example (UI=ru, TARGET=sv): user: 'Jag vill прокачать min svenska.'"
+    " → 'Förstått! Jag vill **förbättra** min svenska.'",
+    # TARGET = fi
+    "Example (UI=ru, TARGET=fi): user: 'Minä pidän football.'"
+    " → 'Понял! Pidän **jalkapallosta**.'",
+
+    # ---------------- Examples: UI = en ----------------
+    # TARGET = ru
+    "Example (UI=en, TARGET=ru): user: 'Я don't know что это.'"
+    " → 'Понял! Я **не знаю** что это.'",
+    # TARGET = es
+    "Example (UI=en, TARGET=es): user: 'Quiero to improve mi español.'"
+    " → 'Got it! Quiero **mejorar** mi español.'",
+    # TARGET = de
+    "Example (UI=en, TARGET=de): user: 'Ich habe a cat und zwei Hunde.'"
+    " → 'Got it! Ich habe **eine** Katze und zwei Hunde.'",
+    # TARGET = fr
+    "Example (UI=en, TARGET=fr): user: 'Je veux to learn le français.'"
+    " → 'Got it! Je veux **apprendre** le français.'",
+    # TARGET = sv
+    "Example (UI=en, TARGET=sv): user: 'Jag gillar to travel i Sverige.'"
+    " → 'Got it! Jag gillar **att resa** i Sverige.'",
+    # TARGET = fi
+    "Example (UI=en, TARGET=fi): user: 'Haluan to learn suomea.'"
+    " → 'Got it! Haluan **oppia** suomea.'",
+
+    # After the one-line correction, continue with your normal, context-relevant reply
+    # in the TARGET language (tone/style/level rules still apply).
+]
+
+
     # --- Conversational continuity: keep the chat going naturally ---
     rules += [
         "End your reply with ONE short, natural follow-up question in the TARGET language to keep the conversation going.",
