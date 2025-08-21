@@ -3,22 +3,25 @@ import time
 import random
 import re
 import tempfile
-import openai
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from config.config import ADMINS
+
+from config.config import ADMINS, OPENAI_API_KEY
+from openai import OpenAI  # новый клиент для ASR
 
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
-from handlers.chat.prompt_templates import get_system_prompt, START_MESSAGE, MATT_INTRO, INTRO_QUESTIONS
+from handlers.chat.prompt_templates import get_system_prompt
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger
 from components.code_switch import rewrite_mixed_input  # ← NEW
 
 logger = logging.getLogger(__name__)
+
+oai_asr = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 MAX_HISTORY_LENGTH = 40
 RATE_LIMIT_SECONDS = 1.5
@@ -30,17 +33,20 @@ LANGUAGE_CODES = {
     "es": "es-ES",
     "ru": "ru-RU",
     "sv": "sv-SE",
-    "fi": "fi-FI"
+    "fi": "fi-FI",
 }
+
 
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
+
 
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     text = (text or "").strip()
     if len(text) > max_len:
         text = text[:max_len]
     return text
+
 
 async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int, file_path: str):
     """
@@ -52,6 +58,7 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
     else:
         with open(file_path, "rb") as af:
             await context.bot.send_audio(chat_id=chat_id, audio=af)
+
 
 # --- Главный message handler ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,18 +99,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # === Вход: голос или текст ===
         if update.message.voice:
+            if not oai_asr:
+                await context.bot.send_message(chat_id=chat_id, text="❗️ASR недоступен. Попробуй ещё раз позже.")
+                return
+
             voice_file = await context.bot.get_file(update.message.voice.file_id)
             with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
                 await voice_file.download_to_drive(tf.name)
                 audio_path = tf.name
             try:
                 with open(audio_path, "rb") as f:
-                    transcript = openai.audio.transcriptions.create(
+                    # Новый клиент: без response_format="text"
+                    tr = oai_asr.audio.transcriptions.create(
                         model="whisper-1",
                         file=f,
-                        response_format="text"
                     )
-                user_input = (transcript or "").strip()
+                user_input = (getattr(tr, "text", "") or "").strip()
                 logger.info("Whisper recognized text: %r", user_input)
             except Exception:
                 await context.bot.send_message(chat_id=chat_id, text="❗️Ошибка распознавания голоса. Попробуй ещё раз.")
@@ -135,7 +146,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 voice_path = synthesize_voice(
                     last_text,
                     LANGUAGE_CODES.get(target_lang, "en-US"),
-                    level  # совместимость учтена в voice.py
+                    level,  # совместимость учтена в voice.py
                 )
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
@@ -171,15 +182,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text_norm = user_input.lower()
         if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["voice"]):
             if interface_lang == "ru":
-                await update.message.reply_text("Если хочешь перейти в голосовой режим — просто напиши **голос** 😉", parse_mode="Markdown")
+                await update.message.reply_text("Если хочешь перейти в голосовой режим — просто напиши <b>голос</b> 😉", parse_mode="HTML")
             else:
-                await update.message.reply_text("To switch to voice mode, just type **voice** 😉", parse_mode="Markdown")
+                await update.message.reply_text("To switch to voice mode, just type <b>voice</b> 😉", parse_mode="HTML")
             return
         if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["text"]):
             if interface_lang == "ru":
-                await update.message.reply_text("Чтобы перейти в текстовый режим, напиши **текст** 🙂", parse_mode="Markdown")
+                await update.message.reply_text("Чтобы перейти в текстовый режим, напиши <b>текст</b> 🙂", parse_mode="HTML")
             else:
-                await update.message.reply_text("To switch to text mode, type **text** 🙂", parse_mode="Markdown")
+                await update.message.reply_text("To switch to text mode, type <b>text</b> 🙂", parse_mode="HTML")
             return
 
         # Создатель
@@ -203,7 +214,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = [{"role": "system", "content": system_prompt}]
         prompt.extend(history)
 
-        # --- Лёгкая починка смешанной фразы (ru↔en) ---
+        # --- Лёгкая починка смешанной фразы (code-switch) ---
         clean_user_input, preface_html = await rewrite_mixed_input(
             user_input, interface_lang, target_lang
         )
@@ -221,7 +232,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply_text = f"{preface_html}\n\n{assistant_reply}" if preface_html else assistant_reply
 
         if mode == "voice":
-            # В TTS уходит ТОЛЬКО целевой язык — без приставки на UI-языке
+            # В TTS уходит ТОЛЬКО целевой язык — без приставки на UI-языке/HTML
             voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
             try:
                 if voice_path:
@@ -234,7 +245,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + final_reply_text,
-                    parse_mode="HTML"
+                    parse_mode="HTML",
                 )
             finally:
                 # для «озвучь» хранить чисто целевой текст

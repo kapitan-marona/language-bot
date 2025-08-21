@@ -1,7 +1,7 @@
 # components/triggers.py
 import re
 
-# --- Триггеры про создателя / контакты (как было, можно дополнять) ---
+# --- Триггеры про создателя / контакты ---
 CREATOR_TRIGGERS = {
     "ru": [
         "кто тебя создал", "создатель", "автор", "разработчик",
@@ -57,7 +57,7 @@ def _norm(s: str) -> str:
 
 # Предвычислим нормализованные множества для O(1) проверки
 _MODE_TRIGGERS_NORM = {
-    kind: { _norm(x) for x in phrases }
+    kind: {_norm(x) for x in phrases}
     for kind, phrases in MODE_TRIGGERS.items()
 }
 

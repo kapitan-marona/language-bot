@@ -4,7 +4,7 @@ from telegram.ext import ContextTypes
 from handlers import settings
 from handlers.commands.promo import promo_command
 from handlers.commands.donate import donate_command
-from handlers.commands.teach import teach_start, glossary_cmd
+from handlers.commands.teach import glossary_cmd   # ← teach_start больше не импортируем
 from handlers.commands.payments import buy_command
 
 async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -23,6 +23,8 @@ async def menu_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "open:sub":
         await buy_command(update, ctx)
     elif data == "open:teach":
-        await teach_start(update, ctx)
+        # Ничего не делаем здесь — вход в разговор обрабатывает ConversationHandler
+        # (см. entry point в handlers/commands/teach.py)
+        return
     elif data == "open:glossary":
         await glossary_cmd(update, ctx)

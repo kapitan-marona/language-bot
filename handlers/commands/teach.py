@@ -6,6 +6,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     CommandHandler,
+    CallbackQueryHandler,   # ← добавили
     MessageHandler,
     filters,
 )
@@ -69,7 +70,7 @@ async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "✅ Режим корректировок включён.\n\n"
         "Как пользоваться:\n"
         "1) Отправь языковую пару двумя буквами: en-ru, ru-en, en-fi… Если сомневаешься — /codes.\n"
-        "2) Затем списком пришли строки «фраза — перевод», по одной на строку.\n\n"
+        "2) Затем списком пришли строки «фраза — перевод», по одной на строке.\n\n"
         "Важно: это два разных сообщения — сначала пара языков, жди подтверждения, потом список пар.\n\n"
         "Пример:\n"
         "I feel you — Понимаю тебя\n"
@@ -92,6 +93,14 @@ async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text("Сначала включи согласие: /consent_on 🙂")
         return ConversationHandler.END
 
+    # Если пришли по inline-кнопке — аккуратно ответим на callback, чтобы не висел "часик".
+    q = getattr(update, "callback_query", None)
+    if q:
+        try:
+            await q.answer()
+        except Exception:
+            pass
+
     await update.effective_message.reply_text(
         "Отправь языковую пару (например, en-ru или ru-en). Я на связи 😉"
     )
@@ -110,7 +119,7 @@ async def teach_src_dst(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     ctx.user_data["teach_src"], ctx.user_data["teach_dst"] = src, dst
     await update.effective_message.reply_text(
-        "Принято! Теперь пришли список строк «фраза — перевод» (по одной на строку).\n"
+        "Принято! Теперь пришли список строк «фраза — перевод» (по одной на строке).\n"
         "Например:\n"
         "I feel you — Понимаю тебя\n"
         "Break a leg — Удачи!"
@@ -140,7 +149,7 @@ async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not pairs:
         ctx.user_data["teach_phrase"] = block
         await update.effective_message.reply_text(
-            "Нужен формат «фраза — перевод», по одной паре на строку. Попробуем ещё раз? 🙂"
+            "Нужен формат «фраза — перевод», по одной паре на строке. Попробуем ещё раз? 🙂"
         )
         return ASK_CORR
 
@@ -216,12 +225,15 @@ async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def build_teach_handler():
     return ConversationHandler(
-        entry_points=[CommandHandler("teach", teach_start)],
+        entry_points=[
+            CommandHandler("teach", teach_start),
+            CallbackQueryHandler(teach_start, pattern=r"^open:teach$"),  # ← клик из меню
+        ],
         states={
             ASK_SRC_DST: [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_src_dst)],
             ASK_LIST:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_list)],
             ASK_CORR:    [MessageHandler(filters.TEXT & ~filters.COMMAND, teach_correction)],
-        },
+        ],
         fallbacks=[CommandHandler("cancel", lambda u, c: u.message.reply_text("Отменено"))],
         allow_reentry=True,
         per_message=False,

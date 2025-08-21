@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.promo import activate_promo
@@ -85,7 +85,7 @@ async def interface_language_callback(update: Update, context: ContextTypes.DEFA
         logger.warning("Invalid interface_lang callback_data=%r, fallback to 'en'", raw)
         lang_code = "en"
 
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["interface_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_promo"
@@ -153,7 +153,7 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def onboarding_ok_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     lang_code = session.get("interface_lang", "ru")
     session["onboarding_stage"] = "awaiting_target_lang"
@@ -174,7 +174,7 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
         logger.warning("Invalid target_lang callback_data=%r, fallback to 'en'", raw)
         lang_code = "en"
 
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
@@ -196,7 +196,7 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
 async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
@@ -210,7 +210,7 @@ async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
@@ -230,7 +230,7 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("Invalid level callback_data=%r, fallback to 'A2'", raw)
         level = "A2"
 
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["level"] = level
     session["onboarding_stage"] = "awaiting_style"
@@ -259,7 +259,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("Invalid style callback_data=%r, fallback to 'casual'", raw)
         style = "casual"
 
-    chat_id = query.message.chat_id
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["style"] = style
     session["onboarding_stage"] = "complete"
@@ -277,11 +277,7 @@ async def style_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Приветствие Мэтта и первый вопрос ---
 @safe_handler
 async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = (
-        update.effective_chat.id
-        if hasattr(update, "effective_chat") and update.effective_chat
-        else update.callback_query.message.chat_id
-    )
+    chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
 
     interface_lang = session.get("interface_lang", "en")
@@ -296,16 +292,11 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2) Тарифное сообщение (free/premium/друг/прочие промо)
     tariff_msg = None
     try:
-        from components.profile_db import get_user_profile  # локальный импорт, чтобы не плодить циклы
         prof = get_user_profile(chat_id) or {}
         is_premium = bool(prof.get("is_premium"))
         promo_code_used = session.get("promo_code_used") or prof.get("promo_code_used")
         promo_type = session.get("promo_type") or prof.get("promo_type")
-        promo_days = (
-            session.get("promo_days")
-            if session.get("promo_days") is not None
-            else prof.get("promo_days")
-        )
+        promo_days = session.get("promo_days") if session.get("promo_days") is not None else prof.get("promo_days")
 
         from handlers.chat.prompt_templates import get_tariff_intro_msg
         tariff_msg = get_tariff_intro_msg(
