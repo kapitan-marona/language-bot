@@ -427,32 +427,34 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
             "Prefer short, pausable sentences that sound good in TTS.",
         ]
 
-    # --- Code-switch / gentle correction (expanded) ---
+    # --- Code-switch / gentle correction (strict & minimal) ---
     rules += [
-        "If the user's message mixes the INTERFACE language (UI) into the TARGET language (code-switch), treat it as a small error and fix it gently.",
-        "Start your reply with ONE short paraphrase in the TARGET language that corrects the mixed tokens; bold only the replaced word(s) or short phrase(s) using <b>…</b>.",
-        "For A0–A2 you may add ONE tiny parenthetical translation of the bold replacement in the UI language if it clearly helps (and only if UI != TARGET).",
+        # Классификация:
+        # 1) code-switch = в сообщении есть слова/фразы из языка интерфейса (UI) внутри целевого языка (TARGET) или наоборот.
+        # 2) typo = опечатка в том же языке (falk→folk и т.п.). Это НЕ code-switch.
+
+        # Общие правила:
+        "Use HTML <b>…</b> for bold emphasis (not Markdown).",
+        "Never repeat the user's whole sentence just to show a fix. Echo only the corrected token(s) if needed.",
+
+        # Code-switch:
+        "Use the gentle-correction preface ONLY when the user's message actually mixes the INTERFACE language (UI) into the TARGET language (code-switch).",
+        "When (and only when) you replaced mixed-language token(s), start with ONE short correction line in the TARGET language; bold only the replaced word(s) or very short phrase(s).",
+        "For A0–A2 you may add ONE tiny parenthetical translation of the bold replacement in the UI language if it clearly helps and UI != TARGET.",
         "Do not overcorrect proper nouns, brand names, or widely accepted international words (London, Netflix, pizza).",
         "Correct at most 1–3 tokens per message; if unsure, ask a short clarifying question instead of guessing.",
-        "You may vary the short preface naturally (e.g., 'Got it!', 'Understood!', 'So, if I got you right…'), but keep it to one short clause.",
+        "If there is NO code-switch, do NOT start with a correction preface and do NOT write 'Got it!'; reply normally.",
 
-        # ---------------- Examples: UI = ru ----------------
-        "Example (UI=ru, TARGET=en): user: 'I have been to London, it was дождливо every day.' → 'Got it! You’ve been to London — it was <b>rainy</b> every day.'",
-        "Example (UI=ru, TARGET=es): user: 'Me gusta смотреть películas españolas.' → '¡Entiendo! Me gusta <b>ver</b> películas españolas.'",
-        "Example (UI=ru, TARGET=de): user: 'Ich will прокачать mein Deutsch.' → 'Verstanden! Ich will mein Deutsch <b>verbessern</b>.'",
-        "Example (UI=ru, TARGET=fr): user: 'J’aime читать des livres français.' → 'Compris ! J’aime <b>lire</b> des livres français.'",
-        "Example (UI=ru, TARGET=sv): user: 'Jag vill прокачать min svenska.' → 'Förstått! Jag vill <b>förbättra</b> min svenska.'",
-        "Example (UI=ru, TARGET=fi): user: 'Minä pidän football.' → 'Понял! Pidän <b>jalkapallosta</b>.'",
+        # Typos (same language):
+        "Treat same-language typos as minor. Do NOT correct capitalization/case at all.",
+        "If a typo does not hinder understanding, you may ignore it.",
+        "If you decide to help with a typo, do NOT paraphrase the whole message and do NOT add a preface; instead, add a very short parenthetical note after your first sentence, e.g., (<b>folk</b>, not “falk”).",
 
-        # ---------------- Examples: UI = en ----------------
-        "Example (UI=en, TARGET=ru): user: 'Я don't know что это.' → 'Понял! Я <b>не знаю</b> что это.'",
-        "Example (UI=en, TARGET=es): user: 'Quiero to improve mi español.' → 'Got it! Quiero <b>mejorar</b> mi español.'",
-        "Example (UI=en, TARGET=de): user: 'Ich habe a cat und zwei Hunde.' → 'Got it! Ich habe <b>eine</b> Katze und zwei Hunde.'",
-        "Example (UI=en, TARGET=fr): user: 'Je veux to learn le français.' → 'Got it! Je veux <b>apprendre</b> le français.'",
-        "Example (UI=en, TARGET=sv): user: 'Jag gillar to travel i Sverige.' → 'Got it! Jag gillar <b>att resa</b> i Sverige.'",
-        "Example (UI=en, TARGET=fi): user: 'Haluan to learn suomea.' → 'Got it! Haluan <b>oppia</b> suomea.'",
-
-        "After that one-line correction, continue with your normal, context-relevant reply in the TARGET language (tone/style/level rules still apply).",
+        # --- Examples for the rules above ---
+        # No code-switch, only typo:
+        "Example: TARGET=en, user: 'I like falk dance.' → 'Nice! I like it too. (<b>folk</b>, not “falk”).'",
+        # Real code-switch:
+        "Example: UI=ru, TARGET=fi, user: 'Pidän football.' → 'Понял! Pidän <b>jalkapallosta</b>.'",
     ]
 
     # --- Conversational continuity: keep the chat going naturally ---
