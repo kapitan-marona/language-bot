@@ -134,7 +134,7 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
             model="tts-1",
             voice=voice,
             input=prepared,
-            format="opus",   # если не указать, вернёт mp3
+            response_format="opus",   # ← FIX: раньше было format="opus"
         )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out_file:
             # В разных версиях SDK: либо bytes в .content, либо поток через .read()
@@ -162,7 +162,7 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
             model="tts-1",
             voice=voice,
             input=prepared,
-            format="mp3",
+            response_format="mp3",     # ← FIX: раньше было format="mp3"
         )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as out_mp3:
             data = getattr(resp, "content", None)
