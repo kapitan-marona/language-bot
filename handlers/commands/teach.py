@@ -39,6 +39,7 @@ _BAD_EN = [
 ]
 _BAD_RE = re.compile("(" + "|".join(_BAD_RU + _BAD_EN) + ")", re.IGNORECASE)
 
+
 def _split_pair(text: str):
     for sep in _SEP_VARIANTS:
         if sep in text:
@@ -49,14 +50,17 @@ def _split_pair(text: str):
         return m.group(1).strip(), m.group(2).strip()
     return None, None
 
+
 def _contains_bad_words(s: str) -> bool:
     return bool(_BAD_RE.search(s or ""))
+
 
 def _parse_lang_pair(s: str):
     m = _LANG_PAIR_RE.match((s or ""))
     if not m:
         return None, None
     return m.group(1).lower(), m.group(2).lower()
+
 
 # --------- СОГЛАСИЕ НА РЕЖИМ TEACH ----------
 async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -70,18 +74,19 @@ async def consent_on(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Пример:\n"
         "I feel you — Понимаю тебя\n"
         "Break a leg — Удачи!\n\n"
-        "Готово — я сохраню всё в /glossary.\n\n
+        "Готово — я сохраню всё в /glossary.\n"
         "Спасибо! Ты делаешь Мэтта лучше ❤️"
     )
+
 
 async def consent_off(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     set_consent(update.effective_user.id, False)
     await update.effective_message.reply_text(
         "Окей, режим корректировок выключен. Вернёшься — скажи /consent_on 🙂"
     )
-# -------------------------------------------------------
 
-# Entry-point, нужен и для ConversationHandler, и для menu.py
+
+# --------- ВХОД В РЕЖИМ TEACH ----------
 async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not has_consent(update.effective_user.id):
         await update.effective_message.reply_text("Сначала включи согласие: /consent_on 🙂")
@@ -91,6 +96,7 @@ async def teach_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Отправь языковую пару (например, en-ru или ru-en). Я на связи 😉"
     )
     return ASK_SRC_DST
+
 
 async def teach_src_dst(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     t = (update.message.text or "").strip()
@@ -111,6 +117,7 @@ async def teach_src_dst(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     return ASK_LIST
 
+
 def _parse_pairs_block(block: str) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for raw_line in (block or "").splitlines():
@@ -121,6 +128,7 @@ def _parse_pairs_block(block: str) -> list[tuple[str, str]]:
         if p and c:
             pairs.append((p, c))
     return pairs
+
 
 async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     src = ctx.user_data.get("teach_src", "en")
@@ -160,11 +168,12 @@ async def teach_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(header + body + footer)
     else:
         await update.effective_message.reply_text(
-            "Я не увидел пар «фраза — перевод». Пришли их по одной на строку.\n"
+            "Я не увидел пар «фраза — перевод». Пришли их по одной на строке.\n"
             "Например: I feel you — Понимаю тебя 🙂"
         )
 
     return ConversationHandler.END
+
 
 async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Fallback: одиночная пара (сценарий совместимости)
@@ -191,6 +200,7 @@ async def teach_correction(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text("✅ Готово. Ещё — /teach. Посмотреть — /glossary.")
     return ConversationHandler.END
 
+
 async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     rows = get_glossary(update.effective_user.id)
     if not rows:
@@ -202,6 +212,7 @@ async def glossary_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for src, dst, phrase, corr in rows[:200]:
         lines.append(f"{src}→{dst}: {phrase} — {corr}")
     await update.effective_message.reply_text("\n".join(lines))
+
 
 def build_teach_handler():
     return ConversationHandler(
