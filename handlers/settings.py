@@ -1,4 +1,3 @@
-# handlers/settings.py
 from __future__ import annotations
 from typing import List, Tuple
 import logging
@@ -27,11 +26,12 @@ LANGS: List[Tuple[str, str]] = [
 LEVELS_ROW1 = ["A0", "A1", "A2"]
 LEVELS_ROW2 = ["B1", "B2", "C1", "C2"]
 
-# Два стиля общения
-STYLES: List[Tuple[str, str]] = [
-    ("😎 Разговорный", "casual"),
-    ("🤓 Деловой", "business"),
-]
+# Два стиля общения (код → локализованные названия)
+STYLE_TITLES = {
+    "casual":   {"ru": "😎 Разговорный", "en": "😎 Casual"},
+    "business": {"ru": "🤓 Деловой",     "en": "🤓 Business"},
+}
+STYLE_ORDER = ["casual", "business"]  # порядок кнопок
 
 # ---------- helpers ----------
 
@@ -41,11 +41,9 @@ def _name_for_lang(code: str) -> str:
             return title
     return code
 
-def _name_for_style(code: str) -> str:
-    for title, c in STYLES:
-        if c == code:
-            return title
-    return code
+def _name_for_style(code: str, ui: str) -> str:
+    d = STYLE_TITLES.get(code, {})
+    return d.get(ui, d.get("ru", code))  # по умолчанию русский, если нет перевода
 
 def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
     base_ru = (
@@ -111,7 +109,10 @@ def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([row1, row2, back])
 
 def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(title, callback_data=f"SET:STYLE:{code}")] for title, code in STYLES]
+    rows = []
+    for code in STYLE_ORDER:
+        title = _name_for_style(code, ui)
+        rows.append([InlineKeyboardButton(title, callback_data=f"SET:STYLE:{code}")])
     rows.append([InlineKeyboardButton("👈 Назад" if ui == "ru" else "👈 Back", callback_data="SETTINGS:BACK")])
     return InlineKeyboardMarkup(rows)
 
@@ -133,7 +134,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     style = p.get("style") or s.get("style", "casual")
     english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
 
-    text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note)
+    text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note)
 
     q = getattr(update, "callback_query", None)
     if q and q.message:
@@ -165,7 +166,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
             reply_markup=_menu_keyboard(ui),
         )
         await q.answer()
@@ -216,7 +217,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
             reply_markup=_menu_keyboard(ui),
         )
         return
@@ -235,7 +236,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
             reply_markup=_menu_keyboard(ui),
         )
         return
@@ -254,7 +255,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         level = p.get("level") or s.get("level", "B1")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style), english_only_note),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
             reply_markup=_menu_keyboard(ui),
         )
         return
@@ -279,9 +280,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             pass
 
         confirm = (
-            f"✅ Настройки применены.\nЯзык: {_name_for_lang(new_lang)} • Уровень: {new_level} • Стиль: {_name_for_style(new_style)}"
+            f"✅ Настройки применены.\nЯзык: {_name_for_lang(new_lang)} • Уровень: {new_level} • Стиль: {_name_for_style(new_style, ui)}"
             if ui == "ru" else
-            f"✅ Settings applied.\nLanguage: {_name_for_lang(new_lang)} • Level: {new_level} • Style: {_name_for_style(new_style)}"
+            f"✅ Settings applied.\nLanguage: {_name_for_lang(new_lang)} • Level: {new_level} • Style: {_name_for_style(new_style, ui)}"
         )
         await context.bot.send_message(chat_id, confirm)
         return
