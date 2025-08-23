@@ -2,10 +2,10 @@ from __future__ import annotations
 import random
 
 # === Промпты, которые ждёт онбординг ===
-INTERFACE_LANG_PROMPT = (
-    "Выбери язык интерфейса:\n"
-    "Choose your interface language:"
-)
+INTERFACE_LANG_PROMPT = {
+    "ru": "Выбери язык интерфейса:\nChoose your interface language:",
+    "en": "Выбери язык интерфейса:\nChoose your interface language:",
+}
 
 TARGET_LANG_PROMPT = {
     'ru': "Выбери язык для изучения:",
