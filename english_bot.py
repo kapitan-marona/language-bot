@@ -42,6 +42,7 @@ from components.usage_db import init_usage_db
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
+from handlers.commands.privacy import privacy_command, delete_me_command
 
 # ⚠️ ДОБАВИЛИ импорт /codes (иначе NameError)
 from handlers.commands.consent import codes_command
@@ -178,6 +179,8 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
     app_.add_handler(CommandHandler("codes", codes_command))  # работает, есть импорт
+    app_.add_handler(CommandHandler("privacy", privacy_command))
+    app_.add_handler(CommandHandler("delete_me", delete_me_command))
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))

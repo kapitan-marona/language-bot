@@ -58,3 +58,31 @@ def increment_usage(chat_id: int) -> int:
         return int(row[0]) if row else 0
     finally:
         conn.close()
+
+def delete_user(chat_id: int) -> int:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)
+    except NameError:
+        raise RuntimeError("DB_PATH is not defined in usage_db.py")
+
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tables = [r[0] for r in cur.fetchall()]
+
+    total = 0
+    for t in tables:
+        cur.execute(f"PRAGMA table_info({t})")
+        cols = [row[1] for row in cur.fetchall()]
+        if "chat_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE chat_id = ?", (chat_id,))
+            total += cur.rowcount
+        if "user_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (chat_id,))
+            total += cur.rowcount
+
+    conn.commit()
+    conn.close()
+    return total
+
+

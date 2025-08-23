@@ -171,3 +171,40 @@ def set_user_promo(
 
     conn.commit()
     conn.close()
+# --- GDPR-like delete: удалить пользователя из всех таблиц этой БД ---
+def delete_user(chat_id: int) -> int:
+    """
+    Удаляет все строки по chat_id/user_id во всех таблицах этой БД.
+    Возвращает количество удалённых строк (суммарно).
+    Работает с SQLite.
+    """
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)  # предполагаем, что DB_PATH уже есть в модуле
+    except NameError:
+        # Если у вас другая переменная, поправьте строку выше.
+        raise RuntimeError("DB_PATH is not defined in profile_db.py")
+
+    cur = conn.cursor()
+    # список таблиц (кроме служебных)
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tables = [r[0] for r in cur.fetchall()]
+
+    total = 0
+    for t in tables:
+        # смотрим, какие колонки есть
+        cur.execute(f"PRAGMA table_info({t})")
+        cols = [row[1] for row in cur.fetchall()]
+        # пробуем удалить по chat_id или user_id
+        if "chat_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE chat_id = ?", (chat_id,))
+            total += cur.rowcount
+        if "user_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (chat_id,))
+            total += cur.rowcount
+
+    conn.commit()
+    conn.close()
+    return total
+
+

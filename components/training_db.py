@@ -66,3 +66,30 @@ def get_glossary(chat_id: int) -> List[Tuple[str, str, str, str]]:
     rows = cur.fetchall()
     conn.close()
     return [(r[0], r[1], r[2], r[3]) for r in rows]
+
+def delete_user(chat_id: int) -> int:
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DB_PATH)
+    except NameError:
+        raise RuntimeError("DB_PATH is not defined in training_db.py")
+
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+    tables = [r[0] for r in cur.fetchall()]
+
+    total = 0
+    for t in tables:
+        cur.execute(f"PRAGMA table_info({t})")
+        cols = [row[1] for row in cur.fetchall()]
+        if "chat_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE chat_id = ?", (chat_id,))
+            total += cur.rowcount
+        if "user_id" in cols:
+            cur.execute(f"DELETE FROM {t} WHERE user_id = ?", (chat_id,))
+            total += cur.rowcount
+
+    conn.commit()
+    conn.close()
+    return total
+
