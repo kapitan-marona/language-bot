@@ -28,12 +28,7 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from handlers.commands.teach import (
-    build_teach_handler,
-    consent_on,
-    consent_off,
-    glossary_cmd,
-)
+
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
@@ -43,14 +38,13 @@ from components.onboarding import send_onboarding
 
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
-from components.training_db import init_training_db
 
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 
-# Новое: текст согласия (/consent)
-from handlers.commands.consent import consent_info_command, codes_command
+# ⚠️ ДОБАВИЛИ импорт /codes (иначе NameError)
+from handlers.commands.consent import codes_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
@@ -183,20 +177,12 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
-    app_.add_handler(CommandHandler("consent", consent_info_command))
-    app_.add_handler(CommandHandler("codes", codes_command))  # НОВОЕ
+    app_.add_handler(CommandHandler("codes", codes_command))  # работает, есть импорт
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
-
-    # Teach/Glossary/Consent
-    # Убрали дубль команды /consent (оставили регистрацию выше)
-    app_.add_handler(CommandHandler("consent_on", consent_on))
-    app_.add_handler(CommandHandler("consent_off", consent_off))
-    app_.add_handler(CommandHandler("glossary", glossary_cmd))
-    app_.add_handler(build_teach_handler(), block=True)  # <-- без block=, только сам handler
 
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
@@ -248,7 +234,7 @@ def setup_handlers(app_: "Application"):
 def init_databases():
     init_profiles_db()
     init_usage_db()
-    init_training_db()
+    # teach/glossary отключены — training_db не инициализируем
 
 @app.on_event("startup")
 async def on_startup():
