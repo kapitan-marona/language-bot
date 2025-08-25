@@ -100,6 +100,18 @@ def _normalize_style_level(style: str, level: str) -> Tuple[str, str]:
         return "casual", s
     return (s or "casual"), l
 
+# -------------------- маппинг голосов по языкам --------------------
+
+_LANG_TO_VOICE = {
+    "en": "alloy",  # мужской, нейтральный
+    "es": "echo",   # мужской
+    "fr": "echo",   # мужской
+    "de": "ash",    # мужской, четкая дикция
+    "ru": "echo",   # мужской
+    "sv": "alloy",  # мужской
+    "fi": "echo",   # мужской
+}
+
 # -------------------- основная функция TTS --------------------
 
 def synthesize_voice(text: str, language_code: str, style: str = "casual", level: str = "A2") -> str:
@@ -118,11 +130,9 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
     style, level = _normalize_style_level(style, level)
     prepared = _prepare_tts_text(text, level)
 
-    style_to_voice = {
-        "casual": "alloy",   # 😎 разговорный
-        "business": "fable"  # 🤓 деловой
-    }
-    voice = style_to_voice.get(style.lower(), "alloy")
+    # Выбор мужского голоса по языку (без случайности)
+    lang_code = (language_code or "en").split("-")[0].lower()
+    voice = _LANG_TO_VOICE.get(lang_code, "alloy")
 
     logger.info("TTS: voice=%s lang=%s style=%s level=%s", voice, language_code, style, level)
 

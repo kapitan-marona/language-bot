@@ -240,7 +240,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     raise RuntimeError("No TTS data")
                 if level in ["A0", "A1", "A2"]:
-                    await context.bot.send_message(chat_id=chat_id, text=final_reply_text, parse_mode="HTML")
+                    await context.bot.send_message(chat_id=chat_id, text=last_text, parse_mode="HTML")
             except Exception:
                 await context.bot.send_message(
                     chat_id=chat_id,

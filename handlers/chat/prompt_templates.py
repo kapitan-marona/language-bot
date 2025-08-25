@@ -161,7 +161,7 @@ INTRO_QUESTIONS = {
         "Hur ser en perfekt ledig dag ut för dig?",
         "Om du kunde resa var som helst, vart skulle du åka?",
         "Vad vill du lära dig i år?",
-        "Vad är det mest intressanta du har läst eller sett nyligen?"
+        "Vilken utmaning har ert team nyligen löst?"
     ],
     'fi': [
         "Jos voisit saada minkä tahansa supervoiman, mikä se olisi ja miksi?",
@@ -216,7 +216,7 @@ INTRO_QUESTIONS_CASUAL_A = {
         "Vad gjorde du idag? 🙌",
         "Gillar du kaffe eller te? ☕️🍵",
         "Vilken musik gillar du? 🎵",
-        "Vad är din favoritmat? 🍝",
+        "Vilken är din favoritmat? 🍝",
     ],
     "fi": [
         "Moikka! Mitä kuuluu tänään? 🙂",
@@ -377,9 +377,10 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
         f"Current mode: {md} (voice/text).",
 
         "Always produce your MAIN sentence(s) in the TARGET language.",
-        "Beginner support (A0–A2): you may add ONE short translation in the interface language in parentheses — only if it is a different language from the main line.",
+        "Beginner support: only for levels A0 and A1 you must add ONE short translation in the interface language in parentheses — but only if the main line is in the TARGET language and UI != TARGET.",
+        "For A2 and above: do NOT add translations in parentheses.",
         "Never output duplicates like “Как твои дела? (как твои дела?)”. If the main line is already in the interface language, do not add a translation.",
-        "If the user writes in the interface language or says they don't understand, keep using the target language but simplify strongly; a tiny translation is OK.",
+        "If the user writes in the interface language or says they don't understand, keep using the target language but simplify strongly; a tiny translation is OK for A0–A1 only.",
 
         "If the user asks how to change language/level/style or uses /settings, answer briefly with the command or a short instruction. Do not add unrelated small talk or extra questions. After that, wait for the user's next message.",
 
@@ -393,18 +394,18 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
     if lvl == "A0":
         rules += [
             f"Level: A0 absolute beginner. Use very short, simple sentences in {tgt}.",
-            f"Optional tiny hint in {ui} only when necessary (and only if it differs from the main line).",
+            f"Always add ONE tiny hint in {ui} in parentheses after the main line, but only if UI != TARGET.",
             "Keep tone warm and encouraging.",
         ]
     elif lvl == "A1":
         rules += [
             f"Level: A1 beginner. Simple one-clause sentences in {tgt}.",
-            f"Add a very short {ui} hint only if confusion is explicit.",
+            f"Always add ONE short {ui} translation in parentheses after the main line, but only if UI != TARGET.",
         ]
     elif lvl == "A2":
         rules += [
             f"Level: A2 elementary. Clear {tgt} with basic grammar.",
-            f"At most one brief {ui} translation in parentheses if the user seems lost.",
+            "Do NOT add translations in parentheses at this level.",
         ]
     elif lvl == "B1":
         rules += [f"Level: B1. Use only {tgt}. Clarify in {tgt} if needed."]
@@ -441,7 +442,7 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
         # Code-switch:
         "Use the gentle-correction preface ONLY when the user's message actually mixes the INTERFACE language (UI) into the TARGET language (code-switch).",
         "When (and only when) you replaced mixed-language token(s), start with ONE short correction line in the TARGET language; bold only the replaced word(s) or very short phrase(s).",
-        "For A0–A2 you may add ONE tiny parenthetical translation of the bold replacement in the UI language if it clearly helps and UI != TARGET.",
+        "For A0–A1 you may add ONE tiny parenthetical translation of the bold replacement in the UI language only when UI != TARGET.",
         "Do not overcorrect proper nouns, brand names, or widely accepted international words (London, Netflix, pizza).",
         "Correct at most 1–3 tokens per message; if unsure, ask a short clarifying question instead of guessing.",
         "If there is NO code-switch, do NOT start with a correction preface and do NOT write 'Got it!'; reply normally.",
@@ -462,7 +463,7 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
     rules += [
         "End your reply with ONE short, natural follow-up question in the TARGET language to keep the conversation going.",
         "Skip the follow-up question when the user used a command (/start, /help, /settings, /teach, /promo, /buy, /donate), said thanks/goodbye, asked you not to ask questions, or when you just asked for a confirmation.",
-        "For A0–A2, prefer yes/no or simple choice questions; for B1+, prefer open questions.",
+        "For A0–A1, prefer yes/no or simple choice questions; for B1+, prefer open questions.",
         "The follow-up question must be context-relevant (no generic fillers). Do not ask more than one question.",
         "Avoid ending with a standalone 'You're welcome' — keep the flow unless the user is clearly closing the chat.",
         "Keep answers short (1–3 sentences).",

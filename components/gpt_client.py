@@ -1,4 +1,3 @@
-# components/gpt_client.py
 import os
 import re
 import logging
@@ -82,7 +81,7 @@ def _choose_temperature(messages: List[Dict[str, Any]]) -> float:
     logger.info("ask_gpt: temperature=%s (level=%s, detail=%s)", temp, level, detail)
     return temp
 
-async def ask_gpt(messages: List[Dict[str, Any]], model: str = "gpt-3.5-turbo") -> str:
+async def ask_gpt(messages: List[Dict[str, Any]], model: str = "gpt-4o") -> str:
     if not client:
         logger.error("OPENAI_API_KEY is missing")
         return "⚠️ Ошибка конфигурации: отсутствует ключ OpenAI."
