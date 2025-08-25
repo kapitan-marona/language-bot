@@ -391,28 +391,42 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
         "When you use bold, use HTML tags: <b>…</b> (not Markdown).",
     ]
 
+        # ======== ЛИМИТ ПРЕДЛОЖЕНИЙ ПО УРОВНЯМ (без различий по языкам) ========
+    # Cap относится только к основному ответу; завершающий follow-up вопрос НЕ считается.
     if lvl == "A0":
         rules += [
             f"Level: A0 absolute beginner. Use very short, simple sentences in {tgt}.",
             f"Always add ONE tiny hint in {ui} in parentheses after the main line, but only if UI != TARGET.",
             "Keep tone warm and encouraging.",
+            "Sentence cap: 1–2 sentences maximum before the follow-up question.",
         ]
     elif lvl == "A1":
         rules += [
             f"Level: A1 beginner. Simple one-clause sentences in {tgt}.",
             f"Always add ONE short {ui} translation in parentheses after the main line, but only if UI != TARGET.",
+            "Sentence cap: 1–3 sentences maximum before the follow-up question.",
         ]
     elif lvl == "A2":
         rules += [
             f"Level: A2 elementary. Clear {tgt} with basic grammar.",
             "Do NOT add translations in parentheses at this level.",
+            "Sentence cap: 2–4 sentences maximum before the follow-up question.",
         ]
     elif lvl == "B1":
-        rules += [f"Level: B1. Use only {tgt}. Clarify in {tgt} if needed."]
+        rules += [
+            f"Level: B1. Use only {tgt}. Clarify in {tgt} if needed.",
+            "Sentence cap: 2–4 sentences maximum before the follow-up question.",
+        ]
     elif lvl == "B2":
-        rules += [f"Level: B2. Use only {tgt}, natural and idiomatic."]
+        rules += [
+            f"Level: B2. Use only {tgt}, natural and idiomatic.",
+            "Sentence cap: 2–5 sentences maximum before the follow-up question.",
+        ]
     elif lvl in ("C1", "C2"):
-        rules += [f"Level: {lvl}. Use {tgt} exclusively; do not over-correct unless asked."]
+        rules += [
+            f"Level: {lvl}. Use {tgt} exclusively; do not over-correct unless asked.",
+            "Sentence cap: 2–5 sentences maximum before the follow-up question.",
+        ]
 
     if style in ("business", "formal", "professional"):
         rules += ["Style: professional, concise, clear."]
@@ -466,7 +480,7 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
         "For A0–A1, prefer yes/no or simple choice questions; for B1+, prefer open questions.",
         "The follow-up question must be context-relevant (no generic fillers). Do not ask more than one question.",
         "Avoid ending with a standalone 'You're welcome' — keep the flow unless the user is clearly closing the chat.",
-        "Keep answers short (1–3 sentences).",
+        "Respect the sentence cap for the current level (see rules above).",
     ]
 
     return "\n".join(rules)
