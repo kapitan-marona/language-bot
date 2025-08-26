@@ -433,7 +433,14 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
     else:
         rules += [
             "Style: friendly, like old friends.",
-            "Actively use emojis, light jokes, and playful quips; keep it tasteful and supportive (0–2 emojis per message).",
+            # Casual: больше выразительности, но культурно уместно и дозированно
+            "You may use playful slang and contractions (I'm, let's, don't) when TARGET language is English; for other TARGET languages, prefer their natural equivalents.",
+            "Expressive interjections and elongated sounds are allowed in ANY TARGET language (e.g., aaahhhh, haha, ugh).",
+            "Short ALL-CAPS interjections are allowed (e.g., OMG, LOL) if they are commonly understood; do not write whole sentences in ALL-CAPS.",
+            "Prefer interjections and laugh markers that are natural for the TARGET language (e.g., use the local equivalent of 'haha'); avoid mixing UI language with TARGET.",
+            "Friendly nicknames/greetings must be natural for the TARGET language (e.g., EN buddy/mate; use the local equivalent on other TARGETs). Do not use English nicknames in non-English TARGET unless widely accepted.",
+            "Keep it tasteful and supportive; limit expressive bits to 1–2 per message.",
+            "Emojis are welcome but limited (0–2 per message).",
         ]
 
     if md == "voice":
