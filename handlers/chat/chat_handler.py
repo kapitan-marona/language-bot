@@ -4,6 +4,7 @@ import random
 import re
 import tempfile
 import logging
+from html import unescape  # NEW: для безопасного plain-дубля
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -46,6 +47,11 @@ def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     if len(text) > max_len:
         text = text[:max_len]
     return text
+
+
+def _strip_html(s: str) -> str:
+    """Удаляем HTML-теги и декодируем сущности для безопасного plain-текста."""
+    return re.sub(r"<[^>\n]+>", "", unescape(s or ""))
 
 
 async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int, file_path: str):
@@ -148,15 +154,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     LANGUAGE_CODES.get(target_lang, "en-US"),
                     level,  # совместимость учтена в voice.py
                 )
-                if voice_path:
-                    await _send_voice_or_audio(context, chat_id, voice_path)
-                    if level in ["A0", "A1", "A2"]:
-                        await context.bot.send_message(chat_id=chat_id, text=last_text)
-                else:
-                    if interface_lang == "ru":
-                        await update.message.reply_text("Не получилось озвучить. Попробуй ещё раз чуть позже.")
+                # --- отправка voice ---
+                try:
+                    if voice_path:
+                        await _send_voice_or_audio(context, chat_id, voice_path)
                     else:
-                        await update.message.reply_text("Couldn’t generate audio. Please try again later.")
+                        raise RuntimeError("No TTS data")
+                except Exception:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(last_text),
+                    )
+
+                # --- текстовый дубль для A0–A2 (plain, без HTML) ---
+                if level in ["A0", "A1", "A2"]:
+                    try:
+                        await context.bot.send_message(chat_id=chat_id, text=_strip_html(last_text))
+                    except Exception:
+                        # молча игнорируем — это лишь дубль
+                        pass
+
             except Exception:
                 logger.exception("[One-shot TTS error]")
                 if interface_lang == "ru":
@@ -234,22 +251,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if mode == "voice":
             # В TTS уходит ТОЛЬКО целевой язык — без приставки на UI-языке/HTML
             voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
+            # --- 1) отправляем voice отдельно ---
             try:
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
                 else:
                     raise RuntimeError("No TTS data")
-                if level in ["A0", "A1", "A2"]:
-                    await context.bot.send_message(chat_id=chat_id, text=last_text, parse_mode="HTML")
             except Exception:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text="⚠️ Не удалось отправить голосовое сообщение. Вот текст:\n" + final_reply_text,
-                    parse_mode="HTML",
+                    text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(final_reply_text),
                 )
-            finally:
-                # для «озвучь» хранить чисто целевой текст
-                session["last_assistant_text"] = assistant_reply
+            # --- 2) текстовый дубль для A0–A2 (plain, без HTML) ---
+            if level in ["A0", "A1", "A2"]:
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=_strip_html(final_reply_text))
+                except Exception:
+                    pass
+            # запоминаем чисто целевой текст для "озвучь"
+            session["last_assistant_text"] = assistant_reply
         else:
             await update.message.reply_text(final_reply_text, parse_mode="HTML")
             session["last_assistant_text"] = assistant_reply

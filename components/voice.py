@@ -38,6 +38,9 @@ _EMOJI_RE = re.compile(
 # Хвост в скобках (обычно перевод на языке интерфейса) — не озвучиваем
 _PARENS_TAIL_RE = re.compile(r"\s*\([^()]*\)\s*$")
 
+# NEW: убираем любые HTML-теги (<b>...</b> и пр.), чтобы не озвучивались
+_HTML_TAG_RE = re.compile(r"<[^>\n]+>")
+
 def _strip_emojis(text: str) -> str:
     return _EMOJI_RE.sub("", text or "")
 
@@ -79,6 +82,8 @@ def _prepare_tts_text(raw: str, level: str, max_len: int = 4000) -> str:
     base = _strip_parenthesized_tail(raw or "")
     # 2) Не озвучиваем эмодзи/пиктограммы
     base = _strip_emojis(base)
+    # 2b) NEW: убираем HTML-теги (<b>, <i> и т.п.), чтобы не звучали угловые скобки/теги
+    base = _HTML_TAG_RE.sub("", base)
     # 3) Замедление по уровню (для TTS)
     base = _slowdown_by_level(base, level)
     # 4) Ограничим длину
