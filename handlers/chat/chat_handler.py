@@ -115,7 +115,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 audio_path = tf.name
             try:
                 with open(audio_path, "rb") as f:
-                    # Новый клиент: без response_format="text"
                     tr = oai_asr.audio.transcriptions.create(
                         model="whisper-1",
                         file=f,
@@ -152,9 +151,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 voice_path = synthesize_voice(
                     last_text,
                     LANGUAGE_CODES.get(target_lang, "en-US"),
-                    level,  # совместимость учтена в voice.py
+                    level,
                 )
-                # --- отправка voice ---
                 try:
                     if voice_path:
                         await _send_voice_or_audio(context, chat_id, voice_path)
@@ -166,12 +164,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(last_text),
                     )
 
-                # --- текстовый дубль для A0–A2 (plain, без HTML) ---
                 if level in ["A0", "A1", "A2"]:
                     try:
                         await context.bot.send_message(chat_id=chat_id, text=_strip_html(last_text))
                     except Exception:
-                        # молча игнорируем — это лишь дубль
                         pass
 
             except Exception:
@@ -183,34 +179,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             finally:
                 return  # режим не меняем
 
-        # === Переключения режимов ===
-        if is_strict_mode_trigger(user_input, "voice"):
-            session["mode"] = "voice"
-            msg = MODE_SWITCH_MESSAGES["voice"].get(interface_lang, MODE_SWITCH_MESSAGES["voice"]["en"])
-            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice", interface_lang))
-            return
-        if is_strict_mode_trigger(user_input, "text"):
-            session["mode"] = "text"
-            msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
-            await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
+        # === Переключения режимов (только явные короткие команды) ===
+        def _norm(s: str) -> str:
+            s = re.sub(r"[^\w\s]", " ", (s or "").lower())
+            s = re.sub(r"\s+", " ", s).strip()
+            return s
+
+        msg_norm = _norm(user_input)
+
+        VOICE_STRICT = {
+            "голос", "в голос", "в голосовой режим",
+            "voice", "voice mode"
+        }
+        TEXT_STRICT = {
+            "текст", "в текст", "в текстовый режим",
+            "text", "text mode"
+        }
+
+        if msg_norm in VOICE_STRICT:
+            if session["mode"] != "voice":
+                session["mode"] = "voice"
+                msg = MODE_SWITCH_MESSAGES["voice"].get(interface_lang, MODE_SWITCH_MESSAGES["voice"]["en"])
+                await update.message.reply_text(msg, reply_markup=get_mode_keyboard("voice", interface_lang))
             return
 
-        # Мягкие подсказки
-        user_text_norm = user_input.lower()
-        if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["voice"]):
-            if interface_lang == "ru":
-                await update.message.reply_text("Если хочешь перейти в голосовой режим — просто напиши <b>голос</b> 😉", parse_mode="HTML")
-            else:
-                await update.message.reply_text("To switch to voice mode, just type <b>voice</b> 😉", parse_mode="HTML")
-            return
-        if any(phrase in user_text_norm for phrase in MODE_TRIGGERS["text"]):
-            if interface_lang == "ru":
-                await update.message.reply_text("Чтобы перейти в текстовый режим, напиши <b>текст</b> 🙂", parse_mode="HTML")
-            else:
-                await update.message.reply_text("To switch to text mode, type <b>text</b> 🙂", parse_mode="HTML")
+        if msg_norm in TEXT_STRICT:
+            if session["mode"] != "text":
+                session["mode"] = "text"
+                msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
+                await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
-        # Создатель
+        # --- Создатель ---
         found_trigger = False
         norm_for_creator = re.sub(r"[^\w\s]", "", user_input.lower())
         for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
@@ -231,7 +231,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = [{"role": "system", "content": system_prompt}]
         prompt.extend(history)
 
-        # --- Лёгкая починка смешанной фразы (code-switch) ---
+        # --- Лёгкая починка смешанной фразы ---
         clean_user_input, preface_html = await rewrite_mixed_input(
             user_input, interface_lang, target_lang
         )
@@ -249,9 +249,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply_text = f"{preface_html}\n\n{assistant_reply}" if preface_html else assistant_reply
 
         if mode == "voice":
-            # В TTS уходит ТОЛЬКО целевой язык — без приставки на UI-языке/HTML
             voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
-            # --- 1) отправляем voice отдельно ---
             try:
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
@@ -262,13 +260,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id,
                     text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(final_reply_text),
                 )
-            # --- 2) текстовый дубль для A0–A2 (plain, без HTML) ---
             if level in ["A0", "A1", "A2"]:
                 try:
                     await context.bot.send_message(chat_id=chat_id, text=_strip_html(final_reply_text))
                 except Exception:
                     pass
-            # запоминаем чисто целевой текст для "озвучь"
             session["last_assistant_text"] = assistant_reply
         else:
             await update.message.reply_text(final_reply_text, parse_mode="HTML")
