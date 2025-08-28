@@ -43,7 +43,7 @@ from handlers.commands.language_cmd import language_command, language_on_callbac
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 from handlers.commands.privacy import privacy_command, delete_me_command
-from admin import admin_command
+from handlers.commands.admin import admin_command
 
 # ⚠️ ДОБАВИЛИ импорт /codes (иначе NameError)
 from handlers.commands.consent import codes_command
