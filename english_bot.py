@@ -51,6 +51,7 @@ from handlers.commands.consent import codes_command
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
 from components.i18n import get_ui_lang  # для сообщений об ограничении
+from handlers.commands.stars import stars_command
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -192,6 +193,7 @@ def setup_handlers(app_: "Application"):
     # Платежи Stars
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
+    app_.add_handler(CommandHandler("stars", stars_command))
 
     # DONATE: числовой ввод — блокируем дальнейшие хендлеры (block в КОНСТРУКТОРЕ)
     from handlers.commands import donate as donate_handlers
