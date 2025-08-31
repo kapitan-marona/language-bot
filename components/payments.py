@@ -12,7 +12,7 @@ XTR_CURRENCY = "XTR"  # Stars валюта
 
 def plan_price_xtr(product: Product) -> list[LabeledPrice]:
     if product == "pro_30d":
-        return [LabeledPrice(label="30 days", amount=149)]
+        return [LabeledPrice(label="30 days", amount=1000)]
     raise ValueError("Unknown product")
 
 def compute_expiry(profile: dict | None, days: int = 30) -> datetime:
@@ -124,7 +124,7 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         return
 
     # проверка валюты и суммы
-    if sp.currency != XTR_CURRENCY or sp.total_amount != 149:
+    if sp.currency != XTR_CURRENCY or sp.total_amount != 1000:
         return
 
     until = compute_expiry(profile, days=30)
