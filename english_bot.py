@@ -203,7 +203,7 @@ async def reset_admin_only(update: Update, ctx):
 def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
     # --- ВРЕМЕННЫЙ: узнать file_id присланного стикера (только админам) ---
-    app_.add_handler(MessageHandler(filters.STICKER, debug_sticker_id), group=0)
+    app_.add_handler(MessageHandler(filters.Sticker.ALL, debug_sticker_id), group=0)
 
     # Команды
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
