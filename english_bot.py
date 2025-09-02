@@ -108,6 +108,37 @@ def _check_admin_token(req: Request) -> bool:
 async def on_error(update: Optional[Update], context):
     logger.exception("Unhandled error: %s", context.error)
 
+# --- ВРЕМЕННЫЙ хендлер: получить file_id стикера ---
+import html
+
+async def debug_sticker_id(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Возвращает file_id присланного стикера (только админам)."""
+    try:
+        uid = update.effective_user.id if update.effective_user else None
+        if not uid or uid not in ADMIN_IDS:
+            # Тихо игнорируем, чтобы пользователи не видели служебные ответы
+            return
+
+        st = update.message.sticker
+        if not st:
+            return
+
+        fid = st.file_id
+        set_name = getattr(st, "set_name", None)
+        emoji = getattr(st, "emoji", None)
+
+        msg = "Sticker file_id:\n<code>{fid}</code>".format(fid=html.escape(fid))
+        if set_name:
+            msg += f"\nset: <code>{html.escape(set_name)}</code>"
+        if emoji:
+            msg += f"\nemoji: {emoji}"
+
+        await update.message.reply_text(msg, parse_mode="HTML")
+        logger.info("Sticker file_id: %s | set=%s | emoji=%s", fid, set_name, emoji)
+    except Exception as e:
+        logger.exception("debug_sticker_id error: %s", e)
+
+
 # -------------------------------------------------------------------------
 # Роуты
 # -------------------------------------------------------------------------
@@ -171,6 +202,8 @@ async def reset_admin_only(update: Update, ctx):
 # -------------------------------------------------------------------------
 def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
+    # --- ВРЕМЕННЫЙ: узнать file_id присланного стикера (только админам) ---
+    app_.add_handler(MessageHandler(filters.STICKER, debug_sticker_id), group=0)
 
     # Команды
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
