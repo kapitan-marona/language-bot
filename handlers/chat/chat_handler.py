@@ -37,6 +37,115 @@ LANGUAGE_CODES = {
     "fi": "fi-FI",
 }
 
+# ====================== СТИКЕРЫ + МУЛЬТИЯЗЫЧНЫЕ ТРИГГЕРЫ ======================
+
+# --- Стикеры (реальные file_id) ---
+STICKERS = {
+    "hello": ["CAACAgIAAxkBAAItV2i269d_71pHUu5Rm9f62vsCW0TrAAJJkAAC96S4SXJs5Yp4uIyENgQ"],
+    "fire":  ["CAACAgIAAxkBAAItWWi26-vSBaRPbX6a2imIoWq4Jo0pAALhfwAC6gm5SSTLD1va-EfRNgQ"],
+    "sorry": ["CAACAgIAAxkBAAItWGi26-jb1_zQAAE1IyLH1XfqWH5aZQAC3oAAAt7vuUlXHMvWZt7gQDYE"],
+}
+
+async def maybe_send_sticker(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
+    """Иногда отправляет стикер по ключу. Ничего не делает, если ключ не найден."""
+    try:
+        if key not in STICKERS:
+            return
+        if random.random() < chance:
+            await ctx.bot.send_sticker(chat_id=chat_id, sticker=random.choice(STICKERS[key]))
+    except Exception:
+        # стикер — «приятная добавка», падать нет смысла
+        pass
+
+# --- Лёгкий детектор интентов (мультиязычный, без зависимостей) ---
+_GREET_EMOJI = {"👋", "🤝"}
+_COMPLIMENT_EMOJI = {"🔥", "💯", "👏", "🌟", "👍", "❤️", "💖", "✨"}
+
+# Стемы/слова по поддерживаемым языкам (коротко и общеупотребимо)
+_GREET_WORDS = {
+    # en
+    "hi", "hello", "hey",
+    # ru
+    "привет", "здравствуй", "здорово", "хай", "хелло",
+    # fr
+    "bonjour", "salut",
+    # es
+    "hola", "buenas",
+    # de
+    "hallo", "servus", "moin",
+    # sv
+    "hej", "hejsan", "tjena",
+    # fi
+    "hei", "moi", "terve",
+}
+
+_COMPLIMENT_STEMS = {
+    # en
+    "great", "awesome", "amazing", "love it", "nice", "cool",
+    # ru
+    "класс", "супер", "топ", "круто", "молодец", "огонь",
+    # fr
+    "super", "génial", "genial", "top", "formid",
+    # es
+    "genial", "increíble", "increible", "super", "top", "bravo",
+    # de
+    "super", "toll", "klasse", "mega", "geil",
+    # sv
+    "super", "grym", "toppen", "snyggt", "bra jobbat",
+    # fi
+    "mahtava", "huikea", "upea", "super", "hieno",
+}
+
+_SORRY_STEMS = {
+    # en
+    "sorry", "apolog", "my bad", "wrong", "mistake", "incorrect",
+    "you’re wrong", "you are wrong",
+    # ru
+    "прости", "извин", "ошиб", "не так", "неправил", "ты ошиб",
+    # fr
+    "désolé", "desole", "pardon", "erreur", "faux",
+    # es
+    "perdón", "perdon", "lo siento", "error", "equivoc",
+    # de
+    "sorry", "entschuldig", "fehler", "falsch",
+    # sv
+    "förlåt", "forlat", "fel",
+    # fi
+    "anteeksi", "virhe", "väärin", "vaarin",
+}
+
+def _norm_msg_keep_emoji(s: str) -> str:
+    s = (s or "").lower()
+    # сохраняем эмодзи (диапазон U+1F300–U+1FAFF), оставляем латиницу и кириллицу
+    s = re.sub(r"[^\w\s\u0400-\u04FF\u00C0-\u024F\u1F300-\u1FAFF]", " ", s, flags=re.UNICODE)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def is_greeting(raw: str) -> bool:
+    if not raw:
+        return False
+    if any(e in raw for e in _GREET_EMOJI):
+        return True
+    msg = _norm_msg_keep_emoji(raw)
+    words = set(msg.split())
+    return any(w in words for w in _GREET_WORDS)
+
+def is_compliment(raw: str) -> bool:
+    if not raw:
+        return False
+    if any(e in raw for e in _COMPLIMENT_EMOJI):
+        return True
+    msg = _norm_msg_keep_emoji(raw)
+    return any(kw in msg for kw in _COMPLIMENT_STEMS)
+
+def is_correction(raw: str) -> bool:
+    if not raw:
+        return False
+    msg = _norm_msg_keep_emoji(raw)
+    return any(kw in msg for kw in _SORRY_STEMS)
+
+# ====================== /СТИКЕРЫ ======================
+
 
 def get_greeting_name(lang: str) -> str:
     return "Matt" if lang == "en" else "Мэтт"
@@ -138,47 +247,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
             return
 
-        # === Разовая озвучка без смены режима ===
-        if is_strict_say_once_trigger(user_input, interface_lang):
-            last_text = session.get("last_assistant_text")
-            if not last_text:
-                if interface_lang == "ru":
-                    await update.message.reply_text("Пока мне нечего озвучить. Сначала дождись моего ответа, а потом напиши «озвучь».")
-                else:
-                    await update.message.reply_text("I have nothing to voice yet. First wait for my reply, then say “voice it”.")
-                return
-            try:
-                voice_path = synthesize_voice(
-                    last_text,
-                    LANGUAGE_CODES.get(target_lang, "en-US"),
-                    level,
-                )
-                try:
-                    if voice_path:
-                        await _send_voice_or_audio(context, chat_id, voice_path)
-                    else:
-                        raise RuntimeError("No TTS data")
-                except Exception:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(last_text),
-                    )
-
-                if level in ["A0", "A1", "A2"]:
-                    try:
-                        await context.bot.send_message(chat_id=chat_id, text=_strip_html(last_text))
-                    except Exception:
-                        pass
-
-            except Exception:
-                logger.exception("[One-shot TTS error]")
-                if interface_lang == "ru":
-                    await update.message.reply_text("Произошла ошибка при озвучке. Попробуем позже.")
-                else:
-                    await update.message.reply_text("An error occurred while generating audio. Let’s try later.")
-            finally:
-                return  # режим не меняем
-
         # === Переключения режимов (только явные короткие команды) ===
         def _norm(s: str) -> str:
             s = re.sub(r"[^\w\s]", " ", (s or "").lower())
@@ -196,6 +264,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "text", "text mode"
         }
 
+        # --- Сначала проверим переключения: при них НИКАКИХ стикеров ---
         if msg_norm in VOICE_STRICT:
             if session["mode"] != "voice":
                 session["mode"] = "voice"
@@ -209,6 +278,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = MODE_SWITCH_MESSAGES["text"].get(interface_lang, MODE_SWITCH_MESSAGES["text"]["en"])
                 await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
+
+        # --- Стикеры по интентам (мультиязычно). Здесь уже можно.
+        msg_raw = user_input or ""
+        if is_greeting(msg_raw):
+            await maybe_send_sticker(context, chat_id, "hello", chance=0.4)
+        if is_compliment(msg_raw):
+            await maybe_send_sticker(context, chat_id, "fire", chance=0.35)
+        if is_correction(msg_raw):
+            # ВАЖНО: стикер – только «иногда». Текстовые извинения по промпту — не трогаем.
+            await maybe_send_sticker(context, chat_id, "sorry", chance=0.35)
 
         # --- Создатель ---
         found_trigger = False

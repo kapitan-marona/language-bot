@@ -13,6 +13,9 @@ from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO
 from handlers.chat.prompt_templates import pick_intro_question  # подбор вопроса по уровню/стилю
 
+# NEW: хелпер стикеров
+from handlers.chat.chat_handler import maybe_send_sticker
+
 import logging
 import re
 
@@ -72,6 +75,8 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
         reply_markup=get_interface_language_keyboard()
     )
+    # NEW: иногда отправить приветственный стикер
+    await maybe_send_sticker(context, chat_id, "hello", chance=0.7)
 
 # --- ШАГ 2. Выбран язык — спрашиваем промокод ---
 @safe_handler

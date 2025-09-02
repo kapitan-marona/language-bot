@@ -8,6 +8,9 @@ from components.promo import normalize_code, format_promo_status_for_user  # и�
 from components.i18n import get_ui_lang
 from components.safety import call_check_promo_code, call_activate_promo, safe_reply
 
+# NEW: импорт хелпера стикеров
+from handlers.chat.chat_handler import maybe_send_sticker
+
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -54,6 +57,8 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if ui == "ru"
                 else "✅ Message limit removed — you can continue!")
         await safe_reply(update, context, tail)
+        # NEW: «иногда» — 0.7 по ТЗ
+        await maybe_send_sticker(context, update.effective_chat.id, "fire", chance=0.7)
         return
 
     # Не удалось активировать — локализуем причину
