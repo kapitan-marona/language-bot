@@ -1,8 +1,7 @@
-# components/profile_db.py
 from __future__ import annotations
 import os
 import sqlite3
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 # Абсолютный путь к файлу БД рядом с проектом
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'user_profiles.db'))
@@ -31,7 +30,7 @@ def init_db() -> None:
         """
     )
 
-    # Автомиграция: добавим колонки под промокоды, если их ещё нет
+    # Автомиграция: добавим колонки под промокоды и напоминания, если их ещё нет
     cur.execute("PRAGMA table_info(user_profiles)")
     existing = {row[1] for row in cur.fetchall()}  # имена колонок
 
@@ -40,6 +39,9 @@ def init_db() -> None:
         "promo_type": "TEXT",             # 'timed' | 'permanent' | 'english_only'
         "promo_activated_at": "TEXT",     # ISO-8601 (UTC)
         "promo_days": "INTEGER",          # число дней для timed
+        # NEW: поля для напоминаний
+        "last_seen_at": "TEXT",           # ISO-8601 (UTC) — последний визит
+        "nudge_last_sent": "TEXT",        # ISO-8601 (UTC) — когда слали напоминание
     }
     for col, coltype in required_cols.items():
         if col not in existing:
@@ -69,11 +71,14 @@ def save_user_profile(
     target_lang: Optional[str] = None,
     level: Optional[str] = None,
     style: Optional[str] = None,
-    # Поля промо можно тоже сохранять через этот метод при желании
+    # Поля промо
     promo_code_used: Optional[str] = None,
     promo_type: Optional[str] = None,
     promo_activated_at: Optional[str] = None,
     promo_days: Optional[int] = None,
+    # NEW: поля для напоминаний
+    last_seen_at: Optional[str] = None,
+    nudge_last_sent: Optional[str] = None,
 ) -> None:
     """Обновляет/создаёт профиль пользователя частично (upsert)."""
     current = get_user_profile(chat_id) or {"chat_id": chat_id}
@@ -89,6 +94,8 @@ def save_user_profile(
         "promo_type": promo_type if promo_type is not None else current.get("promo_type"),
         "promo_activated_at": promo_activated_at if promo_activated_at is not None else current.get("promo_activated_at"),
         "promo_days": promo_days if promo_days is not None else current.get("promo_days"),
+        "last_seen_at": last_seen_at if last_seen_at is not None else current.get("last_seen_at"),
+        "nudge_last_sent": nudge_last_sent if nudge_last_sent is not None else current.get("nudge_last_sent"),
     }
 
     conn = sqlite3.connect(DB_PATH)
@@ -103,14 +110,17 @@ def save_user_profile(
             """
             UPDATE user_profiles SET
               name = ?, interface_lang = ?, target_lang = ?, level = ?, style = ?,
-              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?
+              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?,
+              last_seen_at = ?, nudge_last_sent = ?
             WHERE chat_id = ?
             """,
             (
                 updates["name"], updates["interface_lang"], updates["target_lang"],
                 updates["level"], updates["style"],
                 updates["promo_code_used"], updates["promo_type"],
-                updates["promo_activated_at"], updates["promo_days"], chat_id,
+                updates["promo_activated_at"], updates["promo_days"],
+                updates["last_seen_at"], updates["nudge_last_sent"],
+                chat_id,
             ),
         )
     else:
@@ -118,8 +128,9 @@ def save_user_profile(
             """
             INSERT INTO user_profiles (
               chat_id, name, interface_lang, target_lang, level, style,
-              promo_code_used, promo_type, promo_activated_at, promo_days
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              promo_code_used, promo_type, promo_activated_at, promo_days,
+              last_seen_at, nudge_last_sent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -127,6 +138,7 @@ def save_user_profile(
                 updates["level"], updates["style"],
                 updates["promo_code_used"], updates["promo_type"],
                 updates["promo_activated_at"], updates["promo_days"],
+                updates["last_seen_at"], updates["nudge_last_sent"],
             ),
         )
 
@@ -171,6 +183,8 @@ def set_user_promo(
 
     conn.commit()
     conn.close()
+
+
 # --- GDPR-like delete: удалить пользователя из всех таблиц этой БД ---
 def delete_user(chat_id: int) -> int:
     """
@@ -208,3 +222,16 @@ def delete_user(chat_id: int) -> int:
     return total
 
 
+# NEW: список всех chat_id для рассылки напоминаний
+def get_all_chat_ids() -> List[int]:
+    """
+    Возвращает список chat_id, у кого есть профиль.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT DISTINCT chat_id FROM user_profiles WHERE chat_id IS NOT NULL")
+        rows = cur.fetchall()
+        return [int(r[0]) for r in rows if r and r[0] is not None]
+    finally:
+        conn.close()

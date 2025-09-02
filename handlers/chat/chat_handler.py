@@ -1,4 +1,4 @@
-import os
+import os 
 import time
 import random
 import re
@@ -19,6 +19,8 @@ from handlers.chat.prompt_templates import get_system_prompt
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger
 from components.code_switch import rewrite_mixed_input  # ← NEW
+# NEW: фиксируем последний визит для ремайндера
+from components.profile_db import save_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +181,13 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
+
+    # NEW: отметим последний визит (UTC) — для напоминаний
+    try:
+        import datetime as _dt
+        save_user_profile(chat_id, last_seen_at=_dt.datetime.utcnow().isoformat())
+    except Exception:
+        logger.exception("failed to update last_seen_at")
 
     # === Если ждём промокод — делегируем и выходим ===
     try:

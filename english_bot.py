@@ -54,6 +54,10 @@ from components.admins import ADMIN_IDS
 from components.i18n import get_ui_lang  # для сообщений об ограничении
 from handlers.commands.stars import stars_command
 
+# NEW: напоминания
+from components.profile_db import get_all_chat_ids  # NEW
+from components.reminders import run_nudges  # NEW
+
 # -------------------------------------------------------------------------
 # Инициализация
 # -------------------------------------------------------------------------
@@ -154,6 +158,24 @@ async def set_webhook(request: Request, url: Optional[str] = Query(default=None)
         secret_token=TELEGRAM_WEBHOOK_SECRET_TOKEN or None,
     )
     return {"ok": ok, "url": target}
+
+# NEW: ручной/крон-запуск напоминаний (защищённый)
+@app.get("/run_nudges")
+async def run_nudges_route(request: Request, limit: int = 500, dry_run: bool = Query(default=False)):
+    """
+    Запуск рассылки «мягких» напоминаний.
+    Требует X-Admin-Token в проде.
+    """
+    if not _check_admin_token(request):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        chat_ids = get_all_chat_ids()[:max(1, int(limit))]
+    except Exception as e:
+        logger.exception("get_all_chat_ids failed: %s", e)
+        return JSONResponse({"ok": False, "error": "no_chat_ids"}, status_code=500)
+
+    processed, sent = await run_nudges(bot_app.bot, chat_ids, dry_run=dry_run)
+    return {"ok": True, "processed": processed, "sent": sent, "dry_run": dry_run}
 
 # -------------------------------------------------------------------------
 # Ограничение /reset только для админов
