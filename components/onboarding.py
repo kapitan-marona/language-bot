@@ -149,9 +149,18 @@ async def promo_code_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         if reason == "invalid":
             await context.bot.send_message(chat_id=chat_id, text=PROMO_FAIL.get(lang_code, PROMO_FAIL["en"]))
+            session["onboarding_stage"] = "awaiting_promo"
         elif reason == "already_used":
             await context.bot.send_message(chat_id=chat_id, text=PROMO_ALREADY_USED.get(lang_code, PROMO_ALREADY_USED["en"]))
-        session["onboarding_stage"] = "awaiting_promo"
+            # ✅ FIX: сразу двигаем дальше, чтобы не ловить весь текст как промокод
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=START_MESSAGE.get(lang_code, START_MESSAGE["en"]),
+                reply_markup=get_ok_keyboard()
+            )
+            session["onboarding_stage"] = "awaiting_ok"
+        else:
+            session["onboarding_stage"] = "awaiting_promo"
 
 # --- ШАГ 4. OK — Выбор языка для изучения ---
 @safe_handler

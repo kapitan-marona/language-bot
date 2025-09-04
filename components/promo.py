@@ -236,10 +236,12 @@ def format_promo_status_for_user(profile: dict, lang: str = "ru") -> str:
     # неизвестный тип
     return f"{header}\n{PROMO_DETAILS[lang]['unknown_type']}"
 
-async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ⚠️ RENAME: чтобы не путать с актуальным хендлером в handlers/commands/promo.py
+async def promo_command_legacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /promo            -> показать статус
     /promo <код>      -> активировать код и показать статус
+    (Оставлено для обратной совместимости. Основной обработчик — в handlers/commands/promo.py)
     """
     chat_id = update.effective_chat.id
     args = context.args or []
