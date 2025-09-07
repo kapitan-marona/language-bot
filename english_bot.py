@@ -29,7 +29,7 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from components.translator_mode import handle_translator_callback
+from handlers.translator_mode import handle_translator_callback
 
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -236,7 +236,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
-    app.add_handler(CallbackQueryHandler(handle_translator_callback, pattern=r"^TR:"))
+    app_.add_handler(CallbackQueryHandler(handle_translator_callback, pattern=r"^TR:", block=True))
 
     # Универсальный роутер callback’ов онбординга/режимов — исключаем наши префиксы
     app_.add_handler(

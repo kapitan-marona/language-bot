@@ -23,7 +23,7 @@ from components.profile_db import save_user_profile
 
 # NEW: переводчик (режим + клавиатура)
 from components.translator import get_translator_keyboard, translator_status_text, target_lang_title
-from translator_mode import ensure_tr_defaults, enter_translator, exit_translator
+from handlers.translator_mode import ensure_tr_defaults, enter_translator, exit_translator
 
 logger = logging.getLogger(__name__)
 
