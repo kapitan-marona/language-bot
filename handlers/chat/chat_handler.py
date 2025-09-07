@@ -92,6 +92,19 @@ _SORRY_STEMS = {
     "anteeksi", "virhe", "väärin", "vaarin",
 }
 
+# --- триггеры переводчика (вход/выход/подтверждение)
+ENTER_PHRASES = {
+    "нужен переводчик", "мне нужен переводчик", "переводчик нужен",
+    "need a translator", "i need a translator"
+}
+EXIT_ASK_PHRASES = {
+    "как выйти", "как отсюда выйти", "как отключить", "выйти", "выход",
+    "how to exit", "how do i exit", "how to leave", "exit", "turn off"
+}
+YES_PHRASES = {"да", "ага", "ок", "окей", "yes", "yep", "sure"}
+NO_PHRASES  = {"нет", "no", "nope"}
+
+
 def _norm_msg_keep_emoji(s: str) -> str:
     s = (s or "").lower()
     s = re.sub(r"[^\w\s\u0400-\u04FF\u00C0-\u024F\u1F300-\u1FAFF]", " ", s, flags=re.UNICODE)
@@ -246,11 +259,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ===== Вход/выход переводчика простыми командами (аккуратно) =====
-        if msg_norm in {"/translator", "translator", "переводчик", "режим переводчика"}:
+                # ===== Команды переводчика =====
+        # явные команды
+        if msg_norm in {"/translator", "translator", "переводчик", "режим переводчика"} or msg_norm in ENTER_PHRASES:
             return await enter_translator(update, context, session)
 
-        if msg_norm in {"/translator off", "translator off", "выйти из переводчика", "переводчик выкл"}:
+        if msg_norm in {"/translator_off", "/translator off", "translator off", "выйти из переводчика", "переводчик выкл"}:
             return await exit_translator(update, context, session)
+
+        # запрос на выход (вопрос) внутри режима переводчика
+        if session.get("task_mode") == "translator" and msg_norm in EXIT_ASK_PHRASES:
+            session["confirm_exit_translator"] = True
+            ui = session.get("interface_lang", "ru")
+            if ui == "ru":
+                txt = "Выйти из режима переводчика?"
+                btn_yes, btn_no = "Да", "Нет"
+            else:
+                txt = "Exit translator mode?"
+                btn_yes, btn_no = "Yes", "No"
+            from translator_mode import exit_confirm_keyboard  # локальный импорт, чтобы не тянуть наверх
+            kb = exit_confirm_keyboard(btn_yes, btn_no)
+            await context.bot.send_message(chat_id, txt, reply_markup=kb)
+            return
+
+        # ответ на подтверждение выхода (текстом)
+        if session.get("confirm_exit_translator"):
+            if msg_norm in YES_PHRASES:
+                session.pop("confirm_exit_translator", None)
+                return await exit_translator(update, context, session)
+            if msg_norm in NO_PHRASES:
+                session.pop("confirm_exit_translator", None)
+                # остаёмся в переводчике — продолжаем обычную обработку (перевод)
+                # ничего не делаем здесь специально
 
         # стикеры
         msg_raw = user_input or ""

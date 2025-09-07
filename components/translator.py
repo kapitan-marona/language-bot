@@ -7,18 +7,14 @@ Direction = Literal["ui→target", "target→ui"]
 Output = Literal["text", "voice"]
 TStyle = Literal["casual", "business"]
 
-ONBOARDING = {
-    "ru": [
-        "🟢 Режим переводчика включён.",
-        "Метт переводит всё, что вы отправляете. Пишите только текст для перевода.",
-        "Для вопросов и обсуждений вернитесь в обычный режим: /translator off.",
-    ],
-    "en": [
-        "🟢 Translator mode is ON.",
-        "Matt translates everything you send. Send only the text to be translated.",
-        "For questions or discussion, switch back to chat: /translator off.",
-    ],
-}
+# Флажки и короткие ярлыки языков
+FLAGS = {"ru":"🇷🇺","en":"🇬🇧","fr":"🇫🇷","es":"🇪🇸","de":"🇩🇪","sv":"🇸🇪","fi":"🇫🇮"}
+SHORT = {"ru":"RU","en":"EN","fr":"FR","es":"ES","de":"DE","sv":"SV","fi":"FI"}
+
+def flag(code: str) -> str:
+    return FLAGS.get((code or "en").lower(), "🏳️")
+def short(code: str) -> str:
+    return SHORT.get((code or "en").lower(), (code or "EN").upper())
 
 LANG_TITLES = {
     "ru": "🇷🇺 Русский",
@@ -29,44 +25,70 @@ LANG_TITLES = {
     "sv": "🇸🇪 Svenska",
     "fi": "🇫🇮 Suomi",
 }
-
 def target_lang_title(code: str) -> str:
     return LANG_TITLES.get((code or "en").lower(), (code or "EN").upper())
 
-def _dir_label(ui: str, direction: Direction, tgt_title: str) -> str:
-    arrow = f"UI → {tgt_title}" if direction == "ui→target" else f"{tgt_title} → UI"
-    return ("Направление: " if ui == "ru" else "Direction: ") + arrow
+# ——— Онбординг (обновлённый, лёгкий и блоками)
+ONBOARDING = {
+    "ru": [
+        "🧩 Режим переводчика включён.",
+        "Воспользуйся кнопками ниже, чтобы настроить переводчик:",
+        "1) Направление — из языка интерфейса в целевой или наоборот.",
+        "2) Формат — голос или текст.",
+        "3) Стиль — разговорный или деловой.",
+        "",
+        "Метт переводит всё, что ты отправишь — без лишних обсуждений и вопросов. Готовый текст можно копировать, а аудио — сразу озвучено.",
+        "Вернуться в обычный режим: /translator_off",
+    ],
+    "en": [
+        "🧩 Translator mode is ON.",
+        "Use the buttons below to tune the translator:",
+        "1) Direction — from interface language to target or the other way around.",
+        "2) Output — voice or text.",
+        "3) Style — casual or business.",
+        "",
+        "Matt will translate everything you send — no extra chatter. Copy the text or use the ready voice.",
+        "Back to chat mode: /translator_off",
+    ],
+}
 
-def _out_label(ui: str, output: Output) -> str:
-    d = {"text": "Текст", "voice": "Голос"} if ui == "ru" else {"text": "Text", "voice": "Voice"}
-    return ("Формат: " if ui == "ru" else "Output: ") + d[output]
+def dir_compact_label(ui_code: str, direction: Direction, tgt_code: str) -> str:
+    ui_flag, ui_short = flag(ui_code), short(ui_code)
+    tg_flag, tg_short = flag(tgt_code), short(tgt_code)
+    if direction == "ui→target":
+        return f"{ui_flag} {ui_short} → {tg_flag} {tg_short}"
+    return f"{tg_flag} {tg_short} → {ui_flag} {ui_short}"
 
-def _style_label(ui: str, style: TStyle) -> str:
+def output_label(ui: str, output: Output) -> str:
     if ui == "ru":
-        return "Стиль: 😎 Разговорный" if style == "casual" else "Стиль: 🤓 Деловой"
-    return "Style: 😎 Casual" if style == "casual" else "Style: 🤓 Business"
+        return "🎙 Голос" if output == "voice" else "✍️ Текст"
+    return "🎙 Voice" if output == "voice" else "✍️ Text"
+
+def style_label(ui: str, style: TStyle) -> str:
+    if ui == "ru":
+        return "😎 Разговорный" if style == "casual" else "🤓 Деловой"
+    return "😎 Casual" if style == "casual" else "🤓 Business"
 
 def translator_status_text(ui: str, tgt_title: str, cfg: Dict[str, Any]) -> str:
     parts = ONBOARDING["ru"] if ui == "ru" else ONBOARDING["en"]
-    info = "\n".join(parts)
-    meta = f"\n\n{_dir_label(ui, cfg['direction'], tgt_title)} • {_out_label(ui, cfg['output'])} • {_style_label(ui, cfg['style'])}"
-    return info + meta
+    return "\n".join(parts)
 
-def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_title: str) -> InlineKeyboardMarkup:
+def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> InlineKeyboardMarkup:
+    # Кнопки БЕЗ слов «Направление/Формат/Стиль» — только значения
     btn_dir = InlineKeyboardButton(
-        f"🔁 {_dir_label(ui, cfg['direction'], tgt_title)}",
+        dir_compact_label(ui_code=ui, direction=cfg["direction"], tgt_code=tgt_code),
         callback_data="TR:TOGGLE:DIR"
     )
     btn_out = InlineKeyboardButton(
-        f"🎙 {_out_label(ui, cfg['output'])}",
+        output_label(ui, cfg["output"]),
         callback_data="TR:TOGGLE:OUT"
     )
     btn_style = InlineKeyboardButton(
-        f"🎚 {_style_label(ui, cfg['style'])}",
+        style_label(ui, cfg["style"]),
         callback_data="TR:TOGGLE:STYLE"
     )
     btn_exit = InlineKeyboardButton(
-        "🚪 Выйти из переводчика" if ui == "ru" else "🚪 Exit translator",
+        "Выйти" if ui == "ru" else "Exit",
         callback_data="TR:EXIT"
     )
     return InlineKeyboardMarkup([

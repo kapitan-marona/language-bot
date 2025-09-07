@@ -1,8 +1,8 @@
-# translator_mode.py
+# handlers/translator_mode.py
 from __future__ import annotations
 from typing import Dict, Any
 import re
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from state.session import user_sessions
@@ -36,7 +36,7 @@ async def enter_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, s
     ui = sess.get("interface_lang", "ru")
     tgt_code = (sess.get("target_lang") or "en").lower()
     txt = translator_status_text(ui, target_lang_title(tgt_code), sess["translator"])
-    kb = get_translator_keyboard(ui, sess["translator"], target_lang_title(tgt_code))
+    kb = get_translator_keyboard(ui, sess["translator"], tgt_code)
     await context.bot.send_message(update.effective_chat.id, txt, reply_markup=kb)
 
 async def exit_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, sess: Dict[str, Any]):
@@ -47,6 +47,13 @@ async def exit_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, se
         update.effective_chat.id,
         "↩️ Режим переводчика выключен." if ui == "ru" else "↩️ Translator mode is OFF."
     )
+
+# ——— Клавиатура подтверждения выхода
+def exit_confirm_keyboard(lbl_yes: str, lbl_no: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(lbl_yes, callback_data="TR:CONFIRM_EXIT:YES"),
+         InlineKeyboardButton(lbl_no,  callback_data="TR:CONFIRM_EXIT:NO")]
+    ])
 
 async def handle_translator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -71,7 +78,15 @@ async def handle_translator_callback(update: Update, context: ContextTypes.DEFAU
         sess["just_left_translator"] = True
         await query.edit_message_text("↩️ Режим переводчика выключен." if ui == "ru" else "↩️ Translator mode is OFF.")
         return
+    elif data == "TR:CONFIRM_EXIT:YES":
+        sess["task_mode"] = "chat"
+        sess["just_left_translator"] = True
+        await query.edit_message_text("↩️ Режим переводчика выключен." if ui == "ru" else "↩️ Translator mode is OFF.")
+        return
+    elif data == "TR:CONFIRM_EXIT:NO":
+        # просто перерисуем панель настроек переводчика
+        pass
 
     txt = translator_status_text(ui, target_lang_title(tgt_code), cfg)
-    kb = get_translator_keyboard(ui, cfg, target_lang_title(tgt_code))
+    kb = get_translator_keyboard(ui, cfg, tgt_code)
     await query.edit_message_text(txt, reply_markup=kb)

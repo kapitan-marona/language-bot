@@ -481,6 +481,10 @@ def get_system_prompt(style: str, level: str, interface_lang: str, target_lang: 
              if direction == "ui→target" else
              "Direction: TARGET→UI (assume source = TARGET; translate into interface language)"),
             "If output channel is 'voice', keep sentences short and well-paced for TTS; do not mention audio.",
+            # идиомы/пословицы: предпочитай устойчивый эквивалент
+            "When the source is an idiom, proverb or set phrase and there is a well-established equivalent in the target language, prefer the established equivalent over a literal rendering.",
+            "If no clear equivalent exists, provide a faithful, natural translation without explanations.",
+            "Do NOT add confirmations, meta-comments, or second lines like 'correct'/'верно' — output ONLY the translation.",
         ]
     else:
         rules += [
