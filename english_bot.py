@@ -29,8 +29,7 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from translator_mode import handle_translator_callback
-from telegram.ext import CallbackQueryHandler
+from components.translator_mode import handle_translator_callback
 
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -38,7 +37,6 @@ from handlers.callbacks import how_to_pay_game
 # Онбординг и сброс
 from handlers.commands.reset import reset_command
 from components.onboarding import send_onboarding
-
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
 
