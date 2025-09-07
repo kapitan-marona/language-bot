@@ -258,39 +258,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
-        # ===== Вход/выход переводчика простыми командами (аккуратно) =====
-                # ===== Команды переводчика =====
-        # явные команды
-        if msg_norm in {"/translator", "translator", "переводчик", "режим переводчика"} or msg_norm in ENTER_PHRASES:
+        # ===== Вход/выход переводчика простыми командами =====
+        if msg_norm in {"/translator", "translator", "переводчик", "режим переводчика"}:
             return await enter_translator(update, context, session)
 
         if msg_norm in {"/translator_off", "/translator off", "translator off", "выйти из переводчика", "переводчик выкл"}:
             return await exit_translator(update, context, session)
 
-        # запрос на выход (вопрос) внутри режима переводчика
-        if session.get("task_mode") == "translator" and msg_norm in EXIT_ASK_PHRASES:
-            session["confirm_exit_translator"] = True
-            ui = session.get("interface_lang", "ru")
-            if ui == "ru":
-                txt = "Выйти из режима переводчика?"
-                btn_yes, btn_no = "Да", "Нет"
-            else:
-                txt = "Exit translator mode?"
-                btn_yes, btn_no = "Yes", "No"
-            from translator_mode import exit_confirm_keyboard  # локальный импорт, чтобы не тянуть наверх
-            kb = exit_confirm_keyboard(btn_yes, btn_no)
-            await context.bot.send_message(chat_id, txt, reply_markup=kb)
-            return
+        # ===== Одноразовая озвучка ПОСЛЕДНЕГО ответа ассистента (say it / озвучь) =====
+        # Триггеры лежат в components.triggers → SAY_ONCE_TRIGGERS (dict по языкам).
+        from components.triggers import SAY_ONCE_TRIGGERS  # локальный импорт, чтобы не тащить наверх
 
-        # ответ на подтверждение выхода (текстом)
-        if session.get("confirm_exit_translator"):
-            if msg_norm in YES_PHRASES:
-                session.pop("confirm_exit_translator", None)
-                return await exit_translator(update, context, session)
-            if msg_norm in NO_PHRASES:
-                session.pop("confirm_exit_translator", None)
-                # остаёмся в переводчике — продолжаем обычную обработку (перевод)
-                # ничего не делаем здесь специально
+        def _matches_say_once_triggers(raw: str, ui: str) -> bool:
+            # берём фразы для текущего UI + английский как fallback
+            arr = (SAY_ONCE_TRIGGERS.get(ui, []) or []) + (SAY_ONCE_TRIGGERS.get("en", []) or [])
+            raw_l = (raw or "").strip().lower()
+            # матч по полному совпадению или по вхождению (чтобы "озвучь пожалуйста" сработало)
+            return any(raw_l == t or t in raw_l for t in arr)
+
+        if _matches_say_once_triggers(user_input, interface_lang):
+            last_text = session.get("last_assistant_text")
+            if not last_text:
+                msg = "Пока нечего озвучивать 😅" if interface_lang == "ru" else "Nothing to voice yet 😅"
+                await update.message.reply_text(msg)
+                return
+
+            # Язык TTS: как у тебя настроено — зависит от направления в переводчике, иначе целевой язык
+            if session.get("task_mode") == "translator":
+                direction = (translator_cfg or {}).get("direction", "ui→target")
+                tts_lang = interface_lang if direction == "target→ui" else target_lang
+            else:
+                tts_lang = target_lang
+
+            try:
+                voice_path = synthesize_voice(
+                    last_text,
+                    LANGUAGE_CODES.get(tts_lang, "en-US"),
+                    level
+                )
+                if voice_path:
+                    await _send_voice_or_audio(context, chat_id, voice_path)
+                else:
+                    raise RuntimeError("No TTS data")
+            except Exception:
+                safe = _strip_html(last_text)
+                msg = ("Не удалось озвучить, вот текст:\n" + safe) if interface_lang == "ru" else ("Couldn't voice it; here is the text:\n" + safe)
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+            return
 
         # стикеры
         msg_raw = user_input or ""
