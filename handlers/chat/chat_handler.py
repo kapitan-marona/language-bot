@@ -1,15 +1,15 @@
-import os 
+import os
 import time
 import random
 import re
 import tempfile
 import logging
-from html import unescape  # NEW: для безопасного plain-дубля
+from html import unescape
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config.config import ADMINS, OPENAI_API_KEY
-from openai import OpenAI  # новый клиент для ASR
+from openai import OpenAI  # ASR
 
 from components.gpt_client import ask_gpt
 from components.voice import synthesize_voice
@@ -18,9 +18,12 @@ from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt
 from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
 from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger
-from components.code_switch import rewrite_mixed_input  # ← NEW
-# NEW: фиксируем последний визит для ремайндера
+from components.code_switch import rewrite_mixed_input
 from components.profile_db import save_user_profile
+
+# NEW: переводчик (режим + клавиатура)
+from components.translator import get_translator_keyboard, translator_status_text, target_lang_title
+from translator_mode import ensure_tr_defaults, enter_translator, exit_translator
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +42,7 @@ LANGUAGE_CODES = {
     "fi": "fi-FI",
 }
 
-# ====================== СТИКЕРЫ + МУЛЬТИЯЗЫЧНЫЕ ТРИГГЕРЫ ======================
-
-# --- Стикеры (реальные file_id) ---
+# ====================== СТИКЕРЫ + ТРИГГЕРЫ ======================
 STICKERS = {
     "hello": ["CAACAgIAAxkBAAItV2i269d_71pHUu5Rm9f62vsCW0TrAAJJkAAC96S4SXJs5Yp4uIyENgQ"],
     "fire":  ["CAACAgIAAxkBAAItWWi26-vSBaRPbX6a2imIoWq4Jo0pAALhfwAC6gm5SSTLD1va-EfRNgQ"],
@@ -49,76 +50,50 @@ STICKERS = {
 }
 
 async def maybe_send_sticker(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
-    """Иногда отправляет стикер по ключу. Ничего не делает, если ключ не найден."""
     try:
         if key not in STICKERS:
             return
         if random.random() < chance:
             await ctx.bot.send_sticker(chat_id=chat_id, sticker=random.choice(STICKERS[key]))
     except Exception:
-        # стикер — «приятная добавка», падать нет смысла
         pass
 
-# --- Лёгкий детектор интентов (мультиязычный, без зависимостей) ---
 _GREET_EMOJI = {"👋", "🤝"}
 _COMPLIMENT_EMOJI = {"🔥", "💯", "👏", "🌟", "👍", "❤️", "💖", "✨"}
 
-# Стемы/слова по поддерживаемым языкам (коротко и общеупотребимо)
 _GREET_WORDS = {
-    # en
     "hi", "hello", "hey",
-    # ru
     "привет", "здравствуй", "здорово", "хай", "хелло",
-    # fr
     "bonjour", "salut",
-    # es
     "hola", "buenas",
-    # de
     "hallo", "servus", "moin",
-    # sv
     "hej", "hejsan", "tjena",
-    # fi
     "hei", "moi", "terve",
 }
 
 _COMPLIMENT_STEMS = {
-    # en
     "great", "awesome", "amazing", "love it", "nice", "cool",
-    # ru
     "класс", "супер", "топ", "круто", "молодец", "огонь",
-    # fr
     "super", "génial", "genial", "top", "formid",
-    # es
     "genial", "increíble", "increible", "super", "top", "bravo",
-    # de
     "super", "toll", "klasse", "mega", "geil",
-    # sv
     "super", "grym", "toppen", "snyggt", "bra jobbat",
-    # fi
     "mahtava", "huikea", "upea", "super", "hieno",
 }
 
 _SORRY_STEMS = {
-    # en
     "sorry", "apolog", "my bad", "wrong", "mistake", "incorrect",
     "you’re wrong", "you are wrong",
-    # ru
     "прости", "извин", "ошиб", "не так", "неправил", "ты ошиб",
-    # fr
     "désolé", "desole", "pardon", "erreur", "faux",
-    # es
     "perdón", "perdon", "lo siento", "error", "equivoc",
-    # de
     "sorry", "entschuldig", "fehler", "falsch",
-    # sv
     "förlåt", "forlat", "fel",
-    # fi
     "anteeksi", "virhe", "väärin", "vaarin",
 }
 
 def _norm_msg_keep_emoji(s: str) -> str:
     s = (s or "").lower()
-    # сохраняем эмодзи (диапазон U+1F300–U+1FAFF), оставляем латиницу и кириллицу
     s = re.sub(r"[^\w\s\u0400-\u04FF\u00C0-\u024F\u1F300-\u1FAFF]", " ", s, flags=re.UNICODE)
     s = re.sub(r"\s+", " ", s).strip()
     return s
@@ -146,29 +121,16 @@ def is_correction(raw: str) -> bool:
     msg = _norm_msg_keep_emoji(raw)
     return any(kw in msg for kw in _SORRY_STEMS)
 
-# ====================== /СТИКЕРЫ ======================
-
-
-def get_greeting_name(lang: str) -> str:
-    return "Matt" if lang == "en" else "Мэтт"
-
-
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     text = (text or "").strip()
     if len(text) > max_len:
         text = text[:max_len]
     return text
 
-
 def _strip_html(s: str) -> str:
-    """Удаляем HTML-теги и декодируем сущности для безопасного plain-текста."""
     return re.sub(r"<[^>\n]+>", "", unescape(s or ""))
 
-
 async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int, file_path: str):
-    """
-    Если .ogg — шлём как voice, иначе (.mp3) — как audio.
-    """
     if file_path.lower().endswith(".ogg"):
         with open(file_path, "rb") as vf:
             await context.bot.send_voice(chat_id=chat_id, voice=vf)
@@ -176,20 +138,19 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         with open(file_path, "rb") as af:
             await context.bot.send_audio(chat_id=chat_id, audio=af)
 
-
-# --- Главный message handler ---
+# ====================== ГЛАВНЫЙ ХЕНДЛЕР ======================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
 
-    # NEW: отметим последний визит (UTC) — для напоминаний
+    # last seen
     try:
         import datetime as _dt
         save_user_profile(chat_id, last_seen_at=_dt.datetime.utcnow().isoformat())
     except Exception:
         logger.exception("failed to update last_seen_at")
 
-    # === Если ждём промокод — делегируем и выходим ===
+    # onboarding promo
     try:
         stage = session.get("onboarding_stage")
     except Exception:
@@ -198,7 +159,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from components.onboarding import promo_code_message
         return await promo_code_message(update, context)
 
-    # --- RATE LIMITING ---
+    # rate limiting
     now = time.time()
     last_time = session.get("last_message_time", 0)
     if now - last_time < RATE_LIMIT_SECONDS:
@@ -207,26 +168,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session["last_message_time"] = now
 
     try:
-        # --- session defaults ---
+        # defaults
         session.setdefault("interface_lang", "en")
         session.setdefault("target_lang", "en")
         session.setdefault("level", "A2")
-        session.setdefault("mode", "text")
+        session.setdefault("mode", "text")     # твой текущий флаг: text|voice
         session.setdefault("style", "casual")
+        session.setdefault("task_mode", "chat")  # NEW: chat|translator
+        ensure_tr_defaults(session)              # NEW: cfg для переводчика
 
-        # --- Достаём значения из сессии ---
         interface_lang = session["interface_lang"]
         target_lang = session["target_lang"]
         level = session["level"]
         mode = session["mode"]
         style = session["style"]
+        task_mode = session.get("task_mode", "chat")
+        translator_cfg = session.get("translator") or {}
 
-        # === Вход: голос или текст ===
+        # вход: голос/текст
         if update.message.voice:
             if not oai_asr:
                 await context.bot.send_message(chat_id=chat_id, text="❗️ASR недоступен. Попробуй ещё раз позже.")
                 return
-
             voice_file = await context.bot.get_file(update.message.voice.file_id)
             with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
                 await voice_file.download_to_drive(tf.name)
@@ -256,7 +219,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
             return
 
-        # === Переключения режимов (только явные короткие команды) ===
+        # нормализатор
         def _norm(s: str) -> str:
             s = re.sub(r"[^\w\s]", " ", (s or "").lower())
             s = re.sub(r"\s+", " ", s).strip()
@@ -264,16 +227,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg_norm = _norm(user_input)
 
-        VOICE_STRICT = {
-            "голос", "в голос", "в голосовой режим",
-            "voice", "voice mode"
-        }
-        TEXT_STRICT = {
-            "текст", "в текст", "в текстовый режим",
-            "text", "text mode"
-        }
+        # ===== Переключения text/voice (твой текущий UX) =====
+        VOICE_STRICT = {"голос", "в голос", "в голосовой режим", "voice", "voice mode"}
+        TEXT_STRICT  = {"текст", "в текст", "в текстовый режим", "text", "text mode"}
 
-        # --- Сначала проверим переключения: при них НИКАКИХ стикеров ---
         if msg_norm in VOICE_STRICT:
             if session["mode"] != "voice":
                 session["mode"] = "voice"
@@ -288,17 +245,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(msg, reply_markup=get_mode_keyboard("text", interface_lang))
             return
 
-        # --- Стикеры по интентам (мультиязычно). Здесь уже можно.
+        # ===== Вход/выход переводчика простыми командами (аккуратно) =====
+        if msg_norm in {"/translator", "translator", "переводчик", "режим переводчика"}:
+            return await enter_translator(update, context, session)
+
+        if msg_norm in {"/translator off", "translator off", "выйти из переводчика", "переводчик выкл"}:
+            return await exit_translator(update, context, session)
+
+        # стикеры
         msg_raw = user_input or ""
         if is_greeting(msg_raw):
             await maybe_send_sticker(context, chat_id, "hello", chance=0.4)
         if is_compliment(msg_raw):
             await maybe_send_sticker(context, chat_id, "fire", chance=0.35)
         if is_correction(msg_raw):
-            # ВАЖНО: стикер – только «иногда». Текстовые извинения по промпту — не трогаем.
             await maybe_send_sticker(context, chat_id, "sorry", chance=0.35)
 
-        # --- Создатель ---
+        # создатель
         found_trigger = False
         norm_for_creator = re.sub(r"[^\w\s]", "", user_input.lower())
         for trig in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]):
@@ -313,13 +276,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply_text)
             return
 
-        # --- История + системный промпт ---
+        # === История + промпт ===
         history = session.setdefault("history", [])
-        system_prompt = get_system_prompt(style, level, interface_lang, target_lang, mode)
+
+        # разовый wrap-up после выхода из переводчика
+        wrap_hint = None
+        if session.pop("just_left_translator", False):
+            wrap_hint = ("You have just exited TRANSLATOR mode. In your next reply (only once), "
+                         "you MAY add one very short, upbeat wrap-up line in the TARGET language, "
+                         "then continue normal CHAT behavior.")
+
+        system_prompt = get_system_prompt(
+            style, level, interface_lang, target_lang, mode,
+            task_mode=session.get("task_mode", "chat"),
+            translator_cfg=session.get("translator")
+        )
+
         prompt = [{"role": "system", "content": system_prompt}]
+        if wrap_hint:
+            prompt.append({"role": "system", "content": wrap_hint})
         prompt.extend(history)
 
-        # --- Лёгкая починка смешанной фразы ---
+        # починка смешанной фразы
         clean_user_input, preface_html = await rewrite_mixed_input(
             user_input, interface_lang, target_lang
         )
@@ -327,17 +305,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         assistant_reply = await ask_gpt(prompt, "gpt-4o")
 
-        # --- История ---
+        # история
         history.append({"role": "user", "content": clean_user_input})
         history.append({"role": "assistant", "content": assistant_reply})
         if len(history) > MAX_HISTORY_LENGTH:
             history.pop(0)
 
-        # --- Отправка ответа ---
         final_reply_text = f"{preface_html}\n\n{assistant_reply}" if preface_html else assistant_reply
 
-        if mode == "voice":
-            voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(target_lang, "en-US"), level)
+        # ===== Выбор канала ответа =====
+        # В обычном чате — как раньше (mode text/voice).
+        # В режиме переводчика — руководствуемся translator_cfg["output"] (text|voice).
+        effective_output = session["mode"]
+        if session.get("task_mode") == "translator":
+            effective_output = (session.get("translator") or {}).get("output", "text")
+
+        if effective_output == "voice":
+            # Язык озвучки: зависит от направления перевода в переводчике,
+            # иначе — целевой язык как раньше.
+            if session.get("task_mode") == "translator":
+                direction = (translator_cfg or {}).get("direction", "ui→target")
+                tts_lang = interface_lang if direction == "target→ui" else target_lang
+            else:
+                tts_lang = target_lang
+
+            voice_path = synthesize_voice(
+                assistant_reply,
+                LANGUAGE_CODES.get(tts_lang, "en-US"),
+                level
+            )
             try:
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
