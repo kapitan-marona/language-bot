@@ -29,7 +29,7 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from handlers.translator_mode import handle_translator_callback
+from handlers.translator_mode import handle_translator_callback, enter_translator, exit_translator
 
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -190,6 +190,17 @@ async def reset_admin_only(update: Update, ctx):
         return
     await reset_command(update, ctx)
 
+# Переводчик: команды включить/выключить
+async def translator_on_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    sess = user_sessions.setdefault(chat_id, {})
+    await enter_translator(update, ctx, sess)
+
+async def translator_off_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    sess = user_sessions.setdefault(chat_id, {})
+    await exit_translator(update, ctx, sess)
+
 # -------------------------------------------------------------------------
 # Хендлеры
 # -------------------------------------------------------------------------
@@ -208,6 +219,9 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("privacy", privacy_command))
     app_.add_handler(CommandHandler("delete_me", delete_me_command))
     app_.add_handler(CommandHandler("admin", admin_command))
+    app_.add_handler(CommandHandler("translator_on", translator_on_command))
+    app_.add_handler(CommandHandler("translator_off", translator_off_command))
+
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))
