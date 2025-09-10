@@ -85,4 +85,3 @@ def delete_user(chat_id: int) -> int:
     conn.close()
     return total
 
-

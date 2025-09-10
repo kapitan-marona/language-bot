@@ -45,19 +45,21 @@ def _name_for_style(code: str, ui: str) -> str:
     d = STYLE_TITLES.get(code, {})
     return d.get(ui, d.get("ru", code))  # по умолчанию русский, если нет перевода
 
-def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool) -> str:
+def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, english_only_note: bool, append_tr: bool) -> str:
     base_ru = (
         "⚙️ Настройки\n\n"
         f"• Язык: {lang_name}\n"
         f"• Уровень: {level}\n"
-        f"• Стиль общения: {style_name}\n\n"
+        f"• Стиль общения: {style_name}\n"
+        f"• Дублировать на родном языке: {'Вкл' if append_tr else 'Выкл'}\n\n"
         "Что хочешь поменять?"
     )
     base_en = (
         "⚙️ Settings\n\n"
         f"• Language: {lang_name}\n"
         f"• Level: {level}\n"
-        f"• Chat style: {style_name}\n\n"
+        f"• Chat style: {style_name}\n"
+        f"• Show replies in native language: {'On' if append_tr else 'Off'}\n\n"
         "What do you want to change?"
     )
     text = base_ru if ui == "ru" else base_en
@@ -67,7 +69,7 @@ def _main_menu_text(ui: str, lang_name: str, level: str, style_name: str, englis
                  "\n\n❗ Promo is permanent and limits learning to English only")
     return text
 
-def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
+def _menu_keyboard(ui: str, append_tr: bool) -> InlineKeyboardMarkup:
     # Снизу — "Продолжить..." для любителей кнопок
     return InlineKeyboardMarkup([
         [
@@ -79,6 +81,13 @@ def _menu_keyboard(ui: str) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("Стиль" if ui == "ru" else "Style",
                                  callback_data="SETTINGS:STYLE"),
+        ],
+        [
+            InlineKeyboardButton(
+                ("Дублировать: Вкл" if ui == "ru" else "Native: On") if append_tr
+                else ("Дублировать: Выкл" if ui == "ru" else "Native: Off"),
+                callback_data="SETTINGS:APPEND_TR"
+            )
         ],
         [
             InlineKeyboardButton(
@@ -133,19 +142,20 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     level = p.get("level") or s.get("level", "B1")
     style = p.get("style") or s.get("style", "casual")
     english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+    append_tr = bool(p.get("append_translation")) if p.get("level") in ("A0", "A1") else False
 
-    text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note)
+    text = _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr)
 
     q = getattr(update, "callback_query", None)
     if q and q.message:
-        await q.edit_message_text(text, reply_markup=_menu_keyboard(ui))
+        await q.edit_message_text(text, reply_markup=_menu_keyboard(ui, append_tr))
         try:
             await q.answer()
         except Exception:
             pass
         return
 
-    await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui))
+    await context.bot.send_message(chat_id, text, reply_markup=_menu_keyboard(ui, append_tr))
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик callback_data, начинающихся с SETTINGS:/SET:"""
@@ -165,9 +175,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         level = p.get("level") or s.get("level", "B1")
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        append_tr = bool(p.get("append_translation")) if p.get("level") in ("A0", "A1") else False
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
-            reply_markup=_menu_keyboard(ui),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr),
+            reply_markup=_menu_keyboard(ui, append_tr),
         )
         await q.answer()
         return
@@ -201,6 +212,31 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.answer()
         return
 
+    # --- Тумблер автодубля — работает только для A0–A1 ---
+    if data == "SETTINGS:APPEND_TR":
+        p = get_user_profile(chat_id) or {}
+        level = p.get("level") or "B1"
+        if level in ("A0", "A1"):
+            new_val = not bool(p.get("append_translation"))
+            save_user_profile(chat_id, append_translation=new_val, append_translation_lang=(p.get("interface_lang") or "en"))
+            # обновлённый вид меню
+            p = get_user_profile(chat_id) or {}
+            s = context.user_data or {}
+            language = p.get("target_lang") or s.get("language", "en")
+            style = p.get("style") or s.get("style", "casual")
+            english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+            append_tr = bool(p.get("append_translation"))
+            await q.edit_message_text(
+                _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr),
+                reply_markup=_menu_keyboard(ui, append_tr),
+            )
+            await q.answer("✅")
+            return
+        else:
+            # для B1+ — ничего не меняем
+            await q.answer("Недоступно для вашего уровня" if ui == "ru" else "Unavailable for your level", show_alert=True)
+            return
+
     # --- Конкретные изменения: авто-применяем в активную сессию ---
     if data.startswith("SET:LANG:"):
         code = data.split(":", 2)[-1]
@@ -216,9 +252,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         level = p.get("level") or s.get("level", "B1")
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        append_tr = bool(p.get("append_translation")) if p.get("level") in ("A0", "A1") else False
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
-            reply_markup=_menu_keyboard(ui),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr),
+            reply_markup=_menu_keyboard(ui, append_tr),
         )
         return
 
@@ -235,9 +272,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         language = p.get("target_lang") or s.get("language", "en")
         style = p.get("style") or s.get("style", "casual")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        append_tr = bool(p.get("append_translation")) if level in ("A0", "A1") else False
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
-            reply_markup=_menu_keyboard(ui),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr),
+            reply_markup=_menu_keyboard(ui, append_tr),
         )
         return
 
@@ -254,9 +292,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         language = p.get("target_lang") or s.get("language", "en")
         level = p.get("level") or s.get("level", "B1")
         english_only_note = (p.get("promo_type") == "english_only" and is_promo_valid(p))
+        append_tr = bool(p.get("append_translation")) if level in ("A0", "A1") else False
         await q.edit_message_text(
-            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note),
-            reply_markup=_menu_keyboard(ui),
+            _main_menu_text(ui, _name_for_lang(language), level, _name_for_style(style, ui), english_only_note, append_tr),
+            reply_markup=_menu_keyboard(ui, append_tr),
         )
         return
 

@@ -61,6 +61,21 @@ def get_level_guide_keyboard(lang):
         [InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON.get(lang, LEVEL_GUIDE_CLOSE_BUTTON["en"]), callback_data="close_level_guide")]
     ])
 
+def _append_tr_question(ui: str) -> str:
+    return (
+        "Хочешь, я буду дублировать свои сообщения на русском языке?"
+        if ui == "ru" else
+        "Do you want me to also show my replies in English?"
+    )
+
+def _append_tr_keyboard(ui: str) -> InlineKeyboardMarkup:
+    yes = "Да" if ui == "ru" else "Yes"
+    no  = "Нет" if ui == "ru" else "No"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(yes, callback_data="append_tr:yes"),
+         InlineKeyboardButton(no,  callback_data="append_tr:no")]
+    ])
+
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
 @safe_handler
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,7 +231,9 @@ async def level_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(
         text=get_level_guide(interface_lang),
         parse_mode="Markdown",
-        reply_markup=get_level_guide_keyboard(interface_lang)
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(LEVEL_GUIDE_CLOSE_BUTTON.get(interface_lang, LEVEL_GUIDE_CLOSE_BUTTON["en"]), callback_data="close_level_guide")]
+        ])
     )
 
 # --- Закрыть гайд ---
@@ -232,7 +249,7 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
         reply_markup=get_level_keyboard(interface_lang)
     )
 
-# --- ШАГ 6. Выбор уровня — стиль ---
+# --- ШАГ 6. Выбор уровня — ВОПРОС про автоперевод (только A0–A1) ИЛИ сразу стиль ---
 @safe_handler
 async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -247,7 +264,6 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     session["level"] = level
-    session["onboarding_stage"] = "awaiting_style"
 
     # Сохраняем уровень
     try:
@@ -256,6 +272,42 @@ async def level_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception("Failed to save level=%s for chat_id=%s", level, chat_id)
 
     interface_lang = session.get("interface_lang", "ru")
+
+    if level in ["A0", "A1"]:
+        session["onboarding_stage"] = "awaiting_append_tr"
+        # по умолчанию язык дубля — язык интерфейса
+        save_user_profile(chat_id, append_translation_lang=interface_lang)
+        await query.edit_message_text(
+            text=_append_tr_question(interface_lang),
+            reply_markup=_append_tr_keyboard(interface_lang)
+        )
+        return
+
+    # B1+ — сразу к стилю
+    session["onboarding_stage"] = "awaiting_style"
+    await query.edit_message_text(
+        text=STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"]),
+        reply_markup=get_style_keyboard(interface_lang)
+    )
+
+# --- ШАГ 6a. Ответ на вопрос про автоперевод (A0–A1) — затем стиль ---
+@safe_handler
+async def append_tr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    session = user_sessions.setdefault(chat_id, {})
+    interface_lang = session.get("interface_lang", "ru")
+    choose = (query.data or "").split(":", 1)[-1]
+
+    enabled = (choose == "yes")
+    session["append_translation"] = enabled
+    try:
+        save_user_profile(chat_id, append_translation=enabled, append_translation_lang=interface_lang)
+    except Exception:
+        logger.exception("Failed to save append_translation=%s", enabled)
+
+    session["onboarding_stage"] = "awaiting_style"
     await query.edit_message_text(
         text=STYLE_LABEL_PROMPT.get(interface_lang, STYLE_LABEL_PROMPT["en"]),
         reply_markup=get_style_keyboard(interface_lang)

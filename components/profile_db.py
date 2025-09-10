@@ -30,7 +30,7 @@ def init_db() -> None:
         """
     )
 
-    # Автомиграция: добавим колонки под промокоды и напоминания, если их ещё нет
+    # Автомиграция: добавим колонки под промокоды, напоминания и автоперевод
     cur.execute("PRAGMA table_info(user_profiles)")
     existing = {row[1] for row in cur.fetchall()}  # имена колонок
 
@@ -39,9 +39,12 @@ def init_db() -> None:
         "promo_type": "TEXT",             # 'timed' | 'permanent' | 'english_only'
         "promo_activated_at": "TEXT",     # ISO-8601 (UTC)
         "promo_days": "INTEGER",          # число дней для timed
-        # NEW: поля для напоминаний
+        # напоминания
         "last_seen_at": "TEXT",           # ISO-8601 (UTC) — последний визит
         "nudge_last_sent": "TEXT",        # ISO-8601 (UTC) — когда слали напоминание
+        # 🔹 автоперевод на языке интерфейса (для A0–A1, по выбору)
+        "append_translation": "INTEGER",  # 0/1
+        "append_translation_lang": "TEXT" # код языка интерфейса (ru/en/…)
     }
     for col, coltype in required_cols.items():
         if col not in existing:
@@ -76,9 +79,12 @@ def save_user_profile(
     promo_type: Optional[str] = None,
     promo_activated_at: Optional[str] = None,
     promo_days: Optional[int] = None,
-    # NEW: поля для напоминаний
+    # Напоминания
     last_seen_at: Optional[str] = None,
     nudge_last_sent: Optional[str] = None,
+    # 🔹 Автоперевод
+    append_translation: Optional[bool] = None,
+    append_translation_lang: Optional[str] = None,
 ) -> None:
     """Обновляет/создаёт профиль пользователя частично (upsert)."""
     current = get_user_profile(chat_id) or {"chat_id": chat_id}
@@ -96,6 +102,8 @@ def save_user_profile(
         "promo_days": promo_days if promo_days is not None else current.get("promo_days"),
         "last_seen_at": last_seen_at if last_seen_at is not None else current.get("last_seen_at"),
         "nudge_last_sent": nudge_last_sent if nudge_last_sent is not None else current.get("nudge_last_sent"),
+        "append_translation": int(append_translation) if append_translation is not None else current.get("append_translation"),
+        "append_translation_lang": append_translation_lang if append_translation_lang is not None else current.get("append_translation_lang"),
     }
 
     conn = sqlite3.connect(DB_PATH)
@@ -111,7 +119,8 @@ def save_user_profile(
             UPDATE user_profiles SET
               name = ?, interface_lang = ?, target_lang = ?, level = ?, style = ?,
               promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?,
-              last_seen_at = ?, nudge_last_sent = ?
+              last_seen_at = ?, nudge_last_sent = ?,
+              append_translation = ?, append_translation_lang = ?
             WHERE chat_id = ?
             """,
             (
@@ -120,6 +129,7 @@ def save_user_profile(
                 updates["promo_code_used"], updates["promo_type"],
                 updates["promo_activated_at"], updates["promo_days"],
                 updates["last_seen_at"], updates["nudge_last_sent"],
+                updates["append_translation"], updates["append_translation_lang"],
                 chat_id,
             ),
         )
@@ -129,8 +139,9 @@ def save_user_profile(
             INSERT INTO user_profiles (
               chat_id, name, interface_lang, target_lang, level, style,
               promo_code_used, promo_type, promo_activated_at, promo_days,
-              last_seen_at, nudge_last_sent
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              last_seen_at, nudge_last_sent,
+              append_translation, append_translation_lang
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -139,6 +150,7 @@ def save_user_profile(
                 updates["promo_code_used"], updates["promo_type"],
                 updates["promo_activated_at"], updates["promo_days"],
                 updates["last_seen_at"], updates["nudge_last_sent"],
+                updates["append_translation"], updates["append_translation_lang"],
             ),
         )
 
