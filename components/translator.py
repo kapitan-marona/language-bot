@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Literal, Dict, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from components.gpt_client import ask_gpt  # <— нужен для do_translate
+
 Direction = Literal["ui→target", "target→ui"]
 Output = Literal["text", "voice"]
 TStyle = Literal["casual", "business"]
@@ -74,7 +76,6 @@ def translator_status_text(ui: str, tgt_title: str, cfg: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> InlineKeyboardMarkup:
-    # Кнопки БЕЗ слов «Направление/Формат/Стиль» — только значения
     btn_dir = InlineKeyboardButton(
         dir_compact_label(ui_code=ui, direction=cfg["direction"], tgt_code=tgt_code),
         callback_data="TR:TOGGLE:DIR"
@@ -96,3 +97,34 @@ def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> Inli
         [btn_out, btn_style],
         [btn_exit],
     ])
+
+# ====== Строгий детерминированный перевод (экспорт для chat_handler) ======
+async def do_translate(
+    text: str,
+    *,
+    interface_lang: str,
+    target_lang: str,
+    direction: Direction,
+    style: TStyle,
+) -> str:
+    """
+    Только перевод, без кавычек/эмодзи/пояснений.
+    Учитывает направление и стиль (casual/business).
+    """
+    if not text:
+        return ""
+
+    src_lang = interface_lang if direction == "ui→target" else target_lang
+    dst_lang = target_lang if direction == "ui→target" else interface_lang
+
+    sys = (
+        "You are a precise bilingual translator. "
+        f"Translate from {src_lang.upper()} to {dst_lang.upper()} in a {style} tone. "
+        "Output ONLY the translation. No quotes. No brackets. No explanations. No emojis."
+    )
+    prompt = [
+        {"role": "system", "content": sys},
+        {"role": "user", "content": text},
+    ]
+    out = await ask_gpt(prompt, "gpt-4o-mini")
+    return (out or "").strip().strip("«»\"' ")

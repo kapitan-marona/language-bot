@@ -48,7 +48,6 @@ async def exit_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, se
         "↩️ Режим переводчика выключен." if ui == "ru" else "↩️ Translator mode is OFF."
     )
 
-# ——— Клавиатура подтверждения выхода
 def exit_confirm_keyboard(lbl_yes: str, lbl_no: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(lbl_yes, callback_data="TR:CONFIRM_EXIT:YES"),
@@ -58,7 +57,7 @@ def exit_confirm_keyboard(lbl_yes: str, lbl_no: str) -> InlineKeyboardMarkup:
 async def handle_translator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat_id
+    chat_id = query.message.chat.id  # <-- фикс
     sess = user_sessions.setdefault(chat_id, {})
     ensure_tr_defaults(sess)
 
@@ -84,7 +83,6 @@ async def handle_translator_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("↩️ Режим переводчика выключен." if ui == "ru" else "↩️ Translator mode is OFF.")
         return
     elif data == "TR:CONFIRM_EXIT:NO":
-        # просто перерисуем панель настроек переводчика
         pass
 
     txt = translator_status_text(ui, target_lang_title(tgt_code), cfg)

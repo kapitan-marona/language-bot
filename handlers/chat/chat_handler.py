@@ -16,26 +16,27 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt
-from components.triggers import CREATOR_TRIGGERS, MODE_TRIGGERS
-from components.triggers import is_strict_mode_trigger, is_strict_say_once_trigger
+from components.triggers import CREATOR_TRIGGERS
 from components.code_switch import rewrite_mixed_input
 from components.profile_db import save_user_profile
 
-# NEW: переводчик (режим + клавиатура/тексты)
-from components.translator import get_translator_keyboard, translator_status_text, target_lang_title
+# Переводчик (режим + клавиатура/тексты + строгий перевод)
+from components.translator import (
+    get_translator_keyboard,
+    translator_status_text,
+    target_lang_title,
+    do_translate,
+)
 
-# Если у тебя есть чистый переводчик-режим — эти импорты можно оставить;
-# если его нет в деплое, просто не будут вызываться.
+# Режим переводчика: дефолты/вход/выход (если файла нет — мягкие заглушки)
 try:
     from handlers.translator_mode import ensure_tr_defaults, enter_translator, exit_translator
-except Exception:
-    # заглушка на случай отсутствия файла в сборке
+except Exception:  # файл может отсутствовать в деплое без переводчика
     def ensure_tr_defaults(_): ...
     async def enter_translator(*args, **kwargs): ...
     async def exit_translator(*args, **kwargs): ...
 
 logger = logging.getLogger(__name__)
-
 oai_asr = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 MAX_HISTORY_LENGTH = 40
@@ -147,26 +148,6 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         with open(file_path, "rb") as af:
             await context.bot.send_audio(chat_id=chat_id, audio=af)
 
-# =============== ВСПОМОГАТЕЛЬНОЕ: локальный переводчик для дубля A0–A1 ===============
-async def _translate_for_ui(text: str, ui_lang: str) -> str:
-    """
-    Мини-обёртка над ask_gpt для детерминированного перевода в язык интерфейса.
-    Возвращает ТОЛЬКО перевод без кавычек и пояснений.
-    """
-    if not text or not ui_lang:
-        return ""
-    # Небезопасно тянуть сюда общий системный промпт — используем строгий мини-промпт.
-    sys = f"You are a precise translator. Translate the user's message into {ui_lang.upper()} only. Output ONLY the translation. No quotes, no brackets, no commentary, no emojis."
-    prompt = [{"role": "system", "content": sys}, {"role": "user", "content": _strip_html(text)}]
-    try:
-        tr = await ask_gpt(prompt, "gpt-4o-mini")  # лёгкая модель для быстрого стандартизованного перевода
-        # уберём возможные хвосты
-        tr = (tr or "").strip().strip("«»\"' ").replace("\n", " ")
-        return tr
-    except Exception:
-        logger.exception("[auto-translate] failed", exc_info=True)
-        return ""
-
 # --- «умный» парсер команды озвучки (инлайн или последний ответ)
 def smart_say_once_parse(raw: str, ui: str, say_triggers: dict) -> dict | None:
     """
@@ -178,25 +159,24 @@ def smart_say_once_parse(raw: str, ui: str, say_triggers: dict) -> dict | None:
     if not raw:
         return None
 
-    arr = (say_triggers.get(ui, []) or []) + (say_triggers.get("en", []) or [])
+    from components.triggers import SAY_ONCE_TRIGGERS
+    arr = (SAY_ONCE_TRIGGERS.get(ui, []) or []) + (SAY_ONCE_TRIGGERS.get("en", []) or [])
     if not arr:
         return None
 
-    # подготовим альтернативы
     trig_alt = "|".join(sorted([re.escape(t.lower()) for t in arr], key=len, reverse=True))
     polite_ru = r"(?:пожалуйста|пж|пжлст|будь добр|будь добра)"
     polite_en = r"(?:please|pls|plz|could you|would you)"
     polite_any = rf"(?:{polite_ru}|{polite_en})"
     raw_l = (raw or "").strip()
 
-    # 1) Инлайн-команда в начале строки: <вежл?> <триггер> <вежл?> [:,-–—]? "текст" | остаток строки
     inline_pat = re.compile(
         rf"""^\s*(?:{polite_any}\s+)?(?:{trig_alt})\s*(?:{polite_any}\s*)?
              [:\-,–—]?\s*
              (?:
-                ["“](.+?)["”]      # в кавычках
+                ["“](.+?)["”]
                 |
-                (.+)               # либо весь остаток
+                (.+)
              )\s*$""",
         re.IGNORECASE | re.VERBOSE | re.UNICODE,
     )
@@ -207,7 +187,6 @@ def smart_say_once_parse(raw: str, ui: str, say_triggers: dict) -> dict | None:
             return {"mode": "inline", "text": text}
         return {"mode": "last"}
 
-    # 2) Короткая команда — вся строка только «say it/озвучь…»
     short_pat = re.compile(
         rf"""^\s*(?:{polite_any}\s+)?(?:{trig_alt})(?:\s+{polite_any})?\s*[!\.\u2764-\U0010FFFF]*\s*$""",
         re.IGNORECASE | re.VERBOSE | re.UNICODE,
@@ -327,10 +306,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await exit_translator(update, context, session)
 
         # ===== Озвучка: инлайн или последний ответ (перехват ДО GPT) =====
-        from components.triggers import SAY_ONCE_TRIGGERS
-        say_cmd = smart_say_once_parse(user_input, interface_lang, SAY_ONCE_TRIGGERS)
+        say_cmd = smart_say_once_parse(user_input, interface_lang, {})
         if say_cmd:
-            # выбираем язык TTS: в переводчике — по направлению, иначе — target_lang
+            # язык TTS: в переводчике — по направлению, иначе — target_lang
             if session.get("task_mode") == "translator":
                 direction = (translator_cfg or {}).get("direction", "ui→target")
                 tts_lang = interface_lang if direction == "target→ui" else target_lang
@@ -379,7 +357,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply_text)
             return
 
-        # === История + промпт ===
+        # ======== ВЕТКА: TRANSLATOR MODE — байпас общего чата ========
+        if session.get("task_mode") == "translator":
+            direction = (translator_cfg or {}).get("direction", "ui→target")
+            tr_style  = (translator_cfg or {}).get("style", "casual")
+            output    = (translator_cfg or {}).get("output", "text")
+
+            translated = await do_translate(
+                user_input,  # в переводчике берём «как есть»
+                interface_lang=interface_lang,
+                target_lang=target_lang,
+                direction=direction,
+                style=tr_style,
+            )
+
+            assistant_reply = translated or ""
+            session["last_assistant_text"] = assistant_reply  # для «озвучь»
+            tts_lang = interface_lang if direction == "target→ui" else target_lang
+
+            if output == "voice":
+                try:
+                    voice_path = synthesize_voice(assistant_reply, LANGUAGE_CODES.get(tts_lang, "en-US"), level)
+                    if voice_path:
+                        await _send_voice_or_audio(context, chat_id, voice_path)
+                    else:
+                        raise RuntimeError("No TTS data")
+                except Exception:
+                    logger.exception("[TR TTS] failed", exc_info=True)
+                    safe = _strip_html(assistant_reply or "")
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=("⚠️ Не удалось озвучить, вот текст:\n"+safe) if interface_lang=="ru" else ("⚠️ Couldn't voice; text:\n"+safe)
+                    )
+            else:
+                await update.message.reply_text(assistant_reply, parse_mode=None)
+            return
+
+        # === История + промпт (ОБЫЧНЫЙ ЧАТ) ===
         history = session.setdefault("history", [])
 
         # разовый wrap-up после выхода из переводчика
@@ -418,25 +432,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ui_side_note = ""
 
         if append_translation:
-            # Переводим ТОЛЬКО для отображения; в голосе дубля не будет.
             translated = await _translate_for_ui(assistant_reply, interface_lang)
-            if translated:
-                # Если перевод совпадает с оригиналом (один и тот же язык) — не дублируем.
-                if _strip_html(translated).lower() != _strip_html(assistant_reply).lower():
-                    ui_side_note = translated
-                    final_reply_text = f"{assistant_reply} ({translated})"
+            if translated and _strip_html(translated).lower() != _strip_html(assistant_reply).lower():
+                ui_side_note = translated
+                final_reply_text = f"{assistant_reply} ({translated})"
 
-        # Префейс для смешанных сообщений (если был)
         if preface_html:
             final_reply_text = f"{preface_html}\n\n{final_reply_text}"
+
+        # Сохраним основной текст без скобочного дубля — для «озвучь»
+        session["last_assistant_text"] = assistant_reply
 
         # ===== Выбор канала ответа =====
         effective_output = session["mode"]
         if session.get("task_mode") == "translator":
             effective_output = (session.get("translator") or {}).get("output", "text")
-
-        # Сохраним основной текст без скобочного дубля — для команды «озвучь»
-        session["last_assistant_text"] = assistant_reply
 
         if effective_output == "voice":
             # язык озвучки: в переводчике зависит от направления; иначе target_lang
@@ -473,3 +483,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         logger.exception("[ОШИБКА в handle_message]", exc_info=True)
         await context.bot.send_message(chat_id=chat_id, text="⚠️ Что-то пошло не так! Попробуй ещё раз или перезапусти бота командой /start.")
+
+# =============== ЛОКАЛЬНЫЙ ПЕРЕВОДЧИК ДЛЯ ДУБЛЯ UI (A0–A1) ===============
+async def _translate_for_ui(text: str, ui_lang: str) -> str:
+    """
+    Мини-обёртка над ask_gpt для детерминированного перевода в язык интерфейса.
+    Возвращает ТОЛЬКО перевод без кавычек и пояснений.
+    """
+    if not text or not ui_lang:
+        return ""
+    sys = f"You are a precise translator. Translate the user's message into {ui_lang.upper()} only. Output ONLY the translation. No quotes, no brackets, no commentary, no emojis."
+    prompt = [{"role": "system", "content": sys}, {"role": "user", "content": _strip_html(text)}]
+    try:
+        tr = await ask_gpt(prompt, "gpt-4o-mini")
+        tr = (tr or "").strip().strip("«»\"' ").replace("\n", " ")
+        return tr
+    except Exception:
+        logger.exception("[auto-translate] failed", exc_info=True)
+        return ""
