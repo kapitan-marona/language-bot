@@ -39,6 +39,7 @@ from handlers.commands.reset import reset_command
 from components.onboarding import send_onboarding
 from components.profile_db import init_db as init_profiles_db
 from components.usage_db import init_usage_db
+from components.onboarding import append_tr_callback
 
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
@@ -227,6 +228,7 @@ def setup_handlers(app_: "Application"):
 
     # Callback’и меню, настроек, how-to-pay (block в КОНСТРУКТОРЕ)
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
+    app_.add_handler(CallbackQueryHandler(append_tr_callback, pattern=r'^append_tr:(yes|no)$'))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how, pattern=r"^htp_how$", block=True))
