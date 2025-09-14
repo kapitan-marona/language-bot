@@ -29,19 +29,19 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
-from handlers.commands.translator_cmd import translator_on_command, translator_off_command
-from handlers.translator_mode import handle_translator_callback, enter_translator, exit_translator
 
+# Переводчик: команды и коллбэки
+from handlers.commands.translator_cmd import translator_on_command, translator_off_command
+from handlers.translator_mode import handle_translator_callback
 
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
 # Онбординг и сброс
 from handlers.commands.reset import reset_command
-from components.onboarding import send_onboarding
-from components.profile_db import init_db as init_profiles_db
+from components.onboarding import send_onboarding, append_tr_callback
+from components.profile_db import init_db as init_profiles_db, get_all_chat_ids
 from components.usage_db import init_usage_db
-from components.onboarding import append_tr_callback
 
 from handlers.commands.language_cmd import language_command, language_on_callback
 from handlers.commands.level_cmd import level_command, level_on_callback
@@ -55,7 +55,6 @@ from components.i18n import get_ui_lang  # для сообщений об огр
 from handlers.commands.stars import stars_command
 
 # NEW: напоминания
-from components.profile_db import get_all_chat_ids  # NEW
 from components.reminders import run_nudges  # NEW
 
 # -------------------------------------------------------------------------
@@ -189,17 +188,6 @@ async def reset_admin_only(update: Update, ctx):
         return
     await reset_command(update, ctx)
 
-# Переводчик: команды включить/выключить
-async def translator_on_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    sess = user_sessions.setdefault(chat_id, {})
-    await enter_translator(update, ctx, sess)
-
-async def translator_off_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    sess = user_sessions.setdefault(chat_id, {})
-    await exit_translator(update, ctx, sess)
-
 # -------------------------------------------------------------------------
 # Хендлеры
 # -------------------------------------------------------------------------
@@ -214,7 +202,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
-    app_.add_handler(CommandHandler("codes", codes_command))  # работает, есть импорт
+    # ⛔️ удалено: /codes
     app_.add_handler(CommandHandler("privacy", privacy_command))
     app_.add_handler(CommandHandler("delete_me", delete_me_command))
     app_.add_handler(CommandHandler("admin", admin_command))
@@ -256,7 +244,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
-            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:))",
+            pattern=r"^(?!(open:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TR:|append_tr:))",
         ),
         group=1,
     )
