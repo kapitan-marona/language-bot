@@ -29,7 +29,9 @@ from handlers.commands.donate import donate_command
 from handlers import settings
 from components.payments import precheckout_ok, on_successful_payment
 from handlers.middleware.usage_gate import usage_gate
+from handlers.commands.translator_cmd import translator_on_command, translator_off_command
 from handlers.translator_mode import handle_translator_callback, enter_translator, exit_translator
+
 
 from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
@@ -46,9 +48,6 @@ from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 from handlers.commands.privacy import privacy_command, delete_me_command
 from handlers.commands.admin import admin_command
-
-# ⚠️ ДОБАВИЛИ импорт /codes (иначе NameError)
-from handlers.commands.consent import codes_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
@@ -221,7 +220,6 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("admin", admin_command))
     app_.add_handler(CommandHandler("translator_on", translator_on_command))
     app_.add_handler(CommandHandler("translator_off", translator_off_command))
-
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))

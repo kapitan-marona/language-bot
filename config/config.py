@@ -14,12 +14,6 @@ WEBHOOK_SECRET_PATH = os.getenv("WEBHOOK_SECRET_PATH")
 # Google credentials
 GOOGLE_CREDENTIALS_BASE64 = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_BASE64")
 
-# config.py
-ADMINS = [
-    978646307
-]
-
-
 
 def create_google_credentials_file():
     if not GOOGLE_CREDENTIALS_BASE64:
