@@ -8,7 +8,7 @@ from html import unescape
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config.config import ADMINS, OPENAI_API_KEY
+from config.config import OPENAI_API_KEY
 from openai import OpenAI  # ASR
 
 from components.gpt_client import ask_gpt
@@ -20,13 +20,8 @@ from components.triggers import CREATOR_TRIGGERS
 from components.code_switch import rewrite_mixed_input
 from components.profile_db import save_user_profile
 
-# Переводчик (режим + клавиатура/тексты + строгий перевод)
-from components.translator import (
-    get_translator_keyboard,
-    translator_status_text,
-    target_lang_title,
-    do_translate,
-)
+# Переводчик: строгая функция перевода
+from components.translator import do_translate
 
 # Режим переводчика: дефолты/вход/выход (если файла нет — мягкие заглушки)
 try:
@@ -53,20 +48,16 @@ LANGUAGE_CODES = {
 }
 
 # ====================== СТИКЕРЫ + ТРИГГЕРЫ ======================
+# ОСТАВЛЯЕМ ТОЛЬКО два стикера: hello (привет) и fire (комплименты). sorry — удалён.
 STICKERS = {
     "hello": ["CAACAgIAAxkBAAItV2i269d_71pHUu5Rm9f62vsCW0TrAAJJkAAC96S4SXJs5Yp4uIyENgQ"],
     "fire":  ["CAACAgIAAxkBAAItWWi26-vSBaRPbX6a2imIoWq4Jo0pAALhfwAC6gm5SSTLD1va-EfRNgQ"],
-    "sorry": ["CAACAgIAAxkBAAItWGi26-jb1_zQAAE1IyLH1XfqWH5aZQAC3oAAAt7vuUlXHMvWZt7gQDYE"],
 }
 
+# ⚠️ Сохранён для совместимости с импортами (например, из onboarding).
+# Делает НИЧЕГО, чтобы бот не слал стикеры сам по себе.
 async def maybe_send_sticker(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
-    try:
-        if key not in STICKERS:
-            return
-        if random.random() < chance:
-            await ctx.bot.send_sticker(chat_id=chat_id, sticker=random.choice(STICKERS[key]))
-    except Exception:
-        logger.debug("send_sticker failed", exc_info=True)
+    return  # no-op (совместимость)
 
 _GREET_EMOJI = {"👋", "🤝"}
 _COMPLIMENT_EMOJI = {"🔥", "💯", "👏", "🌟", "👍", "❤️", "💖", "✨"}
@@ -91,16 +82,8 @@ _COMPLIMENT_STEMS = {
     "mahtava", "huikea", "upea", "super", "hieno",
 }
 
-_SORRY_STEMS = {
-    "sorry", "apolog", "my bad", "wrong", "mistake", "incorrect",
-    "you’re wrong", "you are wrong",
-    "прости", "извин", "ошиб", "не так", "неправил", "ты ошиб",
-    "désolé", "desole", "pardon", "erreur", "faux",
-    "perdón", "perdon", "lo siento", "error", "equivoc",
-    "sorry", "entschuldig", "fehler", "falsch",
-    "förlåt", "forlat", "fel",
-    "anteeksi", "virhe", "väärin", "vaarin",
-}
+# «Извини/ошибка» больше не используем для стикеров:
+_SORRY_STEMS = set()
 
 def _norm_msg_keep_emoji(s: str) -> str:
     s = (s or "").lower()
@@ -125,12 +108,6 @@ def is_compliment(raw: str) -> bool:
     msg = _norm_msg_keep_emoji(raw)
     return any(kw in msg for kw in _COMPLIMENT_STEMS)
 
-def is_correction(raw: str) -> bool:
-    if not raw:
-        return False
-    msg = _norm_msg_keep_emoji(raw)
-    return any(kw in msg for kw in _SORRY_STEMS)
-
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     text = (text or "").strip()
     if len(text) > max_len:
@@ -148,53 +125,27 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         with open(file_path, "rb") as af:
             await context.bot.send_audio(chat_id=chat_id, audio=af)
 
-# --- «умный» парсер команды озвучки (инлайн или последний ответ)
-def smart_say_once_parse(raw: str, ui: str, say_triggers: dict) -> dict | None:
-    """
-    Возвращает:
-      - {"mode": "inline", "text": "..."} — если нашли текст после команды (озвучить ЭТО)
-      - {"mode": "last"} — если команда есть, но текста после неё нет (озвучить ПОСЛЕДНИЙ ответ)
-      - None — если это вообще не команда озвучки
-    """
-    if not raw:
-        return None
+# Шлём стикер ТОЛЬКО на пользовательские сообщения. С анти-флудом per chat.
+async def maybe_send_sticker_user(ctx: ContextTypes.DEFAULT_TYPE, update: Update, key: str, chance: float = 0.4):
+    try:
+        if key not in STICKERS or not STICKERS[key]:
+            return
+        # Реагируем только на пользователя, не на бота
+        if not update.effective_user or (hasattr(ctx, "bot") and update.effective_user.id == ctx.bot.id):
+            return
 
-    from components.triggers import SAY_ONCE_TRIGGERS
-    arr = (SAY_ONCE_TRIGGERS.get(ui, []) or []) + (SAY_ONCE_TRIGGERS.get("en", []) or [])
-    if not arr:
-        return None
+        chat_id = update.effective_chat.id
+        sess = user_sessions.setdefault(chat_id, {})
+        now = time.time()
+        # антифлуд: не чаще 8 сек на чат
+        if now < sess.get("next_sticker_at", 0):
+            return
 
-    trig_alt = "|".join(sorted([re.escape(t.lower()) for t in arr], key=len, reverse=True))
-    polite_ru = r"(?:пожалуйста|пж|пжлст|будь добр|будь добра)"
-    polite_en = r"(?:please|pls|plz|could you|would you)"
-    polite_any = rf"(?:{polite_ru}|{polite_en})"
-    raw_l = (raw or "").strip()
-
-    inline_pat = re.compile(
-        rf"""^\s*(?:{polite_any}\s+)?(?:{trig_alt})\s*(?:{polite_any}\s*)?
-             [:\-,–—]?\s*
-             (?:
-                ["“](.+?)["”]
-                |
-                (.+)
-             )\s*$""",
-        re.IGNORECASE | re.VERBOSE | re.UNICODE,
-    )
-    m = inline_pat.match(raw_l)
-    if m:
-        text = (m.group(1) or m.group(2) or "").strip()
-        if text and text.lower() not in {"это","this","that"}:
-            return {"mode": "inline", "text": text}
-        return {"mode": "last"}
-
-    short_pat = re.compile(
-        rf"""^\s*(?:{polite_any}\s+)?(?:{trig_alt})(?:\s+{polite_any})?\s*[!\.\u2764-\U0010FFFF]*\s*$""",
-        re.IGNORECASE | re.VERBOSE | re.UNICODE,
-    )
-    if short_pat.match(raw_l):
-        return {"mode": "last"}
-
-    return None
+        if random.random() < chance:
+            await ctx.bot.send_sticker(chat_id=chat_id, sticker=random.choice(STICKERS[key]))
+            sess["next_sticker_at"] = now + 8.0
+    except Exception:
+        logger.debug("send_sticker failed", exc_info=True)
 
 # ====================== ГЛАВНЫЙ ХЕНДЛЕР ======================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -338,13 +289,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=chat_id, text=msg)
             return
 
-        # стикеры
+        # ===== СТИКЕРЫ: реагируем только на слова пользователя (один стикер на сообщение) =====
         if is_greeting(user_input):
-            await maybe_send_sticker(context, chat_id, "hello", chance=0.4)
-        if is_compliment(user_input):
-            await maybe_send_sticker(context, chat_id, "fire", chance=0.35)
-        if is_correction(user_input):
-            await maybe_send_sticker(context, chat_id, "sorry", chance=0.35)
+            await maybe_send_sticker_user(context, update, "hello", chance=0.45)
+        elif is_compliment(user_input):
+            await maybe_send_sticker_user(context, update, "fire", chance=0.45)
 
         # создатель
         norm_for_creator = re.sub(r"[^\w\s]", "", user_input.lower())
