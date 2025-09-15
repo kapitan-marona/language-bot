@@ -53,6 +53,11 @@ from handlers.commands.admin import admin_command
 from components.admins import ADMIN_IDS
 from components.i18n import get_ui_lang  # для сообщений об ограничении
 from handlers.commands.stars import stars_command
+from handlers.commands.users import users_command
+from handlers.commands.test import test_command
+from handlers.commands.broadcast import broadcast_command
+from handlers.commands.stats import stats_command
+from handlers.commands.session import session_command
 
 # NEW: напоминания
 from components.reminders import run_nudges  # NEW
@@ -86,6 +91,12 @@ bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 # -------------------------------------------------------------------------
 # Утилиты
 # -------------------------------------------------------------------------
+async def sticker_echo(update, context):
+    if update.message and update.message.sticker:
+        fid = update.message.sticker.file_id
+        await update.message.reply_text(f"file_id: {fid}")
+
+
 def fire_and_forget(coro, *, name: str = "task"):
     """Безопасный запуск фоновой задачи с логированием исключения."""
     task = asyncio.create_task(coro, name=name)
@@ -195,6 +206,7 @@ def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
     
     # Команды
+    app_.add_handler(MessageHandler(filters.Sticker.ALL, sticker_echo))
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
     app_.add_handler(CommandHandler("reset", reset_admin_only))  # было reset_command
     app_.add_handler(CommandHandler("help", help_command))
@@ -202,12 +214,17 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
-    # ⛔️ удалено: /codes
     app_.add_handler(CommandHandler("privacy", privacy_command))
     app_.add_handler(CommandHandler("delete_me", delete_me_command))
     app_.add_handler(CommandHandler("admin", admin_command))
     app_.add_handler(CommandHandler("translator_on", translator_on_command))
     app_.add_handler(CommandHandler("translator_off", translator_off_command))
+    app_.add_handler(CommandHandler("users", users_command))
+    app_.add_handler(CommandHandler("test", test_command))
+    app_.add_handler(CommandHandler("broadcast", broadcast_command))
+    app_.add_handler(CommandHandler("stats", stats_command))
+    app_.add_handler(CommandHandler("session", session_command))
+
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))

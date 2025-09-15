@@ -1,3 +1,4 @@
+from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes
 import aiohttp
@@ -8,14 +9,10 @@ from components.admins import ADMIN_IDS
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 def _format_stars(amount: int, nano: int | None) -> str:
-    """
-    Преобразует amount + nanostar_amount в человекочитаемую строку:
-    12 и 120000000 → "12.12", а без nano → "12".
-    """
     nano = int(nano or 0)
     if nano <= 0:
         return str(int(amount))
-    frac = f"{nano:09d}".rstrip("0")  # до 9 знаков после точки, без хвостовых нулей
+    frac = f"{nano:09d}".rstrip("0")
     return f"{int(amount)}.{frac}"
 
 async def stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -36,7 +33,6 @@ async def stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 data = await resp.json()
 
         if not data.get("ok"):
-            # покажем кратко, без лишних подробностей
             desc = data.get("description") or "unknown error"
             await update.message.reply_text(f"⚠️ Ошибка при запросе баланса: {desc}")
             return
@@ -46,9 +42,8 @@ async def stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         nano = int(res.get("nanostar_amount", 0))
 
         stars_text = _format_stars(amount, nano)
-        # 1 Star = €0.01
         stars_float = amount + (nano / 1_000_000_000)
-        euros = stars_float * 0.01
+        euros = stars_float * 0.01  # 1 Star ~= €0.01
 
         await update.message.reply_text(
             f"⭐ Баланс бота: {stars_text} Stars\n"
