@@ -12,10 +12,13 @@ from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO
 from handlers.chat.prompt_templates import pick_intro_question
-from handlers.chat.chat_handler import maybe_send_sticker
+
+# 🔽 Новое: берём id стикера напрямую из конфига, без импорта из chat_handler
+from components.stickers import STICKERS_CONFIG
 
 import logging
 import re
+import random  # для вероятности отправки привет-стикера
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,22 @@ def get_append_tr_keyboard(ui: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(no,  callback_data="append_tr:no"),
     ]])
 
+# --- локальная безопасная отправка привет-стикера (без зависимости от chat_handler) ---
+async def maybe_send_sticker_hello(context: ContextTypes.DEFAULT_TYPE, chat_id: int, chance: float = 0.7):
+    """
+    Пытается отправить привет-стикер из пакета (ключ 'hello') с заданной вероятностью.
+    Ошибки проглатывает тихо.
+    """
+    try:
+        cfg = STICKERS_CONFIG.get("hello") or {}
+        file_id = cfg.get("id")
+        if not file_id:
+            return
+        if random.random() <= float(chance):
+            await context.bot.send_sticker(chat_id=chat_id, sticker=file_id)
+    except Exception:
+        logger.debug("onboarding hello sticker failed", exc_info=True)
+
 # --- ШАГ 1. /start — Выбор языка интерфейса ---
 @safe_handler
 async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -82,7 +101,8 @@ async def send_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=INTERFACE_LANG_PROMPT.get(lang, INTERFACE_LANG_PROMPT['en']),
         reply_markup=get_interface_language_keyboard()
     )
-    await maybe_send_sticker(context, chat_id, "hello", chance=0.7)
+    # 🔽 Было: maybe_send_sticker(...). Теперь — локально.
+    await maybe_send_sticker_hello(context, chat_id, chance=0.7)
 
 # --- ШАГ 2. Выбран язык — спрашиваем промокод ---
 @safe_handler
@@ -229,7 +249,7 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
     interface_lang = session.get("interface_lang", "ru")
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
-        reply_markup=get_level_keyboard(interface_lang)
+        reply_markup=get_level_guide_keyboard(interface_lang)
     )
 
 # --- ШАГ 6. Выбор уровня — A0–A1: спросить про дублирование; иначе — стиль ---
