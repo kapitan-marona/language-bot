@@ -7,7 +7,7 @@ from components.profile_db import save_user_profile, get_user_profile
 from components.i18n import get_ui_lang  # NEW
 
 # NEW: импорт хелпера стикеров
-from handlers.chat.chat_handler import maybe_send_sticker
+from components.stickers import maybe_send_sticker
 
 Product = Literal["pro_30d"]
 
