@@ -12,6 +12,7 @@ from typing import Dict, List
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from state.session import user_sessions
 from components.gpt_client import ask_gpt
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from components.stickers_service import maybe_send_thematic_sticker
@@ -26,7 +27,7 @@ from components.code_switch import rewrite_mixed_input
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_LENGTH = 40
+MAX_HISTORY_LENGTH = 16
 RATE_LIMIT_SECONDS = 1.5
 
 LANGUAGE_CODES = {
@@ -78,8 +79,7 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
 @async_rate_limit(RATE_LIMIT_SECONDS)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    # переносим «сессию» в chat_data, чтобы не зависеть от глобального user_sessions
-    session: Dict = context.chat_data.setdefault("session", {})
+    session = user_sessions.setdefault(chat_id, {})
 
     _ensure_defaults(session)
     asyncio.create_task(_update_last_seen(chat_id))  # неблокирующе
