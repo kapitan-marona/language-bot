@@ -4,12 +4,31 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from components.profile_db import get_user_profile, save_user_profile
-from components.promo import normalize_code, format_promo_status_for_user  # используем твою функцию статуса
+from components.promo import normalize_code, format_promo_status_for_user
 from components.i18n import get_ui_lang
 from components.safety import call_check_promo_code, call_activate_promo, safe_reply
 
-# NEW: импорт хелпера стикеров
-from handlers.chat.chat_handler import maybe_send_sticker
+# ✅ Локальный хелпер стикеров (без зависимости от chat_handler)
+from components.stickers import STICKERS_CONFIG
+import random
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def _maybe_send_sticker(context: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
+    """
+    Пытается отправить стикер по ключу из STICKERS_CONFIG с заданной вероятностью.
+    Ошибки логируем и молча продолжаем.
+    """
+    try:
+        cfg = STICKERS_CONFIG.get(key) or {}
+        file_id = cfg.get("id")
+        if not file_id:
+            return
+        if random.random() <= float(chance):
+            await context.bot.send_sticker(chat_id=chat_id, sticker=file_id)
+    except Exception:
+        logger.debug("promo sticker send failed", exc_info=True)
 
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,7 +59,7 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update, context, msg_check or fallback)
         return
 
-    # Активируем (унифицированный адаптер) — твой текущий путь: (profile, code)
+    # Активируем (унифицированный адаптер) — текущий путь: (profile, code)
     ok_act, reason = call_activate_promo(profile, code)
 
     if ok_act:
@@ -57,8 +76,9 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if ui == "ru"
                 else "✅ Message limit removed — you can continue!")
         await safe_reply(update, context, tail)
-        # NEW: «иногда» — 0.7 по ТЗ
-        await maybe_send_sticker(context, update.effective_chat.id, "fire", chance=0.7)
+
+        # «иногда» — 0.7 по ТЗ
+        await _maybe_send_sticker(context, chat_id, key="fire", chance=0.7)
         return
 
     # Не удалось активировать — локализуем причину

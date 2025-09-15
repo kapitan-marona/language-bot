@@ -2,7 +2,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
-from components.promo_texts import PROMO_STATUS, promo_status_timed_left
 
 # Список доступных промокодов (ключи в нижнем регистре)
 PROMO_CODES: Dict[str, Dict[str, Any]] = {
@@ -169,7 +168,6 @@ def format_promo_status_for_user(profile: dict, lang: str = "ru") -> str:
       Ниже — детали по строкам (на нужном языке)
     Если промокод не активирован — возвращаем дружелюбный двухстрочный текст.
     """
-    from datetime import datetime, timedelta, timezone
     from components.promo_texts import PROMO_HEADER_TPL, PROMO_DETAILS
     # защита от неожиданного значения языка
     lang = "en" if lang == "en" else "ru"
