@@ -338,10 +338,20 @@ def _hits_creator(user_input: str, interface_lang: str) -> bool:
 async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Dict, cfg: ChatCfg, user_input: str, chat_id: int):
     translator_cfg = session.get("translator") or {}
     direction = translator_cfg.get("direction", "ui→target")
-    tr_style = translator_cfg.get("style", "casual")
-    output = translator_cfg.get("output", "text")
+    tr_style  = translator_cfg.get("style", "casual")
+    output    = translator_cfg.get("output", "text")
 
-    translated = await do_translate(user_input, interface_lang=cfg.interface_lang, target_lang=cfg.target_lang, direction=direction, style=tr_style)
+    translated = await do_translate(
+        user_input,
+        interface_lang=cfg.interface_lang,
+        target_lang=cfg.target_lang,
+        direction=direction,
+        style=tr_style,
+        level=cfg.level,        # ← важно
+        output=output,          # ← важно
+    )
+
+    translated = (translated or "").strip()
     session["last_assistant_text"] = translated
 
     tts_lang = cfg.interface_lang if direction == "target→ui" else cfg.target_lang
@@ -351,7 +361,11 @@ async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYP
             await _send_voice_or_audio(context, chat_id, path)
         except Exception:
             safe = _strip_html(translated)
-            await context.bot.send_message(chat_id=chat_id, text=("⚠️ Не удалось озвучить, вот текст:\n" + safe) if cfg.interface_lang == "ru" else ("⚠️ Couldn't voice; text:\n" + safe))
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=("⚠️ Не удалось озвучить, вот текст:\n" + safe) if cfg.interface_lang == "ru"
+                     else ("⚠️ Couldn't voice; text:\n" + safe)
+            )
     else:
         await update.message.reply_text(translated, parse_mode=None)
 
