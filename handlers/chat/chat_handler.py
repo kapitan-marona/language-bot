@@ -16,7 +16,7 @@ from components.voice import synthesize_voice
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from state.session import user_sessions
 from handlers.chat.prompt_templates import get_system_prompt
-from components.triggers import CREATOR_TRIGGERS
+from components.triggers import CREATOR_TRIGGERS, is_strict_say_once_trigger
 from components.code_switch import rewrite_mixed_input
 from components.profile_db import save_user_profile
 
@@ -256,9 +256,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if msg_norm in {"/translator_off","/translator off","translator off","выйти из переводчика","переводчик выкл"}:
             return await exit_translator(update, context, session)
 
-        # ===== Озвучка: инлайн или последний ответ (перехват ДО GPT) =====
-        say_cmd = smart_say_once_parse(user_input, interface_lang, {})
-        if say_cmd:
+        # ===== Озвучка последнего ответа (строгий триггер, без smart_say_once_parse) =====
+        if is_strict_say_once_trigger(user_input, interface_lang):
             # язык TTS: в переводчике — по направлению, иначе — target_lang
             if session.get("task_mode") == "translator":
                 direction = (translator_cfg or {}).get("direction", "ui→target")
@@ -266,24 +265,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 tts_lang = target_lang
 
-            try:
-                if say_cmd["mode"] == "inline":
-                    text_to_voice = say_cmd["text"]
-                else:
-                    last_text = session.get("last_assistant_text")
-                    if not last_text:
-                        msg = "Пока нечего озвучивать 😅" if interface_lang == "ru" else "Nothing to voice yet 😅"
-                        await update.message.reply_text(msg)
-                        return
-                    text_to_voice = last_text
+            last_text = session.get("last_assistant_text")
+            if not last_text:
+                msg = "Пока нечего озвучивать 😅" if interface_lang == "ru" else "Nothing to voice yet 😅"
+                await update.message.reply_text(msg)
+                return
 
-                voice_path = synthesize_voice(text_to_voice, LANGUAGE_CODES.get(tts_lang, "en-US"), level)
+            try:
+                voice_path = synthesize_voice(last_text, LANGUAGE_CODES.get(tts_lang, "en-US"), level)
                 if voice_path:
                     await _send_voice_or_audio(context, chat_id, voice_path)
                 else:
                     raise RuntimeError("No TTS data")
             except Exception:
-                safe = _strip_html(text_to_voice if say_cmd["mode"] == "inline" else session.get("last_assistant_text", ""))
+                safe = _strip_html(last_text)
                 msg = ("Не удалось озвучить, вот текст:\n" + safe) if interface_lang == "ru" else ("Couldn't voice it; here is the text:\n" + safe)
                 logger.exception("[TTS once] failed", exc_info=True)
                 await context.bot.send_message(chat_id=chat_id, text=msg)
