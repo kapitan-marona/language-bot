@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import asyncio
 from typing import Literal, Dict, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
