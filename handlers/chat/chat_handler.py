@@ -74,6 +74,64 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         else:
             await context.bot.send_audio(chat_id=chat_id, audio=f)
 
+def _enforce_gentle_correction_limits(user_text: str, assistant_html: str) -> str:
+    """
+    Страховка от 'перекоррекции':
+      • не допускаем длинного 'эха' пользователя,
+      • ограничиваем число <b>…</b> до 3,
+      • убираем гипер-развёрнутые 'правила' длиной > ~500 символов в одном куске.
+    Никакой 'переписки' смысла ответа — только мягкая чистка.
+    """
+    if not assistant_html:
+        return assistant_html
+
+    text = assistant_html
+
+    # 1) Срежем длинные кавычки/цитаты пользователя (эхо > 60% длины исхода)
+    ut = (user_text or "").strip()
+    if ut:
+        uclean = re.sub(r"\s+", " ", ut).strip().lower()
+        tclean = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", text)).strip().lower()
+        if len(uclean) >= 12 and uclean in tclean and len(uclean) / max(1, len(tclean)) > 0.6:
+            # удалим прямую вставку исходной фразы в ответе
+            pattern = re.escape(ut)
+            text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # 2) Ограничим число жирных замен до 3
+    #    оставляем первые 3 <b>…</b>, остальные разжирняем (снимаем теги)
+    def _strip_b_tags(s: str) -> str:
+        s = re.sub(r"</b\s*>", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"<b\s*>", "", s, flags=re.IGNORECASE)
+        return s
+
+    bold_spans = list(re.finditer(r"<b[^>]*>.*?</b>", text, flags=re.IGNORECASE | re.DOTALL))
+    if len(bold_spans) > 3:
+        # снимаем жирность со всех после первых трёх
+        kept = 0
+        out = []
+        i = 0
+        while i < len(text):
+            m = re.search(r"<b[^>]*>.*?</b>", text[i:], flags=re.IGNORECASE | re.DOTALL)
+            if not m:
+                out.append(text[i:])
+                break
+            start = i + m.start()
+            end   = i + m.end()
+            out.append(text[i:start])
+            segment = text[start:end]
+            if kept < 3:
+                out.append(segment)
+                kept += 1
+            else:
+                out.append(_strip_b_tags(segment))
+            i = end
+        text = "".join(out)
+
+    # 3) Слишком длинные "разборы ошибок" (куски > 500 символов) — режем до 500
+    text = re.sub(r"(.{500,}?)(\n|$)", lambda m: m.group(1)[:500] + (m.group(2) or ""), text)
+
+    return text
+
 
 # ====================== ГЛАВНЫЙ ХЕНДЛЕР ======================
 @async_rate_limit(RATE_LIMIT_SECONDS)
@@ -173,6 +231,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply_text = f"{preface_html}\n\n{final_reply_text}"
 
     session["last_assistant_text"] = assistant_reply
+    # Страховка от 'перекоррекции'
+    final_reply_text = _enforce_gentle_correction_limits(clean_user_input, final_reply_text)
 
     # Канал ответа: voice или text
     if cfg.mode == "voice":
