@@ -23,6 +23,9 @@ from components.profile_db import save_user_profile
 # Переводчик: строгая функция перевода
 from components.translator import do_translate
 
+# ✅ Новое: конфиг стикеров и приоритет
+from components.stickers import STICKERS_CONFIG, STICKERS_PRIORITY
+
 # Режим переводчика: дефолты/вход/выход (если файла нет — мягкие заглушки)
 try:
     from handlers.translator_mode import ensure_tr_defaults, enter_translator, exit_translator
@@ -47,67 +50,7 @@ LANGUAGE_CODES = {
     "fi": "fi-FI",
 }
 
-# ====================== СТИКЕРЫ + ТРИГГЕРЫ ======================
-# ОСТАВЛЯЕМ ТОЛЬКО два стикера: hello (привет) и fire (комплименты). sorry — удалён.
-STICKERS = {
-    "hello": ["CAACAgIAAxkBAAItV2i269d_71pHUu5Rm9f62vsCW0TrAAJJkAAC96S4SXJs5Yp4uIyENgQ"],
-    "fire":  ["CAACAgIAAxkBAAItWWi26-vSBaRPbX6a2imIoWq4Jo0pAALhfwAC6gm5SSTLD1va-EfRNgQ"],
-}
-
-# ⚠️ Сохранён для совместимости с импортами (например, из onboarding).
-# Делает НИЧЕГО, чтобы бот не слал стикеры сам по себе.
-async def maybe_send_sticker(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
-    return  # no-op (совместимость)
-
-_GREET_EMOJI = {"👋", "🤝"}
-_COMPLIMENT_EMOJI = {"🔥", "💯", "👏", "🌟", "👍", "❤️", "💖", "✨"}
-
-_GREET_WORDS = {
-    "hi", "hello", "hey",
-    "привет", "здравствуй", "здорово", "хай", "хелло",
-    "bonjour", "salut",
-    "hola", "buenas",
-    "hallo", "servus", "moin",
-    "hej", "hejsan", "tjena",
-    "hei", "moi", "terve",
-}
-
-_COMPLIMENT_STEMS = {
-    "great", "awesome", "amazing", "love it", "nice", "cool",
-    "класс", "супер", "топ", "круто", "молодец", "огонь",
-    "super", "génial", "genial", "top", "formid",
-    "genial", "increíble", "increible", "super", "top", "bravo",
-    "super", "toll", "klasse", "mega", "geil",
-    "super", "grym", "toppen", "snyggt", "bra jobbat",
-    "mahtava", "huikea", "upea", "super", "hieno",
-}
-
-# «Извини/ошибка» больше не используем для стикеров:
-_SORRY_STEMS = set()
-
-def _norm_msg_keep_emoji(s: str) -> str:
-    s = (s or "").lower()
-    s = re.sub(r"[^\w\s\u0400-\u04FF\u00C0-\u024F\u1F300-\u1FAFF]", " ", s, flags=re.UNICODE)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-def is_greeting(raw: str) -> bool:
-    if not raw:
-        return False
-    if any(e in raw for e in _GREET_EMOJI):
-        return True
-    msg = _norm_msg_keep_emoji(raw)
-    words = set(msg.split())
-    return any(w in words for w in _GREET_WORDS)
-
-def is_compliment(raw: str) -> bool:
-    if not raw:
-        return False
-    if any(e in raw for e in _COMPLIMENT_EMOJI):
-        return True
-    msg = _norm_msg_keep_emoji(raw)
-    return any(kw in msg for kw in _COMPLIMENT_STEMS)
-
+# ====================== УТИЛИТЫ ======================
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     text = (text or "").strip()
     if len(text) > max_len:
@@ -125,25 +68,62 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
         with open(file_path, "rb") as af:
             await context.bot.send_audio(chat_id=chat_id, audio=af)
 
-# Шлём стикер ТОЛЬКО на пользовательские сообщения. С анти-флудом per chat.
-async def maybe_send_sticker_user(ctx: ContextTypes.DEFAULT_TYPE, update: Update, key: str, chance: float = 0.4):
+def _normalize_for_triggers(s: str) -> str:
+    s = (s or "").lower()
+    # латиница/кириллица/европ. акценты оставляем; выкидываем пунктуацию
+    s = re.sub(r"[^\w\s\u0400-\u04FF\u00C0-\u024F]", " ", s, flags=re.UNICODE)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _match_sticker_key(user_raw: str) -> str | None:
+    """
+    Возвращает ключ стикера из STICKERS_CONFIG согласно приоритету
+    или None, если триггера нет.
+    """
+    raw = user_raw or ""
+    norm = _normalize_for_triggers(raw)
+
+    for key in STICKERS_PRIORITY:
+        cfg = STICKERS_CONFIG.get(key) or {}
+        # Эмодзи — ищем в "сыром" тексте
+        for emo in cfg.get("emoji", []):
+            if emo and emo in raw:
+                return key
+        # Фразы — ищем по нормализованной строке (как подстроку)
+        for trig in cfg.get("triggers", []):
+            t = _normalize_for_triggers(trig)
+            if t and t in norm:
+                return key
+    return None
+
+async def maybe_send_sticker_thematic(context: ContextTypes.DEFAULT_TYPE, update: Update, session: dict, history: list, user_text: str):
+    """
+    1) Антифлуд: не больше 1 стикера в окне из 40 реплик истории.
+    2) Вероятность 30% при сработавшем триггере.
+    3) Отправляет стикер и ничего не возвращает (основной ответ всё равно идёт текстом по обычной логике).
+    """
+    # 1) окно истории
+    last_idx = session.get("last_sticker_hist_idx")
+    hist_len = len(history or [])
+    if isinstance(last_idx, int) and (hist_len - last_idx) < 40:
+        return  # уже был стикер в текущем окне из 40 сообщений
+
+    # 2) матч триггера
+    key = _match_sticker_key(user_text)
+    if not key:
+        return
+
+    # 3) вероятность 30%
+    if random.random() >= 0.30:
+        return
+
+    # 4) отправка
+    file_id = (STICKERS_CONFIG.get(key) or {}).get("id")
+    if not file_id:
+        return
     try:
-        if key not in STICKERS or not STICKERS[key]:
-            return
-        # Реагируем только на пользователя, не на бота
-        if not update.effective_user or (hasattr(ctx, "bot") and update.effective_user.id == ctx.bot.id):
-            return
-
-        chat_id = update.effective_chat.id
-        sess = user_sessions.setdefault(chat_id, {})
-        now = time.time()
-        # антифлуд: не чаще 8 сек на чат
-        if now < sess.get("next_sticker_at", 0):
-            return
-
-        if random.random() < chance:
-            await ctx.bot.send_sticker(chat_id=chat_id, sticker=random.choice(STICKERS[key]))
-            sess["next_sticker_at"] = now + 8.0
+        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=file_id)
+        session["last_sticker_hist_idx"] = hist_len  # запомнить позицию
     except Exception:
         logger.debug("send_sticker failed", exc_info=True)
 
@@ -284,11 +264,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=chat_id, text=msg)
             return
 
-        # ===== СТИКЕРЫ: реагируем только на слова пользователя (один стикер на сообщение) =====
-        if is_greeting(user_input):
-            await maybe_send_sticker_user(context, update, "hello", chance=0.45)
-        elif is_compliment(user_input):
-            await maybe_send_sticker_user(context, update, "fire", chance=0.45)
+        # ===== СТИКЕРЫ: тематические (антифлуд 1/40, шанс 30%) =====
+        # Нужна история для окна 40 — создаём её заранее
+        history = session.setdefault("history", [])
+        await maybe_send_sticker_thematic(context, update, session, history, user_input)
 
         # создатель
         norm_for_creator = re.sub(r"[^\w\s]", "", user_input.lower())
@@ -338,8 +317,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # === История + промпт (ОБЫЧНЫЙ ЧАТ) ===
-        history = session.setdefault("history", [])
-
+        # history уже создан выше
         # разовый wrap-up после выхода из переводчика
         wrap_hint = None
         if session.pop("just_left_translator", False):
@@ -411,8 +389,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=chat_id, text="⚠️ Не удалось отправить голос. Вот текст:\n" + _strip_html(final_reply_text))
 
             # Текст после голоса:
-            # - если включён дубль и уровень A0–A1 — отдаём ТОЛЬКО перевод на языке интерфейса (без HTML/эмодзи)
-            # - иначе для A0–A2 — как и раньше: отдать текст без HTML (оригинал)
             try:
                 if append_translation and ui_side_note:
                     await context.bot.send_message(chat_id=chat_id, text=_strip_html(ui_side_note))

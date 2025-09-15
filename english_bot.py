@@ -91,11 +91,6 @@ bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 # -------------------------------------------------------------------------
 # Утилиты
 # -------------------------------------------------------------------------
-async def sticker_echo(update, context):
-    if update.message and update.message.sticker:
-        fid = update.message.sticker.file_id
-        await update.message.reply_text(f"file_id: {fid}")
-
 
 def fire_and_forget(coro, *, name: str = "task"):
     """Безопасный запуск фоновой задачи с логированием исключения."""
@@ -206,7 +201,6 @@ def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
     
     # Команды
-    app_.add_handler(MessageHandler(filters.Sticker.ALL, sticker_echo))
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
     app_.add_handler(CommandHandler("reset", reset_admin_only))  # было reset_command
     app_.add_handler(CommandHandler("help", help_command))
