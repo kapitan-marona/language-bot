@@ -6,8 +6,6 @@ from telegram.ext import ContextTypes
 from components.profile_db import save_user_profile, get_user_profile
 from components.i18n import get_ui_lang  # NEW
 
-# NEW: импорт хелпера стикеров
-from components.stickers import maybe_send_sticker
 
 Product = Literal["pro_30d"]
 
@@ -144,5 +142,4 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         else f"✅ Payment complete! Access active until {until.date().isoformat()}. Enjoy!"
     )
     await update.message.reply_text(msg)
-    # NEW: «иногда» — 0.7 по ТЗ
-    await maybe_send_sticker(ctx, update.effective_chat.id, "fire", chance=0.7)
+    
