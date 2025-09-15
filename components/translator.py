@@ -1,4 +1,4 @@
-# components/translator.py
+import asyncio
 from __future__ import annotations
 from typing import Literal, Dict, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -98,6 +98,39 @@ def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> Inli
         [btn_exit],
     ])
 
+# вставь РЯДОМ (до do_translate)
+def _cap_for_level(level: str) -> str:
+    lvl = (level or "A2").upper()
+    if lvl == "A0": return "Keep it very simple. Max 1–2 short sentences."
+    if lvl == "A1": return "Simple one-clause sentences. Max 1–3 sentences."
+    if lvl == "A2": return "Clear basic grammar. Max 2–4 sentences."
+    if lvl == "B1": return "Max 2–4 sentences."
+    return "Max 2–5 sentences."  # B2–C2
+
+
+def _translator_system(
+    *,
+    direction: Direction,
+    style: TStyle,
+    level: str,
+    interface_lang: str,
+    target_lang: str,
+    voice: bool,
+) -> str:
+    d = "UI→TARGET" if (direction or "ui→target") == "ui→target" else "TARGET→UI"
+    reg = "casual, idiomatic" if (style or "casual") == "casual" else "business, neutral, concise"
+    caps = _cap_for_level(level)
+    voice_hint = " Keep sentences short and well-paced for voice." if voice else ""
+    return (
+        "You are a precise translator.\n"
+        f"Direction: {d}. Register: {reg}. {caps}{voice_hint}\n"
+        "Return ONLY the translation. No comments, no templates, no follow-up question.\n"
+        "No quotes or brackets. No emojis.\n"
+        "Prefer established equivalents for idioms/proverbs; otherwise translate faithfully.\n"
+        f"Source language is {'UI' if d=='UI→TARGET' else 'TARGET'}; "
+        f"output language is {'TARGET' if d=='UI→TARGET' else 'UI'}."
+    )
+
 # ====== Строгий детерминированный перевод (экспорт для chat_handler) ======
 async def do_translate(
     text: str,
@@ -106,25 +139,43 @@ async def do_translate(
     target_lang: str,
     direction: Direction,
     style: TStyle,
+    level: str = "A2",
+    output: Output = "text",       # "text" | "voice"
+    timeout: float = 15.0,
 ) -> str:
     """
-    Только перевод, без кавычек/эмодзи/пояснений.
-    Учитывает направление и стиль (casual/business).
+    Строгий и быстрый перевод: учитывает направление, стиль, уровень, формат (voice/text).
+    Возвращает ТОЛЬКО перевод — без кавычек, скобок, эмодзи и пояснений.
     """
     if not text:
         return ""
 
-    src_lang = interface_lang if direction == "ui→target" else target_lang
-    dst_lang = target_lang if direction == "ui→target" else interface_lang
+    ui  = (interface_lang or "en").lower()
+    tgt = (target_lang or "en").lower()
 
-    sys = (
-        "You are a precise bilingual translator. "
-        f"Translate from {src_lang.upper()} to {dst_lang.upper()} in a {style} tone. "
-        "Output ONLY the translation. No quotes. No brackets. No explanations. No emojis."
+    sys = _translator_system(
+        direction=direction,
+        style=style,
+        level=level,
+        interface_lang=ui,
+        target_lang=tgt,
+        voice=(output == "voice"),
     )
-    prompt = [
+
+    messages = [
         {"role": "system", "content": sys},
         {"role": "user", "content": text},
     ]
-    out = await ask_gpt(prompt, "gpt-4o-mini")
-    return (out or "").strip().strip("«»\"' ")
+
+    async def _call():
+        # мини-модель: быстрее и дешевле для переводов
+        return await ask_gpt(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=180)
+
+    try:
+        out = await asyncio.wait_for(_call(), timeout=timeout)
+    except asyncio.TimeoutError:
+        # мягкий фолбэк — вернём исходник, чтобы не «молчать»
+        return text.strip()
+
+    # подчистим кавычки/скобки/пробелы
+    return (out or "").strip().strip("«»\"'()[] \n\r\t")
