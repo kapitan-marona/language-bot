@@ -16,7 +16,7 @@ from components.gpt_client import ask_gpt
 from components.mode import MODE_SWITCH_MESSAGES, get_mode_keyboard
 from components.stickers_service import maybe_send_thematic_sticker
 from components.translator import do_translate
-from components.voice import speech_to_text_async, synthesize_voice_async  # новые async фасады
+from components.voice_async import speech_to_text_async, synthesize_voice_async
 from components.rate_limit import async_rate_limit
 from components.history import get_history, append_history
 from components.profile_db import save_user_profile
