@@ -1,3 +1,4 @@
+# components/translator.py
 from __future__ import annotations
 
 import asyncio
@@ -17,11 +18,6 @@ TStyle = Literal["casual", "business"]
 FLAGS = {"ru":"🇷🇺","en":"🇬🇧","fr":"🇫🇷","es":"🇪🇸","de":"🇩🇪","sv":"🇸🇪","fi":"🇫🇮"}
 SHORT = {"ru":"RU","en":"EN","fr":"FR","es":"ES","de":"DE","sv":"SV","fi":"FI"}
 
-def flag(code: str) -> str:
-    return FLAGS.get((code or "en").lower(), "🏳️")
-def short(code: str) -> str:
-    return SHORT.get((code or "en").lower(), (code or "EN").upper())
-
 LANG_TITLES = {
     "ru": "🇷🇺 Русский",
     "en": "🇬🇧 English",
@@ -31,6 +27,24 @@ LANG_TITLES = {
     "sv": "🇸🇪 Svenska",
     "fi": "🇫🇮 Suomi",
 }
+
+# Человекочитаемые названия (для системки)
+LANG_NAMES = {
+    "ru": "Russian",
+    "en": "English",
+    "fr": "French",
+    "es": "Spanish",
+    "de": "German",
+    "sv": "Swedish",
+    "fi": "Finnish",
+}
+
+def flag(code: str) -> str:
+    return FLAGS.get((code or "en").lower(), "🏳️")
+
+def short(code: str) -> str:
+    return SHORT.get((code or "en").lower(), (code or "EN").upper())
+
 def target_lang_title(code: str) -> str:
     return LANG_TITLES.get((code or "en").lower(), (code or "EN").upper())
 
@@ -102,7 +116,7 @@ def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> Inli
         [btn_exit],
     ])
 
-# ——— микро-хелперы для системки переводчика
+# === Вспомогательное: «сжатие» по уровню ===
 def _cap_for_level(level: str) -> str:
     lvl = (level or "A2").upper()
     if lvl == "A0": return "Keep it very simple. Max 1–2 short sentences."
@@ -110,6 +124,10 @@ def _cap_for_level(level: str) -> str:
     if lvl == "A2": return "Clear basic grammar. Max 2–4 sentences."
     if lvl == "B1": return "Max 2–4 sentences."
     return "Max 2–5 sentences."  # B2–C2
+
+def _lang_name(code: str) -> str:
+    c = (code or "en").lower()
+    return LANG_NAMES.get(c, c.upper())
 
 def _translator_system(
     *,
@@ -120,18 +138,36 @@ def _translator_system(
     target_lang: str,
     voice: bool,
 ) -> str:
+    """
+    Критично: фиксируем исходный и целевой языки явным текстом,
+    чтобы модель НЕ «скатывалась» в английский по умолчанию.
+    """
     d = "UI→TARGET" if (direction or "ui→target") == "ui→target" else "TARGET→UI"
     reg = "casual, idiomatic" if (style or "casual") == "casual" else "business, neutral, concise"
     caps = _cap_for_level(level)
     voice_hint = " Keep sentences short and well-paced for voice." if voice else ""
+
+    # Источник/назначение
+    src_code = interface_lang if d == "UI→TARGET" else target_lang
+    dst_code = target_lang if d == "UI→TARGET" else interface_lang
+    src_name = _lang_name(src_code)
+    dst_name = _lang_name(dst_code)
+
+    # Жёсткие требования к выходному языку
+    dst_guard = (
+        f"Output MUST be in {dst_name} only. "
+        f"Do NOT use English unless {dst_name} is English."
+    )
+
     return (
-        "You are a precise translator.\n"
+        "You are a precise bilingual translator.\n"
         f"Direction: {d}. Register: {reg}. {caps}{voice_hint}\n"
-        "Return ONLY the translation. No comments, no templates, no follow-up question.\n"
-        "No quotes or brackets. No emojis.\n"
-        "Prefer established equivalents for idioms/proverbs; otherwise translate faithfully.\n"
-        f"Source language is {'UI' if d=='UI→TARGET' else 'TARGET'}; "
-        f"output language is {'TARGET' if d=='UI→TARGET' else 'UI'}."
+        f"Source language: {src_name} (code: {src_code.upper()}).\n"
+        f"Target language: {dst_name} (code: {dst_code.upper()}).\n"
+        f"{dst_guard}\n"
+        "Return ONLY the translation — no comments, no templates, no follow-up question.\n"
+        "No quotes/brackets. No emojis.\n"
+        "Prefer established equivalents for idioms/proverbs; otherwise translate faithfully."
     )
 
 # ====== Строгий детерминированный перевод (экспорт для chat_handler) ======
@@ -156,9 +192,6 @@ async def do_translate(
     ui  = (interface_lang or "en").lower()
     tgt = (target_lang or "en").lower()
 
-    logger.debug("[TR] call: dir=%s style=%s lvl=%s out=%s ui=%s tgt=%s text_len=%d",
-                 direction, style, level, output, ui, tgt, len(text or ""))
-
     sys = _translator_system(
         direction=direction,
         style=style,
@@ -173,20 +206,25 @@ async def do_translate(
         {"role": "user", "content": text},
     ]
 
+    logger.debug(
+        "[TR] call: dir=%s style=%s lvl=%s out=%s ui=%s tgt=%s text_len=%d",
+        direction, style, level, output, ui, tgt, len(text or "")
+    )
+
     async def _call():
         # мини-модель: быстрее и дешевле для переводов
         return await ask_gpt(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=180)
 
     try:
         out = await asyncio.wait_for(_call(), timeout=timeout)
-        logger.debug("[TR] result len=%d", len(out or ""))
     except asyncio.TimeoutError:
-        logger.exception("[TR] do_translate timeout")
+        logger.error("[TR] do_translate timeout")
         # мягкий фолбэк — вернём исходник, чтобы не «молчать»
         return text.strip()
-    except Exception:
-        logger.exception("[TR] do_translate error")
-        return ""
+    except TypeError as e:
+        # если обёртка ask_gpt пока без именованных параметров
+        logger.error("[TR] do_translate error (TypeError): %s", e)
+        out = await ask_gpt(messages, model="gpt-4o-mini")
 
-    # подчистим кавычки/скобки/пробелы
-    return (out or "").strip().strip("«»\"'()[] \n\r\t")
+    result = (out or "").strip().strip("«»\"'()[] \n\r\t")
+    return result
