@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Dict, Any
 import re
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -11,6 +12,8 @@ from components.translator import (
     translator_status_text,
     target_lang_title,
 )
+
+logger = logging.getLogger(__name__)
 
 TRANSLATE_TRIGGERS = (
     r"^\s*/translate\b",
@@ -32,6 +35,8 @@ def ensure_tr_defaults(sess: Dict[str, Any]) -> None:
 async def enter_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, sess: Dict[str, Any]):
     sess["task_mode"] = "translator"
     ensure_tr_defaults(sess)
+    logger.info("[TR] enter: ui=%s tgt=%s cfg=%s",
+                sess.get("interface_lang"), sess.get("target_lang"), sess.get("translator"))
 
     ui = sess.get("interface_lang", "ru")
     tgt_code = (sess.get("target_lang") or "en").lower()
@@ -40,6 +45,7 @@ async def enter_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, s
     await context.bot.send_message(update.effective_chat.id, txt, reply_markup=kb)
 
 async def exit_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, sess: Dict[str, Any]):
+    logger.info("[TR] exit")
     ui = sess.get("interface_lang", "ru")
     sess["task_mode"] = "chat"
     sess["just_left_translator"] = True  # разовый wrap-up
@@ -57,7 +63,7 @@ def exit_confirm_keyboard(lbl_yes: str, lbl_no: str) -> InlineKeyboardMarkup:
 async def handle_translator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat.id  # <-- фикс
+    chat_id = query.message.chat.id
     sess = user_sessions.setdefault(chat_id, {})
     ensure_tr_defaults(sess)
 
@@ -65,6 +71,8 @@ async def handle_translator_callback(update: Update, context: ContextTypes.DEFAU
     tgt_code = (sess.get("target_lang") or "en").lower()
     cfg = sess["translator"]
     data = (query.data or "")
+
+    logger.debug("[TR] cb data=%s cfg(before)=%s", data, cfg)
 
     if data == "TR:TOGGLE:DIR":
         cfg["direction"] = "target→ui" if cfg["direction"] == "ui→target" else "ui→target"
@@ -84,6 +92,8 @@ async def handle_translator_callback(update: Update, context: ContextTypes.DEFAU
         return
     elif data == "TR:CONFIRM_EXIT:NO":
         pass
+
+    logger.debug("[TR] cb apply -> cfg(after)=%s", cfg)
 
     txt = translator_status_text(ui, target_lang_title(tgt_code), cfg)
     kb = get_translator_keyboard(ui, cfg, tgt_code)

@@ -40,7 +40,6 @@ LANGUAGE_CODES = {
     "fi": "fi-FI",
 }
 
-
 @dataclass
 class ChatCfg:
     interface_lang: str = "en"
@@ -50,22 +49,18 @@ class ChatCfg:
     style: str = "casual"
     task_mode: str = "chat"  # chat|translator
 
-
 # ====================== УТИЛИТЫ ======================
 def _sanitize_user_text(text: str, max_len: int = 2000) -> str:
     text = (text or "").strip()
     return text[:max_len]
 
-
 def _strip_html(s: str) -> str:
     return re.sub(r"<[^>\n]+>", "", unescape(s or ""))
-
 
 def _norm_cmd(s: str) -> str:
     s = re.sub(r"[^\w\s]", " ", (s or "").lower())
     s = re.sub(r"\s+", " ", s).strip()
     return s
-
 
 async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int, file_path: str):
     with open(file_path, "rb") as f:
@@ -75,38 +70,22 @@ async def _send_voice_or_audio(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
             await context.bot.send_audio(chat_id=chat_id, audio=f)
 
 def _enforce_gentle_correction_limits(user_text: str, assistant_html: str) -> str:
-    """
-    Страховка от 'перекоррекции':
-      • не допускаем длинного 'эха' пользователя,
-      • ограничиваем число <b>…</b> до 3,
-      • убираем гипер-развёрнутые 'правила' длиной > ~500 символов в одном куске.
-    Никакой 'переписки' смысла ответа — только мягкая чистка.
-    """
     if not assistant_html:
         return assistant_html
-
     text = assistant_html
-
-    # 1) Срежем длинные кавычки/цитаты пользователя (эхо > 60% длины исхода)
     ut = (user_text or "").strip()
     if ut:
         uclean = re.sub(r"\s+", " ", ut).strip().lower()
         tclean = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", text)).strip().lower()
         if len(uclean) >= 12 and uclean in tclean and len(uclean) / max(1, len(tclean)) > 0.6:
-            # удалим прямую вставку исходной фразы в ответе
             pattern = re.escape(ut)
             text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-
-    # 2) Ограничим число жирных замен до 3
-    #    оставляем первые 3 <b>…</b>, остальные разжирняем (снимаем теги)
     def _strip_b_tags(s: str) -> str:
         s = re.sub(r"</b\s*>", "", s, flags=re.IGNORECASE)
         s = re.sub(r"<b\s*>", "", s, flags=re.IGNORECASE)
         return s
-
     bold_spans = list(re.finditer(r"<b[^>]*>.*?</b>", text, flags=re.IGNORECASE | re.DOTALL))
     if len(bold_spans) > 3:
-        # снимаем жирность со всех после первых трёх
         kept = 0
         out = []
         i = 0
@@ -126,12 +105,8 @@ def _enforce_gentle_correction_limits(user_text: str, assistant_html: str) -> st
                 out.append(_strip_b_tags(segment))
             i = end
         text = "".join(out)
-
-    # 3) Слишком длинные "разборы ошибок" (куски > 500 символов) — режем до 500
     text = re.sub(r"(.{500,}?)(\n|$)", lambda m: m.group(1)[:500] + (m.group(2) or ""), text)
-
     return text
-
 
 # ====================== ГЛАВНЫЙ ХЕНДЛЕР ======================
 @async_rate_limit(RATE_LIMIT_SECONDS)
@@ -141,6 +116,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     _ensure_defaults(session)
     asyncio.create_task(_update_last_seen(chat_id))  # неблокирующе
+
+    # лог «ворот» в режим переводчика
+    logger.debug("[TR] gate: task_mode=%s translator_cfg=%s",
+                 session.get("task_mode"), session.get("translator"))
 
     # онбординг-промо: пропускаем в соответствующий хендлер
     if session.get("onboarding_stage") == "awaiting_promo":
@@ -240,7 +219,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(final_reply_text, parse_mode="HTML")
 
-
 # ====================== ПОДФУНКЦИИ ======================
 async def _update_last_seen(chat_id: int):
     try:
@@ -248,7 +226,6 @@ async def _update_last_seen(chat_id: int):
         await asyncio.to_thread(save_user_profile, chat_id, last_seen_at=_dt.datetime.utcnow().isoformat())
     except Exception:
         logger.debug("failed to update last_seen_at", exc_info=True)
-
 
 async def _read_user_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
     if update.message.voice:
@@ -271,7 +248,6 @@ async def _read_user_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return ""
     return update.message.text or ""
 
-
 async def _maybe_switch_mode(update: Update, session: Dict, cfg: ChatCfg, msg_norm: str) -> bool:
     VOICE_STRICT = {"голос", "в голос", "в голосовой режим", "voice", "voice mode"}
     TEXT_STRICT = {"текст", "в текст", "в текстовый режим", "text", "text mode"}
@@ -290,7 +266,6 @@ async def _maybe_switch_mode(update: Update, session: Dict, cfg: ChatCfg, msg_no
         return True
     return False
 
-
 async def _maybe_toggle_translator(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Dict, msg_norm: str) -> bool:
     try:
         from handlers.translator_mode import ensure_tr_defaults, enter_translator, exit_translator
@@ -306,7 +281,6 @@ async def _maybe_toggle_translator(update: Update, context: ContextTypes.DEFAULT
         await exit_translator(update, context, session)
         return True
     return False
-
 
 async def _say_last_once(context: ContextTypes.DEFAULT_TYPE, chat_id: int, session: Dict, cfg: ChatCfg):
     if session.get("task_mode") == "translator":
@@ -329,11 +303,9 @@ async def _say_last_once(context: ContextTypes.DEFAULT_TYPE, chat_id: int, sessi
         msg = ("Не удалось озвучить, вот текст:\n" + safe) if cfg.interface_lang == "ru" else ("Couldn't voice it; here is the text:\n" + safe)
         await context.bot.send_message(chat_id=chat_id, text=msg)
 
-
 def _hits_creator(user_input: str, interface_lang: str) -> bool:
     norm = re.sub(r"[^\w\s]", "", (user_input or "").lower())
     return any(tr in norm for tr in CREATOR_TRIGGERS.get(interface_lang, CREATOR_TRIGGERS["en"]))
-
 
 async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Dict, cfg: ChatCfg, user_input: str, chat_id: int):
     translator_cfg = session.get("translator") or {}
@@ -341,25 +313,38 @@ async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     tr_style  = translator_cfg.get("style", "casual")
     output    = translator_cfg.get("output", "text")
 
+    logger.debug("[TR] start: dir=%s style=%s out=%s ui=%s tgt=%s lvl=%s",
+                 direction, tr_style, output, cfg.interface_lang, cfg.target_lang, cfg.level)
+
     translated = await do_translate(
         user_input,
         interface_lang=cfg.interface_lang,
         target_lang=cfg.target_lang,
         direction=direction,
         style=tr_style,
-        level=cfg.level,        # ← важно
-        output=output,          # ← важно
+        level=cfg.level,
+        output=output,
     )
 
     translated = (translated or "").strip()
     session["last_assistant_text"] = translated
+    logger.debug("[TR] do_translate done, len=%d", len(translated))
 
     tts_lang = cfg.interface_lang if direction == "target→ui" else cfg.target_lang
+    logger.debug("[TR] output channel=%s", output)
+
     if output == "voice":
+        if not translated:
+            logger.warning("[TR] empty translation in voice mode")
+            txt = "⚠️ Перевод не получился, напиши ещё раз." if cfg.interface_lang == "ru" else "⚠️ I couldn’t get the translation. Please try again."
+            await context.bot.send_message(chat_id=chat_id, text=txt)
+            return
         try:
             path = await synthesize_voice_async(translated, LANGUAGE_CODES.get(tts_lang, "en-US"), cfg.level)
+            logger.debug("[TR] TTS path=%r", path)
             await _send_voice_or_audio(context, chat_id, path)
         except Exception:
+            logger.exception("[TR] TTS failed, sending text fallback")
             safe = _strip_html(translated)
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -367,8 +352,8 @@ async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYP
                      else ("⚠️ Couldn't voice; text:\n" + safe)
             )
     else:
-        await update.message.reply_text(translated, parse_mode=None)
-
+        logger.debug("[TR] sending text, len=%d", len(translated))
+        await update.message.reply_text(translated or "…", parse_mode=None)
 
 async def _send_voice_reply(context: ContextTypes.DEFAULT_TYPE, chat_id: int, session: Dict, cfg: ChatCfg, assistant_reply: str, final_reply_text: str, ui_side_note: str):
     try:
@@ -388,7 +373,6 @@ async def _send_voice_reply(context: ContextTypes.DEFAULT_TYPE, chat_id: int, se
     except Exception:
         logger.debug("fallback text after voice failed", exc_info=True)
 
-
 def _ensure_defaults(session: Dict):
     session.setdefault("interface_lang", "en")
     session.setdefault("target_lang", "en")
@@ -396,7 +380,6 @@ def _ensure_defaults(session: Dict):
     session.setdefault("mode", "text")
     session.setdefault("style", "casual")
     session.setdefault("task_mode", "chat")
-
 
 def _cfg_from_session(session: Dict) -> ChatCfg:
     return ChatCfg(
@@ -407,7 +390,6 @@ def _cfg_from_session(session: Dict) -> ChatCfg:
         style=session.get("style", "casual"),
         task_mode=session.get("task_mode", "chat"),
     )
-
 
 async def _translate_for_ui(text: str, ui_lang: str) -> str:
     if not text or not ui_lang:

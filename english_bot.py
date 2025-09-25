@@ -82,7 +82,13 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")
 ADMIN_PANEL_TOKEN = os.getenv("ADMIN_PANEL_TOKEN")
 ENV = os.getenv("ENV", "dev")
 
-logging.basicConfig(level=logging.INFO)
+# ===== ЛОГИРОВАНИЕ (DEBUG + полезные каналы) =====
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Слишком подробный httpx можно не включать, но полезно видеть статусы:
+logging.getLogger("httpx").setLevel(logging.INFO)
+logging.getLogger("telegram").setLevel(logging.INFO)
+logging.getLogger("telegram.bot").setLevel(logging.INFO)
+
 logger = logging.getLogger("english-bot")
 
 app = FastAPI(title="English Talking Bot")
@@ -139,7 +145,6 @@ async def telegram_webhook(req: Request):
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     try:
         update = Update.de_json(data, bot_app.bot)
-        # неблокирующе + с отлавливанием исключений
         fire_and_forget(bot_app.process_update(update), name=f"upd-{getattr(update, 'update_id', 'n/a')}")
     except Exception as e:
         logger.exception("Webhook handling error: %s", e)
@@ -159,7 +164,7 @@ async def set_webhook(request: Request, url: Optional[str] = Query(default=None)
     ok = await bot_app.bot.set_webhook(
         url=target,
         drop_pending_updates=True,
-        allowed_updates=["message", "callback_query", "pre_checkout_query"],  # сузили список
+        allowed_updates=["message", "callback_query", "pre_checkout_query"],
         secret_token=TELEGRAM_WEBHOOK_SECRET_TOKEN or None,
     )
     return {"ok": ok, "url": target}
@@ -167,10 +172,6 @@ async def set_webhook(request: Request, url: Optional[str] = Query(default=None)
 # NEW: ручной/крон-запуск напоминаний (защищённый)
 @app.get("/run_nudges")
 async def run_nudges_route(request: Request, limit: int = 500, dry_run: bool = Query(default=False)):
-    """
-    Запуск рассылки «мягких» напоминаний.
-    Требует X-Admin-Token в проде.
-    """
     if not _check_admin_token(request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
@@ -218,7 +219,6 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("broadcast", broadcast_command))
     app_.add_handler(CommandHandler("stats", stats_command))
     app_.add_handler(CommandHandler("session", session_command))
-
 
     # быстрые команды
     app_.add_handler(CommandHandler("language", language_command))
@@ -278,7 +278,6 @@ def setup_handlers(app_: "Application"):
 def init_databases():
     init_profiles_db()
     init_usage_db()
-    # teach/glossary отключены — training_db не инициализируем
 
 @app.on_event("startup")
 async def on_startup():

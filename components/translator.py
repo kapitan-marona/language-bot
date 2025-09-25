@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Literal, Dict, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from components.gpt_client import ask_gpt  # <— нужен для do_translate
+
+logger = logging.getLogger(__name__)
 
 Direction = Literal["ui→target", "target→ui"]
 Output = Literal["text", "voice"]
@@ -99,7 +102,7 @@ def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> Inli
         [btn_exit],
     ])
 
-# вставь РЯДОМ (до do_translate)
+# ——— микро-хелперы для системки переводчика
 def _cap_for_level(level: str) -> str:
     lvl = (level or "A2").upper()
     if lvl == "A0": return "Keep it very simple. Max 1–2 short sentences."
@@ -107,7 +110,6 @@ def _cap_for_level(level: str) -> str:
     if lvl == "A2": return "Clear basic grammar. Max 2–4 sentences."
     if lvl == "B1": return "Max 2–4 sentences."
     return "Max 2–5 sentences."  # B2–C2
-
 
 def _translator_system(
     *,
@@ -154,6 +156,9 @@ async def do_translate(
     ui  = (interface_lang or "en").lower()
     tgt = (target_lang or "en").lower()
 
+    logger.debug("[TR] call: dir=%s style=%s lvl=%s out=%s ui=%s tgt=%s text_len=%d",
+                 direction, style, level, output, ui, tgt, len(text or ""))
+
     sys = _translator_system(
         direction=direction,
         style=style,
@@ -174,9 +179,14 @@ async def do_translate(
 
     try:
         out = await asyncio.wait_for(_call(), timeout=timeout)
+        logger.debug("[TR] result len=%d", len(out or ""))
     except asyncio.TimeoutError:
+        logger.exception("[TR] do_translate timeout")
         # мягкий фолбэк — вернём исходник, чтобы не «молчать»
         return text.strip()
+    except Exception:
+        logger.exception("[TR] do_translate error")
+        return ""
 
     # подчистим кавычки/скобки/пробелы
     return (out or "").strip().strip("«»\"'()[] \n\r\t")
