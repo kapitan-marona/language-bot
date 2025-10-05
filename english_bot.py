@@ -184,7 +184,6 @@ def setup_handlers(app_: "Application"):
 
     # === Основные команды ===
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
-    app_.add_handler(CommandHandler("reset", reset_admin_only))  # только для админов
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
     app_.add_handler(CommandHandler("promo", promo_command))
