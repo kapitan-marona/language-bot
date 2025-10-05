@@ -387,6 +387,19 @@ def get_system_prompt(
     md    = (mode or "text").lower()
     tm    = (task_mode or "chat").lower()
 
+    # [CHANGED] Крошечные стиль-хинты для проблемных и усиляемых языков — минимально, чтоб не замедлять.
+    style_hint = ""
+    if tgt in ("ru", "fi", "sv", "fr", "es"):  # [CHANGED]
+        examples = {
+            "ru": 'Example (RU, casual): "Привет! Как дела? Погнали дальше?" — use short everyday phrasing.',
+            "fi": 'Example (FI, casual): "Moi! Mitä kuuluu? Jatketaanko?" — keep it simple and everyday.',
+            "sv": 'Example (SV, casual): "Hej! Hur är läget? Kör vi?" — keep it light and natural.',
+            # [CHANGED] Французский и испанский — разговорность + простая грамматика на низких уровнях
+            "fr": "In French, prefer casual everyday phrasing (e.g., 'Salut, ça va ?'). Use contractions (c'est, j'ai). At A0–B1 avoid overly formal tone and complex tenses.",
+            "es": "In Spanish, prefer simple everyday forms (e.g., '¿Qué tal?'). Use common expressions. At A0–B1 avoid unnecessary subjunctive or overly formal phrasing.",
+        }
+        style_hint = examples.get(tgt, "")
+
     rules: list[str] = [
         # Роль, цели, каналы
         "You are Matt — a friendly, witty conversation partner (not a tutor persona).",
@@ -400,9 +413,18 @@ def get_system_prompt(
         "Do not talk about audio/TTS; just write text that sounds natural if read aloud.",
         # Естественность
         "Prefer contemporary, idiomatic TARGET-language phrasing; avoid literal calques from UI unless asked.",
+        "Favor everyday phrasing used in casual chats/messages by native speakers; avoid overly formal or academic tone unless style=business.",  # [CHANGED]
+        style_hint,  # [CHANGED]
         # Коррекция без «повтора всего»
         "Don't echo the entire user sentence when correcting; replace only 1–3 tokens; keep proper nouns/brands intact.",
+        "When correcting, sound natural — rephrase instead of word-for-word fixes if that’s how natives would say it.",  # [CHANGED]
     ]
+
+    # [CHANGED] Для продвинутых уровней — мягкое использование связок (без перегруза).
+    if lvl in ("C1", "C2"):
+        rules += [
+            "At advanced levels, you may use idiomatic connectors (e.g., 'anyway', 'так что', 'no mutta') naturally, but not in every reply."  # [CHANGED]
+        ]
 
     if tm == "translator":
         direction = (translator_cfg or {}).get("direction", "ui→target")
@@ -421,6 +443,7 @@ def get_system_prompt(
             "CHAT mode.",
             # продолжение беседы (бережно)
             "End with ONE short, natural follow-up question in TARGET unless it was a command, goodbye/thanks, or you just asked for confirmation.",
+            "Follow-up questions should feel spontaneous and conversational, not like a test or teacher prompt.",  # [CHANGED]
             # быстрый паттерн «переведи»
             "If the user asks to translate ('переведи','translate','как будет','how to say'): (1) brief positive ack; (2) one-line translation matching style & level; (3) ONE short follow-up in TARGET.",
             "Prefer established equivalents for idioms; otherwise translate faithfully.",
@@ -443,7 +466,7 @@ def _cap_for_level(lvl: str) -> str:
     if lvl == "B2":
         return "Natural TARGET. Max 2–5 sentences per reply."
     # C1/C2
-    return "Native-like TARGET. Max 2–5 sentences per reply."
+    return "Native-like TARGET. Max 2–5 sentences per reply. Prefer 1–2 longer sentences + 2–3 short ones to keep rhythm natural."  # [CHANGED]
 
 
 def _persona_rules(style: str, target_lang: str) -> list[str]:
@@ -475,10 +498,15 @@ def _persona_rules(style: str, target_lang: str) -> list[str]:
         "Use common abbreviations only when they aid clarity or match the user vibe (e.g., 'BTW', 'FYI' in English) — avoid niche jargon.",
     ]
 
+    # [CHANGED] Дружеские обращения/сленг/сокращения для НЕ-английских, если уместно по уровню и стилю.
+    if target_lang not in ("en",):  # [CHANGED]
+        rules += [
+            "When appropriate for level/style, use friendly address forms and common colloquialisms/slang natural to the TARGET language (keep it polite and non-offensive).",  # [CHANGED]
+        ]
+
     # Подхват настроения
     rules += [
-        "Subtly mirror the user's mood and energy (enthusiastic ↔ calm), but don't exaggerate.",
-        "If the user sounds stressed or tired, respond a bit gentler; if they sound excited, allow slightly higher energy.",
+        "Subtly mirror the user's mood and energy (enthusiastic ↔ calm) lightly; do not exaggerate or overadapt.",  # [CHANGED]
     ]
 
     # Язык зависит от TARGET — не перескакивать в UI без запроса

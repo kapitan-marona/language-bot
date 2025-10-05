@@ -38,7 +38,6 @@ from handlers.callbacks.menu import menu_router
 from handlers.callbacks import how_to_pay_game
 
 # Онбординг и сброс
-from handlers.commands.reset import reset_command
 from components.onboarding import send_onboarding, append_tr_callback
 from components.profile_db import init_db as init_profiles_db, get_all_chat_ids
 from components.usage_db import init_usage_db
@@ -47,17 +46,11 @@ from handlers.commands.language_cmd import language_command, language_on_callbac
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 from handlers.commands.privacy import privacy_command, delete_me_command
-from handlers.commands.admin import admin_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
 from components.i18n import get_ui_lang  # для сообщений об ограничении
-from handlers.commands.stars import stars_command
-from handlers.commands.users import users_command
-from handlers.commands.test import test_command
-from handlers.commands.broadcast import broadcast_command
-from handlers.commands.stats import stats_command
-from handlers.commands.session import session_command
+from handlers.commands import admin_cmds
 
 # NEW: напоминания
 from components.reminders import run_nudges  # NEW
@@ -184,26 +177,14 @@ async def run_nudges_route(request: Request, limit: int = 500, dry_run: bool = Q
     return {"ok": True, "processed": processed, "sent": sent, "dry_run": dry_run}
 
 # -------------------------------------------------------------------------
-# Ограничение /reset только для админов
-# -------------------------------------------------------------------------
-async def reset_admin_only(update: Update, ctx):
-    uid = update.effective_user.id if update.effective_user else None
-    if not uid or uid not in ADMIN_IDS:
-        ui = get_ui_lang(update, ctx)
-        msg = "Эта команда доступна только администратору." if ui == "ru" else "This command is only available to the admin."
-        await update.effective_message.reply_text(msg)
-        return
-    await reset_command(update, ctx)
-
-# -------------------------------------------------------------------------
 # Хендлеры
 # -------------------------------------------------------------------------
 def setup_handlers(app_: "Application"):
     app_.add_error_handler(on_error)
-    
-    # Команды
+
+    # === Основные команды ===
     app_.add_handler(CommandHandler("start", lambda u, c: send_onboarding(u, c)))
-    app_.add_handler(CommandHandler("reset", reset_admin_only))  # было reset_command
+    app_.add_handler(CommandHandler("reset", reset_admin_only))  # только для админов
     app_.add_handler(CommandHandler("help", help_command))
     app_.add_handler(CommandHandler("buy", buy_command))
     app_.add_handler(CommandHandler("promo", promo_command))
@@ -211,33 +192,38 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
     app_.add_handler(CommandHandler("privacy", privacy_command))
     app_.add_handler(CommandHandler("delete_me", delete_me_command))
-    app_.add_handler(CommandHandler("admin", admin_command))
     app_.add_handler(CommandHandler("translator_on", translator_on_command))
     app_.add_handler(CommandHandler("translator_off", translator_off_command))
-    app_.add_handler(CommandHandler("users", users_command))
-    app_.add_handler(CommandHandler("test", test_command))
-    app_.add_handler(CommandHandler("broadcast", broadcast_command))
-    app_.add_handler(CommandHandler("stats", stats_command))
     app_.add_handler(CommandHandler("session", session_command))
 
-    # быстрые команды
+    # === Пользовательские команды ===
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
 
-    # Платежи Stars
+    # === Платежи Stars ===
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
-    app_.add_handler(CommandHandler("stars", stars_command))
+    app_.add_handler(CommandHandler("stars", stars_command))  # пользовательская версия (показать баланс пользователя)
 
-    # DONATE: числовой ввод — блокируем дальнейшие хендлеры (block в КОНСТРУКТОРЕ)
+    # === Новые админские команды ===
+    from handlers.commands import admin_cmds
+    app_.add_handler(CommandHandler("adm_help", admin_cmds.adm_help_command))
+    app_.add_handler(CommandHandler("adm_promo", admin_cmds.adm_promo_command))
+    app_.add_handler(CommandHandler("adm_stars", admin_cmds.adm_stars_command))   # 💫 баланс звёзд бота
+    app_.add_handler(CommandHandler("broadcast", admin_cmds.broadcast_command))
+    app_.add_handler(CommandHandler("users", admin_cmds.users_command))
+    app_.add_handler(CommandHandler("stats", admin_cmds.stats_command))
+    app_.add_handler(CommandHandler("test", admin_cmds.test_command))
+
+    # === DONATE: числовой ввод (блокирует остальные хендлеры) ===
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
         group=0,
     )
 
-    # Callback’и меню, настроек, how-to-pay (block в КОНСТРУКТОРЕ)
+    # === Callback’и меню и настроек ===
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
     app_.add_handler(CallbackQueryHandler(append_tr_callback, pattern=r'^append_tr:(yes|no)$'))
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(SETTINGS:|SET:)", block=True))
@@ -251,7 +237,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
     app_.add_handler(CallbackQueryHandler(handle_translator_callback, pattern=r"^TR:", block=True))
 
-    # Универсальный роутер callback’ов онбординга/режимов — исключаем наши префиксы
+    # === Универсальный роутер callback’ов онбординга/режимов ===
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
@@ -260,17 +246,16 @@ def setup_handlers(app_: "Application"):
         group=1,
     )
 
-    # Лимит-гейт — команды сюда не попадают
+    # === Лимит-гейт и основной диалог ===
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, usage_gate),
         group=0,
     )
-
-    # Основной диалог — команды сюда не попадают
     app_.add_handler(
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
         group=1,
     )
+
 
 # -------------------------------------------------------------------------
 # Инициализация

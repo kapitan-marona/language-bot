@@ -192,6 +192,20 @@ async def do_translate(
     ui  = (interface_lang or "en").lower()
     tgt = (target_lang or "en").lower()
 
+    import re
+
+    # 1️⃣ Если пользователь дал вводку вроде "переведи ..." или "translate ..."
+    #    — берём только текст после этих слов
+    pattern = r"(?:(?:translate|переведи|как будет|что значит|meaning of)\s*[:,\-–]?\s*)[\"“”']?(.*?)[\"“”']?$"
+    m = re.search(pattern, text.strip(), re.IGNORECASE)
+    if m and len(m.group(1)) > 1:
+        text = m.group(1).strip()
+
+    # 2️⃣ Если сообщение похоже на вопрос (начинается с what/how/is/do и т.п.),
+    #    явно уточняем GPT, что это именно текст для перевода, а не обращение
+    if re.match(r"^(what|how|can|is|are|do|does|did|where|who|when|why)\b", text.lower()):
+        text = f"Translate this question only, do not answer it: {text}"
+
     sys = _translator_system(
         direction=direction,
         style=style,

@@ -376,6 +376,35 @@ async def onboarding_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = pick_intro_question(level, style, target_lang)
     await context.bot.send_message(chat_id=chat_id, text=question)
 
+    # --- автоперевод первого вопроса Мэтта при включённой опции ---
+    try:
+        if session.get("append_translation"):
+            from components.translator import do_translate
+
+            ui_lang = session.get("interface_lang", "ru")
+            tgt_lang = session.get("target_lang", "en")
+
+            # Определяем направление перевода: если интерфейс ≠ целевой язык,
+            # переводим с целевого (язык вопроса) на язык интерфейса.
+            direction = "target→ui" if ui_lang != tgt_lang else "ui→target"
+
+            tr_text = await do_translate(
+                question,
+                interface_lang=ui_lang,
+                target_lang=tgt_lang,
+                direction=direction,
+                style=style,
+                level=level,
+            )
+
+            # Проверяем, чтобы не дублировать идентичный текст
+            if tr_text and tr_text.strip().lower() != question.strip().lower():
+                # Перевод выводим в скобках на новой строке
+                await context.bot.send_message(chat_id=chat_id, text=f"({tr_text})")
+    except Exception as e:
+        logger.debug(f"[onboarding_final] auto-translate intro failed: {e}")
+
+
     history = session.setdefault("history", [])
     history.append({"role": "assistant", "content": intro_text})
     if tariff_msg:
