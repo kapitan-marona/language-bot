@@ -194,7 +194,6 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("delete_me", delete_me_command))
     app_.add_handler(CommandHandler("translator_on", translator_on_command))
     app_.add_handler(CommandHandler("translator_off", translator_off_command))
-    app_.add_handler(CommandHandler("session", session_command))
 
     # === Пользовательские команды ===
     app_.add_handler(CommandHandler("language", language_command))
@@ -204,7 +203,6 @@ def setup_handlers(app_: "Application"):
     # === Платежи Stars ===
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
-    app_.add_handler(CommandHandler("stars", stars_command))  # пользовательская версия (показать баланс пользователя)
 
     # === Новые админские команды ===
     from handlers.commands import admin_cmds
