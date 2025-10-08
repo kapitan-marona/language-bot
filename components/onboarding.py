@@ -247,9 +247,11 @@ async def close_level_guide_callback(update: Update, context: ContextTypes.DEFAU
     chat_id = update.effective_chat.id
     session = user_sessions.setdefault(chat_id, {})
     interface_lang = session.get("interface_lang", "ru")
+
+    # После закрытия гайда показываем снова выбор уровня
     await query.edit_message_text(
         text=LEVEL_PROMPT.get(interface_lang, LEVEL_PROMPT["en"]),
-        reply_markup=get_level_guide_keyboard(interface_lang)
+        reply_markup=get_level_keyboard(interface_lang)
     )
 
 # --- ШАГ 6. Выбор уровня — A0–A1: спросить про дублирование; иначе — стиль ---
