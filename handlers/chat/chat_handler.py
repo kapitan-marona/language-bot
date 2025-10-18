@@ -1,4 +1,4 @@
-# handlers/chat/chat_handler.py
+# handlers/chat/chat_handler.py 
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +24,9 @@ from components.profile_db import save_user_profile
 from handlers.chat.prompt_templates import get_system_prompt
 from components.triggers import CREATOR_TRIGGERS, is_strict_say_once_trigger
 from components.code_switch import rewrite_mixed_input
+
+# === NEW: персистентная история в БД ===
+from components.profile_db import save_message, load_last_messages  # NEW
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _ensure_defaults(session)
     asyncio.create_task(_update_last_seen(chat_id))  # неблокирующе
 
+    # === NEW: восстановим контекст из БД, если после ребута сессия пустая
+    history_in_session = session.setdefault("history", [])
+    if not history_in_session:
+        db_history = load_last_messages(chat_id, limit=30)
+        if db_history:
+            history_in_session.extend(db_history)
+
     # лог «ворот» в режим переводчика
     logger.debug("[TR] gate: task_mode=%s translator_cfg=%s",
                  session.get("task_mode"), session.get("translator"))
@@ -131,6 +141,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = _sanitize_user_text(user_input)
     if not user_input:
         return await context.bot.send_message(chat_id=chat_id, text="❗️Похоже, сообщение не распознано. Скажи что-нибудь ещё 🙂")
+
+    # === NEW: сохраняем реплику пользователя в БД
+    try:
+        save_message(chat_id, "user", user_input)
+    except Exception:
+        logger.debug("save_message(user) failed", exc_info=True)
 
     cfg = _cfg_from_session(session)
     msg_norm = _norm_cmd(user_input)
@@ -194,6 +210,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     append_history(session, "user", clean_user_input)
     append_history(session, "assistant", assistant_reply)
+
+    # === NEW: сохраняем ответ ассистента в БД (как «assistant»)
+    try:
+        save_message(chat_id, "assistant", assistant_reply)
+    except Exception:
+        logger.debug("save_message(assistant) failed", exc_info=True)
 
     # A0/A1 — автодубль перевода в скобках (если включено)
     final_reply_text = assistant_reply
@@ -329,6 +351,13 @@ async def _run_translator_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     translated = (translated or "").strip()
     session["last_assistant_text"] = translated
     logger.debug("[TR] do_translate done, len=%d", len(translated))
+
+    # === NEW: сохраняем ответ переводчика как assistant
+    try:
+        if translated:
+            save_message(chat_id, "assistant", translated)
+    except Exception:
+        logger.debug("save_message(assistant, translator) failed", exc_info=True)
 
     tts_lang = cfg.interface_lang if direction == "target→ui" else cfg.target_lang
     logger.debug("[TR] output channel=%s", output)

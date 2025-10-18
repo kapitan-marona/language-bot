@@ -1,49 +1,58 @@
-# components/promo.py
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
 # Список доступных промокодов (ключи в нижнем регистре)
 PROMO_CODES: Dict[str, Dict[str, Any]] = {
-    "0917":   {"type": "permanent",    "days": None},
-    "0825":   {"type": "timed",        "days": 30},
-    "друг":   {"type": "timed",        "days": 3},
-    "friend": {"type": "timed",        "days": 3},
-    "western":{"type": "english_only", "days": None},
+    "1709":   {"type": "permanent",     "days": None},
+    "друг":   {"type": "timed",         "days": 3},
+    "friend": {"type": "timed",         "days": 3},
+    "western":{"type": "english_only",  "days": None},
+    # 🎓 Frau — спецкод для студентов школы Deutsch mit Frau Kloppertants
+    "frau":   {"type": "timed",         "days": None, "expires_at": "2025-10-26"},
 }
 
 def normalize_code(code: str) -> str:
     """Приводим код к единому виду (без учёта регистра и лишних пробелов)."""
     return (code or "").strip().lower()
 
-def check_promo_code(code: str, profile: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:  # CHANGED
+def check_promo_code(code: str, profile: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Проверка наличия промокода в словаре (без учёта регистра).
     Возвращает описание {'type': ..., 'days': ...} либо None.
-
-    Совместимость: допускает второй аргумент (profile) и игнорирует его,
-    чтобы старые вызовы check_promo_code(code, profile) не падали.  # NEW
     """
-    return PROMO_CODES.get(normalize_code(code))
+    info = PROMO_CODES.get(normalize_code(code))
+    if not info:
+        return None
+
+    # Проверка срока действия (если есть expires_at)
+    exp = info.get("expires_at")
+    if exp:
+        try:
+            exp_date = datetime.fromisoformat(exp).replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > exp_date:
+                return None  # промокод истёк
+        except Exception:
+            pass
+
+    return info
 
 def activate_promo(profile: Dict[str, Any], code: str) -> tuple[bool, str]:
     """
     Активирует промокод в профиле-питоновском словаре (НЕ сохраняет в БД).
-    Заполняет:
-      - promo_code_used         : str (нормализованный код)
-      - promo_type              : 'timed' | 'permanent' | 'english_only'
-      - promo_activated_at      : str (ISO-8601, UTC)
-      - promo_days              : int | None  (для timed)
     Возвращает (ok, reason):
       - (True, '<type>') при успехе;
       - (False, 'invalid') если код не найден;
-      - (False, 'already_used') если уже активирован ранее.
+      - (False, 'already_used') если уже активирован ранее;
     """
     if not isinstance(profile, dict):
         return False, "invalid"
 
     # уже был активирован
     if profile.get("promo_code_used"):
+        # если тот же самый — не разрешаем повтор
+        if normalize_code(profile["promo_code_used"]) == normalize_code(code):
+            return False, "already_used"
         return False, "already_used"
 
     info = check_promo_code(code)
@@ -79,6 +88,19 @@ def is_promo_valid(profile: Dict[str, Any]) -> bool:
     if ptype == "timed":
         iso = profile.get("promo_activated_at")
         days = profile.get("promo_days")
+        if not iso and not days:
+            return False
+
+        # если у кода задан expires_at — проверим его
+        code = profile.get("promo_code_used")
+        info = PROMO_CODES.get(code)
+        if info and info.get("expires_at"):
+            try:
+                exp_date = datetime.fromisoformat(info["expires_at"]).replace(tzinfo=timezone.utc)
+                return datetime.now(timezone.utc) <= exp_date
+            except Exception:
+                pass
+
         if not iso or not days:
             return False
         try:
@@ -90,184 +112,25 @@ def is_promo_valid(profile: Dict[str, Any]) -> bool:
         end = activated + timedelta(days=int(days))
         return datetime.now(timezone.utc) <= end
 
-    # неизвестный тип — считаем невалидным
     return False
 
 def restrict_target_languages_if_needed(profile: Dict[str, Any],
                                         lang_map: Dict[str, str]) -> Dict[str, str]:
     """
-    Если активен english_only — оставляем только английский язык из lang_map (если он там есть).
-    lang_map: {'en': 'English', 'fr': 'Français', ...}
-    Возвращает НОВУЮ мапу.
+    Если активен english_only — оставляем только английский язык из lang_map.
+    Если Frau — разрешаем только немецкий и английский.
     """
     if not isinstance(lang_map, dict) or not isinstance(profile, dict):
         return lang_map
 
-    if profile.get("promo_type") == "english_only" and is_promo_valid(profile):
+    promo_type = profile.get("promo_type")
+    promo_code = profile.get("promo_code_used")
+
+    if promo_type == "english_only" and is_promo_valid(profile):
         return {"en": lang_map["en"]} if "en" in lang_map else {}
+
+    if normalize_code(promo_code) == "frau" and is_promo_valid(profile):
+        allowed = ["de", "en"]
+        return {k: v for k, v in lang_map.items() if k in allowed}
+
     return lang_map
-
-# ---------- пользовательский интерфейс промокодов (статус + команда /promo) ----------
-from telegram import Update
-from telegram.ext import ContextTypes
-from components.profile_db import get_user_profile, save_user_profile
-from components.i18n import get_ui_lang  # NEW
-
-def _plural_ru_days(n: int) -> str:
-    n = abs(n)
-    if 11 <= (n % 100) <= 14:
-        return "дней"
-    last = n % 10
-    if last == 1:
-        return "день"
-    if 2 <= last <= 4:
-        return "дня"
-    return "дней"
-
-def _human_time_left(delta: timedelta) -> str:
-    total_seconds = int(delta.total_seconds())
-    if total_seconds <= 0:
-        return "0 дней"
-    days = total_seconds // 86400
-    if days >= 2:
-        return f"{days} {_plural_ru_days(days)}"
-    hours = (total_seconds % 86400) // 3600
-    if days == 1 and hours > 0:
-        return f"1 день {hours} ч"
-    if days == 1 and hours == 0:
-        return "1 день"
-    return f"{max(1, hours)} ч"
-
-def _parse_iso(dt: Optional[str]) -> Optional[datetime]:
-    if not dt:
-        return None
-    try:
-        d = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    except Exception:
-        return None
-
-def _days_word_ru(n: int) -> str:
-    n = abs(n) % 100
-    if 11 <= n <= 14:
-        return "дней"
-    last = n % 10
-    if last == 1:
-        return "день"
-    if 2 <= last <= 4:
-        return "дня"
-    return "дней"
-
-def _days_word_en(n: int) -> str:
-    return "day" if abs(n) == 1 else "days"
-
-def format_promo_status_for_user(profile: dict, lang: str = "ru") -> str:
-    """
-    Единое сообщение:
-      1-я строка — заголовок с кодом (на нужном языке)
-      Ниже — детали по строкам (на нужном языке)
-    Если промокод не активирован — возвращаем дружелюбный двухстрочный текст.
-    """
-    from components.promo_texts import PROMO_HEADER_TPL, PROMO_DETAILS
-    # защита от неожиданного значения языка
-    lang = "en" if lang == "en" else "ru"
-
-    code_used = (profile.get("promo_code_used") or "").strip()
-    ptype = (profile.get("promo_type") or "").strip()
-    days_total = profile.get("promo_days")
-    iso = profile.get("promo_activated_at")
-
-    if not ptype:
-        return PROMO_DETAILS[lang]["not_active"]
-
-    # Заголовок (если кода нет, просто "Промокод:" / "Promo code:")
-    header = PROMO_HEADER_TPL[lang].format(code=code_used or "" ).strip()
-    if header.endswith(":") and not code_used:
-        # уберем лишний пробел перед двоеточием, если code пуст
-        header = header.replace("  ", " ")
-
-    # PERMANENT / ENGLISH ONLY
-    if ptype in ("permanent", "english_only"):
-        body = PROMO_DETAILS[lang]["english_only"] if ptype == "english_only" \
-               else PROMO_DETAILS[lang]["permanent_all"]
-        return f"{header}\n{body}"
-
-    # TIMED
-    if ptype == "timed":
-        # вычисляем оставшиеся дни (ceil)
-        if not iso or not days_total:
-            body = PROMO_DETAILS[lang]["timed_generic"].format(
-                days="?", days_word=_days_word_en(2) if lang == "en" else _days_word_ru(2)
-            )
-            return f"{header}\n{body}"
-
-        try:
-            dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            body = PROMO_DETAILS[lang]["timed_generic"].format(
-                days="?", days_word=_days_word_en(2) if lang == "en" else _days_word_ru(2)
-            )
-            return f"{header}\n{body}"
-
-        now = datetime.now(timezone.utc)
-        end = dt + timedelta(days=int(days_total))
-        left_seconds = int((end - now).total_seconds())
-        if left_seconds <= 0:
-            # истёк — дружелюбно вернем not_active/expired? оставим явный not_active body
-            return PROMO_DETAILS[lang]["not_active"]
-
-        # ceil до дней
-        days_left = (left_seconds + 86399) // 86400
-        dw = _days_word_en(days_left) if lang == "en" else _days_word_ru(days_left)
-
-        # спец-кейс "до конца месяца" (0825)
-        norm = normalize_code(code_used)
-        if norm == "0825":
-            body = PROMO_DETAILS[lang]["timed_end_of_month"].format(days=days_left, days_word=dw)
-        else:
-            body = PROMO_DETAILS[lang]["timed_generic"].format(days=days_left, days_word=dw)
-
-        return f"{header}\n{body}"
-
-    # неизвестный тип
-    return f"{header}\n{PROMO_DETAILS[lang]['unknown_type']}"
-
-# ⚠️ RENAME: чтобы не путать с актуальным хендлером в handlers/commands/promo.py
-async def promo_command_legacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /promo            -> показать статус
-    /promo <код>      -> активировать код и показать статус
-    (Оставлено для обратной совместимости. Основной обработчик — в handlers/commands/promo.py)
-    """
-    chat_id = update.effective_chat.id
-    args = context.args or []
-    code = (args[0] if args else "").strip()
-
-    profile = get_user_profile(chat_id) or {"chat_id": chat_id}
-    ui = get_ui_lang(update, context)  # NEW
-
-    if code:
-        if not check_promo_code(code, profile):  # CHANGED: совместим с вызовами в 2 аргумента
-            # локализованное сообщение об ошибке  # NEW
-            await update.message.reply_text("❌ неизвестный промокод" if ui == "ru" else "❌ unknown promo code")
-            return
-        ok, msg = activate_promo(profile, code)
-        if ok:
-            save_user_profile(
-                chat_id,
-                promo_code_used=profile.get("promo_code_used"),
-                promo_type=profile.get("promo_type"),
-                promo_activated_at=profile.get("promo_activated_at"),
-                promo_days=profile.get("promo_days"),
-            )
-            await update.message.reply_text(format_promo_status_for_user(profile, ui))  # CHANGED: язык UI
-            return
-        else:
-            # локализованный фолбэк, если msg пуст  # NEW
-            await update.message.reply_text(msg or ("⚠️ не удалось активировать промокод" if ui == "ru" else "⚠️ failed to activate promo code"))
-            return
-
-    # без кода — показать статус на языке UI  # NEW
-    await update.message.reply_text(format_promo_status_for_user(profile, ui))  # CHANGED
