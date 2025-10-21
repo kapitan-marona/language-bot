@@ -46,6 +46,8 @@ from handlers.commands.language_cmd import language_command, language_on_callbac
 from handlers.commands.level_cmd import level_command, level_on_callback
 from handlers.commands.style_cmd import style_command, style_on_callback
 from handlers.commands.privacy import privacy_command, delete_me_command
+from handlers.commands.db_info import db_info_command
+from handlers.commands.db_health import db_health_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
@@ -54,6 +56,14 @@ from handlers.commands import admin_cmds
 
 # NEW: напоминания
 from components.reminders import run_nudges  # NEW
+
+# >>> ADDED: админ-панель (кнопки) и текстовые вводы для промо/цен
+from handlers.admin.menu import admin_menu, admin_callback  # >>> ADDED
+from handlers.admin.promo_adm import promo_text_handler     # >>> ADDED
+from handlers.admin.price_adm import price_text_handler     # >>> ADDED
+
+# >>> ADDED: скрытая команда теста языков (есть твой файл handlers/admin/test_lang.py)
+from handlers.admin.test_lang import test_lang_command      # >>> ADDED
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -212,6 +222,17 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("users", admin_cmds.users_command))
     app_.add_handler(CommandHandler("stats", admin_cmds.stats_command))
     app_.add_handler(CommandHandler("test", admin_cmds.test_command))
+    app_.add_handler(CommandHandler("db_info", db_info_command))
+    app_.add_handler(CommandHandler("db_health", db_health_command))
+
+    # >>> ADDED: админ-панель и скрытая команда теста языка
+    app_.add_handler(CommandHandler("admin", admin_menu))                                   # >>> ADDED
+    app_.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^ADM:", block=True))    # >>> ADDED
+    app_.add_handler(CommandHandler("test_lang1025", test_lang_command))                    # >>> ADDED
+
+    # >>> ADDED: обработчики «ввода одной строкой» для админки — стоят РАНЬШЕ usage_gate
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_text_handler), group=0)  # >>> ADDED
+    app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, price_text_handler), group=0)  # >>> ADDED
 
     # === DONATE: числовой ввод (блокирует остальные хендлеры) ===
     from handlers.commands import donate as donate_handlers
@@ -252,7 +273,6 @@ def setup_handlers(app_: "Application"):
         MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.AUDIO, handle_message),
         group=1,
     )
-
 
 # -------------------------------------------------------------------------
 # Инициализация

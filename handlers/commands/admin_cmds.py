@@ -1,4 +1,3 @@
-# handlers/commands/admin_cmds.py
 from __future__ import annotations
 import asyncio, time, os, aiohttp
 from telegram import Update
@@ -8,6 +7,9 @@ from components.admins import ADMIN_IDS
 from components.profile_db import get_all_chat_ids
 from components.promo import PROMO_CODES
 from state.session import user_sessions
+
+# >>> ADDED: для подсчёта сообщений сегодня из user_usage
+from components.usage_db import _connect as usage_connect  # >>> ADDED
 
 # Проверка доступа
 def _check_admin(update: Update) -> bool:
@@ -114,13 +116,36 @@ async def users_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 # === /stats ===
-async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not _check_admin(update):
-        await update.message.reply_text("⛔️")
-        return
-
-    sess_count = len(user_sessions)
-    await update.message.reply_text(f"📈 Сессий в памяти: {sess_count}")
+# >>> CHANGED: делаем понятную сводку: Users (DB) / Sessions (RAM) / Messages today
+async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):  # >>> CHANGED
+    if not _check_admin(update):                                         # >>> CHANGED
+        await update.message.reply_text("⛔️")                            # >>> CHANGED
+        return                                                           # >>> CHANGED
+                                                                         # >>> CHANGED
+    try:                                                                 # >>> CHANGED
+        users = len(get_all_chat_ids())                                  # >>> CHANGED
+    except Exception:                                                    # >>> CHANGED
+        users = 0                                                        # >>> CHANGED
+    sessions = len(user_sessions)                                        # >>> CHANGED
+                                                                         # >>> CHANGED
+    msgs_today = "n/a"                                                   # >>> CHANGED
+    try:                                                                 # >>> CHANGED
+        con, cur = usage_connect()                                       # >>> CHANGED
+        from datetime import datetime, timezone                          # >>> CHANGED
+        today = datetime.now(timezone.utc).date().isoformat()            # >>> CHANGED
+        cur.execute("SELECT SUM(used_count) FROM user_usage WHERE date_utc=?", (today,))  # >>> CHANGED
+        row = cur.fetchone()                                             # >>> CHANGED
+        msgs_today = int(row[0]) if row and row[0] is not None else 0    # >>> CHANGED
+        con.close()                                                      # >>> CHANGED
+    except Exception:                                                    # >>> CHANGED
+        pass                                                             # >>> CHANGED
+                                                                         # >>> CHANGED
+    await update.message.reply_html(                                     # >>> CHANGED
+        "📊 <b>Stats</b>\n"                                              # >>> CHANGED
+        f"👥 Users (DB): {users}\n"                                      # >>> CHANGED
+        f"🧠 Sessions (RAM): {sessions}\n"                                # >>> CHANGED
+        f"✉️ Messages today: {msgs_today}"                               # >>> CHANGED
+    )                                                                    # >>> CHANGED
 
 
 # === /adm_stars ===
@@ -132,7 +157,6 @@ def _format_stars(amount: int, nano: int | None) -> str:
         return str(int(amount))
     frac = f"{nano:09d}".rstrip("0")
     return f"{int(amount)}.{frac}"
-
 
 async def adm_stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Показывает реальный баланс звёзд бота через Telegram API."""

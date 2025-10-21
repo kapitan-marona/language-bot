@@ -10,6 +10,9 @@ from components.profile_db import get_user_profile   # ✅ берём профи
 from components.i18n import get_ui_lang              # NEW
 from state.session import user_sessions              # NEW
 
+# >>> ADDED: импорт для автосоздания профиля
+from components.profile_db import save_user_profile  # >>> ADDED
+
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
@@ -43,9 +46,28 @@ def _is_countable_message(update: Update) -> bool:
                 return False
     return bool(msg.text or msg.voice or msg.audio)
 
+# >>> ADDED: создаём профиль, если его ещё нет (важно для /broadcast и Users(DB))
+async def _ensure_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:  # >>> ADDED
+    u = update.effective_user                                                         # >>> ADDED
+    if not u:                                                                         # >>> ADDED
+        return                                                                        # >>> ADDED
+    try:                                                                              # >>> ADDED
+        if not get_user_profile(u.id):                                                # >>> ADDED
+            save_user_profile(                                                        # >>> ADDED
+                u.id,                                                                 # >>> ADDED
+                name=(u.full_name or u.username or ""),                               # >>> ADDED
+                interface_lang=(getattr(u, "language_code", None) or "en"),           # >>> ADDED
+            )                                                                         # >>> ADDED
+    except Exception:                                                                 # >>> ADDED
+        import logging                                                                # >>> ADDED
+        logging.getLogger(__name__).debug("ensure_profile failed", exc_info=True)     # >>> ADDED
+
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_countable_message(update):
         return
+
+    # >>> ADDED: гарантируем запись пользователя в БД до любых лимитов
+    await _ensure_profile(update, ctx)  # >>> ADDED
 
     # NEW: не считаем и не блокируем ввод промокода на онбординге
     try:
