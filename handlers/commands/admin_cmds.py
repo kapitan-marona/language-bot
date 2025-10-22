@@ -1,3 +1,4 @@
+# handlers/commands/admin_cmds.py
 from __future__ import annotations
 import asyncio, time, os, aiohttp
 from telegram import Update
@@ -8,16 +9,12 @@ from components.profile_db import get_all_chat_ids
 from components.promo import PROMO_CODES
 from state.session import user_sessions
 
-# >>> ADDED: для подсчёта сообщений сегодня из user_usage
 from components.usage_db import _connect as usage_connect  # >>> ADDED
 
-# Проверка доступа
 def _check_admin(update: Update) -> bool:
     user_id = update.effective_user.id if update.effective_user else None
     return bool(user_id and user_id in ADMIN_IDS)
 
-
-# === /adm_help ===
 async def adm_help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
         await update.message.reply_text("⛔️")
@@ -33,34 +30,26 @@ async def adm_help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/adm_stars — баланс звёзд бота\n"
         "/adm_help — список админ-команд"
     )
-
     await update.message.reply_html(text)
 
-
-# === /adm_promo ===
 async def adm_promo_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
         await update.message.reply_text("⛔️")
         return
-
     try:
         total_codes = len(PROMO_CODES)
         types = {}
         for code, info in PROMO_CODES.items():
             t = info.get("type", "unknown")
             types[t] = types.get(t, 0) + 1
-
         text = ["📊 <b>Промокоды</b>"]
         text.append(f"Всего кодов: {total_codes}")
         for t, n in types.items():
             text.append(f"• {t}: {n}")
-
         await update.message.reply_html("\n".join(text))
     except Exception as e:
         await update.message.reply_text(f"⚠️ Ошибка при получении статистики: {e}")
 
-
-# === /broadcast ===
 async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
         await update.message.reply_text("⛔️")
@@ -92,8 +81,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"✅ Рассылка завершена\nОтправлено: {sent}\nОшибок: {failed}\nВсего: {len(chat_ids)}"
     )
 
-
-# === /test ===
 START_TS = time.time()
 async def test_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
@@ -102,8 +89,6 @@ async def test_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uptime = int(time.time() - START_TS)
     await update.message.reply_text(f"✅ OK\nUptime: {uptime}s")
 
-
-# === /users ===
 async def users_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
         await update.message.reply_text("⛔️")
@@ -114,20 +99,17 @@ async def users_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text("⚠️ Не удалось получить количество пользователей.")
 
-
-# === /stats ===
-# >>> CHANGED: делаем понятную сводку: Users (DB) / Sessions (RAM) / Messages today
+# >>> CHANGED: понятный /stats
 async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):  # >>> CHANGED
     if not _check_admin(update):                                         # >>> CHANGED
         await update.message.reply_text("⛔️")                            # >>> CHANGED
         return                                                           # >>> CHANGED
-                                                                         # >>> CHANGED
     try:                                                                 # >>> CHANGED
         users = len(get_all_chat_ids())                                  # >>> CHANGED
     except Exception:                                                    # >>> CHANGED
         users = 0                                                        # >>> CHANGED
     sessions = len(user_sessions)                                        # >>> CHANGED
-                                                                         # >>> CHANGED
+
     msgs_today = "n/a"                                                   # >>> CHANGED
     try:                                                                 # >>> CHANGED
         con, cur = usage_connect()                                       # >>> CHANGED
@@ -139,16 +121,14 @@ async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):  # >>> 
         con.close()                                                      # >>> CHANGED
     except Exception:                                                    # >>> CHANGED
         pass                                                             # >>> CHANGED
-                                                                         # >>> CHANGED
+
     await update.message.reply_html(                                     # >>> CHANGED
-        "📊 <b>Stats</b>\n"                                              # >>> CHANGED
-        f"👥 Users (DB): {users}\n"                                      # >>> CHANGED
-        f"🧠 Sessions (RAM): {sessions}\n"                                # >>> CHANGED
-        f"✉️ Messages today: {msgs_today}"                               # >>> CHANGED
-    )                                                                    # >>> CHANGED
+        "📊 <b>Stats</b>\n"
+        f"👥 Users (DB): {users}\n"
+        f"🧠 Sessions (RAM): {sessions}\n"
+        f"✉️ Messages today: {msgs_today}"
+    )
 
-
-# === /adm_stars ===
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 def _format_stars(amount: int, nano: int | None) -> str:
@@ -159,7 +139,6 @@ def _format_stars(amount: int, nano: int | None) -> str:
     return f"{int(amount)}.{frac}"
 
 async def adm_stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Показывает реальный баланс звёзд бота через Telegram API."""
     uid = update.effective_user.id if update.effective_user else None
     if not uid or uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Команда доступна только администратору.")

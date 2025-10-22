@@ -1,36 +1,49 @@
+# components/payments.py
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+
 from telegram import LabeledPrice, Update
 from telegram.ext import ContextTypes
-from components.profile_db import save_user_profile, get_user_profile
-from components.i18n import get_ui_lang  # NEW
 
+from components.profile_db import save_user_profile, get_user_profile
+from components.i18n import get_ui_lang
+from components.config_store import get_kv  # >>> ADDED
 
 Product = Literal["pro_30d"]
 
 XTR_CURRENCY = "XTR"  # Stars валюта
 
+def _price_stars() -> int:
+    """
+    Текущая цена в звёздах. Если в config_store ключа нет — дефолт 1000.
+    """
+    try:
+        val = int(get_kv("price_stars", 1000))  # >>> ADDED
+        return max(1, val)
+    except Exception:
+        return 1000
+
 def plan_price_xtr(product: Product) -> list[LabeledPrice]:
     if product == "pro_30d":
-        return [LabeledPrice(label="30 days", amount=1000)]
+        return [LabeledPrice(label="30 days", amount=_price_stars())]  # >>> CHANGED
     raise ValueError("Unknown product")
 
 def compute_expiry(profile: dict | None, days: int = 30) -> datetime:
     """
-    Продлеваем от текущей даты, если подписки нет или истекла,
+    Продлеваем от текущей даты, если подписки нет/истекла,
     либо от текущего expiry, если он в будущем.
     """
     now = datetime.now(timezone.utc)
     base = now
     if profile:
-        expires = profile.get("premium_expires_at")
-        if expires:
+        expires_iso = profile.get("premium_until")  # >>> CHANGED (поле БД)
+        if expires_iso:
             try:
-                dt = datetime.fromisoformat(expires)
-                if dt.tzinfo is None:                # NEW: приводим к TZ-aware, если не было таймзоны
+                dt = datetime.fromisoformat(str(expires_iso).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-                base = dt if dt > now else now       # NEW: берём максимум (исправляет редкие ошибки сравнения)
+                base = dt if dt > now else now
             except Exception:
                 pass
     return base + timedelta(days=days)
@@ -38,38 +51,32 @@ def compute_expiry(profile: dict | None, days: int = 30) -> datetime:
 # ------------------- PRO (покупка) -------------------
 
 async def send_stars_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, product: Product) -> None:
-    # NEW: локализуем заголовок/описание счёта по текущему UI-языку
-    ui = get_ui_lang(update, ctx)                    # NEW
-    title = "English Talking — 30 дней" if ui == "ru" else "English Talking — 30 days"  # CHANGED
+    ui = get_ui_lang(update, ctx)
+    title = "English Talking — 30 дней" if ui == "ru" else "English Talking — 30 days"
     desc = ("Безлимитные диалоги в тексте и голосе на 30 дней."
             if ui == "ru"
-            else "Unlimited text & voice chats for 30 days.")                           # CHANGED
+            else "Unlimited text & voice chats for 30 days.")
     payload = f"{product}:{update.effective_user.id}"
 
     await update.effective_chat.send_invoice(
         title=title,
         description=desc,
         payload=payload,
-        provider_token="",       # пустая строка для Stars — корректно
+        provider_token="",          # Stars
         currency=XTR_CURRENCY,
         prices=plan_price_xtr(product),
-        # start_parameter="premium_30d",            # NEW (опционально): если используешь deep-linking
     )
 
 # ------------------- DONATION (донаты) -------------------
 
 async def send_donation_invoice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, amount: int) -> None:
-    """
-    Выставляет счёт на произвольную сумму звёздочек.
-    payload = "donation:<amount>:<user_id>" — чтобы отличать от покупки.
-    """
     ui = get_ui_lang(update, ctx)
     title = "Пожертвование проекту" if ui == "ru" else "Donation to the Project"
     desc = ("Спасибо за поддержку! Это добровольный взнос в звёздах."
             if ui == "ru" else
             "Thank you for your support! This is a voluntary donation in Stars.")
     payload = f"donation:{amount}:{update.effective_user.id}"
-    prices = [LabeledPrice(label="Donation", amount=amount)]
+    prices = [LabeledPrice(label="Donation", amount=int(amount))]
 
     await update.effective_chat.send_invoice(
         title=title,
@@ -86,25 +93,26 @@ async def precheckout_ok(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await update.pre_checkout_query.answer(ok=True)
 
 async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    sp = update.message.successful_payment
-    if not sp:  # защита
+    sp = getattr(update.message, "successful_payment", None)
+    if not sp:
         return
 
-    # Идемпотентность: если такой charge уже обрабатывали — выходим
-    profile = get_user_profile(update.effective_user.id)
-    if profile and profile.get("last_payment_charge_id") == sp.telegram_payment_charge_id:
-        return
+    # Снимаем флаг «жду сумму доната», чтобы чат не вмешивался
+    try:
+        if getattr(ctx, "user_data", None) and ctx.user_data.get("donate_wait_amount"):  # >>> ADDED
+            ctx.user_data.pop("donate_wait_amount", None)                                 # >>> ADDED
+    except Exception:
+        pass
 
     payload = sp.invoice_payload or ""
 
-    # --- Донат: просто благодарим, ничего не меняем в доступе ---
+    # --- Донат: просто благодарим ---
     if payload.startswith("donation:"):
         try:
-            # payload: "donation:<amount>:<user_id>"
             _, amount_str, _ = payload.split(":", 2)
             amount = int(amount_str)
         except Exception:
-            amount = 0
+            amount = sp.total_amount or 0
         ui = get_ui_lang(update, ctx)
         msg = (f"🙏 Спасибо за поддержку! Получено {amount}⭐"
                if ui == "ru" else
@@ -112,11 +120,11 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(msg)
         return
 
-    # --- Покупка тарифа (как было), с базовой валидацией ---
+    # --- Покупка тарифа (30 дней) ---
     if not payload.startswith("pro_30d:"):
-        return  # неизвестный payload
+        return
 
-    # проверим, что чек адресован этому же пользователю
+    # чек должен быть для этого же пользователя
     try:
         _, uid_str = payload.split(":", 1)
         if int(uid_str) != update.effective_user.id:
@@ -124,17 +132,21 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
     except Exception:
         return
 
-    # проверка валюты и суммы
-    if sp.currency != XTR_CURRENCY or sp.total_amount != 1000:
+    # проверяем валюту и сумму
+    expected = _price_stars()  # >>> CHANGED
+    if sp.currency != XTR_CURRENCY or int(sp.total_amount) != int(expected):  # >>> CHANGED
         return
 
+    profile = get_user_profile(update.effective_user.id) or {}
     until = compute_expiry(profile, days=30)
+
     save_user_profile(
         update.effective_user.id,
-        is_premium=1,
-        premium_expires_at=until.isoformat(),
-        last_payment_charge_id=sp.telegram_payment_charge_id,  # ключ идемпотентности
+        premium_activated_at=datetime.now(timezone.utc).isoformat(),  # >>> CHANGED
+        premium_until=until.isoformat(),                               # >>> CHANGED
+        premium_source="stars",                                        # >>> ADDED
     )
+
     ui = get_ui_lang(update, ctx)
     msg = (
         f"✅ Оплата прошла! Доступ активен до {until.date().isoformat()}. Приятной практики!"
@@ -142,4 +154,3 @@ async def on_successful_payment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
         else f"✅ Payment complete! Access active until {until.date().isoformat()}. Enjoy!"
     )
     await update.message.reply_text(msg)
-    

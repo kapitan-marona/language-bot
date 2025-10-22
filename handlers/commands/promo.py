@@ -2,40 +2,23 @@
 from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes
+from datetime import datetime, timezone, date
 
-from components.profile_db import get_user_profile, save_user_profile
-from components.promo import normalize_code, format_promo_status_for_user
 from components.i18n import get_ui_lang
-from components.safety import call_check_promo_code, call_activate_promo, safe_reply
+from components.profile_db import set_user_promo, save_user_profile, get_user_profile
+from components.promo_store import get_promo_info
+from components.config_store import get_kv, set_kv
 
-# ✅ Локальный хелпер стикеров (без зависимости от chat_handler)
-from components.stickers import STICKERS_CONFIG
-import random
 import logging
-
 logger = logging.getLogger(__name__)
 
-async def _maybe_send_sticker(context: ContextTypes.DEFAULT_TYPE, chat_id: int, key: str, chance: float = 0.35):
-    """
-    Пытается отправить стикер по ключу из STICKERS_CONFIG с заданной вероятностью.
-    Ошибки логируем и молча продолжаем.
-    """
-    try:
-        cfg = STICKERS_CONFIG.get(key) or {}
-        file_id = cfg.get("id")
-        if not file_id:
-            return
-        if random.random() <= float(chance):
-            await context.bot.send_sticker(chat_id=chat_id, sticker=file_id)
-    except Exception:
-        logger.debug("promo sticker send failed", exc_info=True)
-
+def _today_str() -> str:
+    return date.today().isoformat()
 
 async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /promo              → показать статус
-    /promo <код>        → активировать код и показать статус (+ сообщение, что лимит снят)
-    Совместимо с обеими реализациями components.promo.{check_promo_code, activate_promo}.
+    /promo              → показать статус текущего промо
+    /promo <code>       → активировать промо
     """
     chat_id = update.effective_chat.id
     ui = get_ui_lang(update, context)
@@ -43,50 +26,76 @@ async def promo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     profile = get_user_profile(chat_id) or {"chat_id": chat_id}
 
-    # Без аргументов — показать текущий статус (на нужном языке)
+    # Без аргументов — показать краткий статус
     if not args:
-        await safe_reply(update, context, format_promo_status_for_user(profile, ui))
+        code = (profile.get("promo_code_used") or "").strip().lower()
+        if not code:
+            txt = "Промокод не активирован." if ui == "ru" else "No promo code is active."
+            await update.message.reply_text(txt)
+            return
+        bits = [f"🎟 {('Промокод' if ui=='ru' else 'Promo code')} {code}"]
+        if profile.get("promo_days"):
+            bits.append(("📅 дней: " if ui=="ru" else "📅 days: ") + str(int(profile["promo_days"])))
+        if profile.get("promo_hard_expire"):
+            bits.append(("⏱ до: " if ui=="ru" else "⏱ until: ") + profile["promo_hard_expire"])
+        if profile.get("promo_messages_quota"):
+            used = int(profile.get("promo_messages_used") or 0)
+            quota = int(profile.get("promo_messages_quota") or 0)
+            bits.append(("✉️ сообщения: " if ui=="ru" else "✉️ messages: ") + f"{used}/{quota}")
+        if profile.get("promo_allowed_langs"):
+            bits.append(("🌍 языки: " if ui=="ru" else "🌍 langs: ") + profile["promo_allowed_langs"].upper())
+        await update.message.reply_text("\n".join(bits))
         return
 
-    # Нормализуем и проверяем код
-    code = normalize_code(" ".join(args))
-
-    ok_check, msg_check, info = call_check_promo_code(code, profile)
-
-    if not ok_check:
-        # Сообщение в msg_check может быть только на RU в старых билдах — даём локализованный фолбэк
-        fallback = "❌ неизвестный промокод" if ui == "ru" else "❌ unknown promo code"
-        await safe_reply(update, context, msg_check or fallback)
+    # Активация
+    code = args[0].strip().lower()
+    info = get_promo_info(code)
+    if not info:
+        await update.message.reply_text("❌ Промокод не найден или недействителен." if ui=="ru" else "❌ Promo code not found or invalid.")
         return
 
-    # Активируем (унифицированный адаптер) — текущий путь: (profile, code)
-    ok_act, reason = call_activate_promo(profile, code)
-
-    if ok_act:
-        # Сохраняем профиль (значения уже положены в profile активатором)
-        save_user_profile(
-            chat_id,
-            promo_code_used=profile.get("promo_code_used"),
-            promo_type=profile.get("promo_type"),
-            promo_activated_at=profile.get("promo_activated_at"),
-            promo_days=profile.get("promo_days"),
-        )
-        await safe_reply(update, context, format_promo_status_for_user(profile, ui))
-        tail = ("✅ Лимит сообщений снят — можно продолжать!"
-                if ui == "ru"
-                else "✅ Message limit removed — you can continue!")
-        await safe_reply(update, context, tail)
-
-        # «иногда» — 0.7 по ТЗ
-        await _maybe_send_sticker(context, chat_id, key="fire", chance=0.7)
+    # лимит активаций
+    used = int(info.get("used") or 0)
+    limit = int(info.get("limit") or 0)
+    if limit and used >= limit:
+        await update.message.reply_text("⚠️ Лимит активаций промокода исчерпан." if ui=="ru" else "⚠️ Promo activation limit reached.")
         return
 
-    # Не удалось активировать — локализуем причину
-    reason_map = {
-        "already_used": ("⚠️ Промокод уже был активирован ранее." if ui == "ru"
-                         else "⚠️ Promo code was already used."),
-        "invalid": ("⚠️ Такой промокод не найден." if ui == "ru"
-                    else "⚠️ Promo code not found."),
-    }
-    fallback = "⚠️ не удалось активировать промокод" if ui == "ru" else "⚠️ failed to activate promo code"
-    await safe_reply(update, context, reason_map.get(reason or "", fallback))
+    # срок по дате (если указан)
+    d = (info.get("date") or "").strip()
+    if d and _today_str() > d:
+        await update.message.reply_text("⚠️ Срок действия промокода истёк." if ui=="ru" else "⚠️ Promo code has expired.")
+        return
+
+    ptype    = (info.get("type") or "").strip().lower()
+    days     = int(info.get("days") or 0)
+    messages = int(info.get("messages") or 0)
+    allowed  = (info.get("allowed_langs") or "").strip().lower()
+    hard_exp = d  # YYYY-MM-DD или ""
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    set_user_promo(
+        chat_id=chat_id,
+        code=code,
+        promo_type=ptype,
+        activated_at=now_iso,
+        days=days or None,
+        allowed_langs_csv=allowed or None,   # >>> ADDED
+        messages_quota=messages or None,     # >>> ADDED
+        hard_expire=hard_exp or None,        # >>> ADDED
+    )
+    # сброс персонального счётчика
+    save_user_profile(chat_id, promo_messages_used=0)
+
+    # увеличим глобальный used в карточке промо
+    info["used"] = used + 1
+    set_kv(f"promo:{code}", info)
+
+    # ответ пользователю
+    bits = ["✅ " + ("Промокод активирован!" if ui=="ru" else "Promo code activated!")]
+    if days > 0: bits.append(("📅 действует " if ui=="ru" else "📅 valid for ") + f"{days} " + ("дн." if ui=="ru" else "days"))
+    if messages > 0: bits.append(("✉️ квота сообщений: " if ui=="ru" else "✉️ messages quota: ") + str(messages))
+    if hard_exp: bits.append(("⏱ до: " if ui=="ru" else "⏱ until: ") + hard_exp)
+    if allowed: bits.append(("🌍 языки: " if ui=="ru" else "🌍 langs: ") + allowed.upper().replace(",", ", "))
+    await update.message.reply_text("\n".join(bits))

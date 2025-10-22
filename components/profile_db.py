@@ -37,21 +37,26 @@ def init_db() -> None:
     existing = {row[1] for row in cur.fetchall()}  # имена колонок
 
     required_cols = {
-        # промокоды
+        # промокоды (старые поля)
         "promo_code_used": "TEXT",        # нормализованный код (строка)
-        "promo_type": "TEXT",             # 'timed' | 'permanent' | 'english_only'
+        "promo_type": "TEXT",             # тип промо
         "promo_activated_at": "TEXT",     # ISO-8601 (UTC)
-        "promo_days": "INTEGER",          # число дней для timed
+        "promo_days": "INTEGER",          # число дней (для 'timed' или аналогов)
+        # >>> ADDED — новые универсальные поля промо:
+        "promo_allowed_langs": "TEXT",      # CSV разрешённых языков (en,de,sv) или NULL
+        "promo_messages_quota": "INTEGER",  # квота сообщений по промо (целая, NULL/0 = нет квоты)
+        "promo_messages_used": "INTEGER",   # израсходовано сообщений по промо
+        "promo_hard_expire": "TEXT",        # жёсткая дата окончания (YYYY-MM-DD) или NULL
         # напоминания
-        "last_seen_at": "TEXT",           # ISO-8601 (UTC) — последний визит
-        "nudge_last_sent": "TEXT",        # ISO-8601 (UTC) — когда слали напоминание
+        "last_seen_at": "TEXT",             # ISO-8601 (UTC) — последний визит
+        "nudge_last_sent": "TEXT",          # ISO-8601 (UTC) — когда слали напоминание
         # автоперевод
-        "append_translation": "INTEGER",  # 0/1
-        "append_translation_lang": "TEXT",# код языка интерфейса (ru/en/…)
+        "append_translation": "INTEGER",    # 0/1
+        "append_translation_lang": "TEXT",  # код языка интерфейса (ru/en/…)
         # подписка
-        "premium_until": "TEXT",          # ISO-8601 (UTC) — до какого момента активна подписка
-        "premium_activated_at": "TEXT",   # ISO-8601 (UTC)
-        "premium_source": "TEXT",         # payment|promo|gift...
+        "premium_until": "TEXT",            # ISO-8601 (UTC) — до какого момента активна подписка
+        "premium_activated_at": "TEXT",     # ISO-8601 (UTC)
+        "premium_source": "TEXT",           # payment|promo|gift...
     }
     for col, coltype in required_cols.items():
         if col not in existing:
@@ -95,11 +100,16 @@ def save_user_profile(
     target_lang: Optional[str] = None,
     level: Optional[str] = None,
     style: Optional[str] = None,
-    # Поля промо
+    # Поля промо (старые)
     promo_code_used: Optional[str] = None,
     promo_type: Optional[str] = None,
     promo_activated_at: Optional[str] = None,
     promo_days: Optional[int] = None,
+    # >>> ADDED — новые
+    promo_allowed_langs: Optional[str] = None,     # >>> ADDED
+    promo_messages_quota: Optional[int] = None,    # >>> ADDED
+    promo_messages_used: Optional[int] = None,     # >>> ADDED
+    promo_hard_expire: Optional[str] = None,       # >>> ADDED
     # Напоминания
     last_seen_at: Optional[str] = None,
     nudge_last_sent: Optional[str] = None,
@@ -125,6 +135,12 @@ def save_user_profile(
         "promo_type": promo_type if promo_type is not None else current.get("promo_type"),
         "promo_activated_at": promo_activated_at if promo_activated_at is not None else current.get("promo_activated_at"),
         "promo_days": promo_days if promo_days is not None else current.get("promo_days"),
+        # >>> ADDED
+        "promo_allowed_langs": promo_allowed_langs if promo_allowed_langs is not None else current.get("promo_allowed_langs"),
+        "promo_messages_quota": promo_messages_quota if promo_messages_quota is not None else current.get("promo_messages_quota"),
+        "promo_messages_used": promo_messages_used if promo_messages_used is not None else current.get("promo_messages_used"),
+        "promo_hard_expire": promo_hard_expire if promo_hard_expire is not None else current.get("promo_hard_expire"),
+        # ---
         "last_seen_at": last_seen_at if last_seen_at is not None else current.get("last_seen_at"),
         "nudge_last_sent": nudge_last_sent if nudge_last_sent is not None else current.get("nudge_last_sent"),
         "append_translation": int(append_translation) if append_translation is not None else current.get("append_translation"),
@@ -147,6 +163,7 @@ def save_user_profile(
             UPDATE user_profiles SET
               name = ?, interface_lang = ?, target_lang = ?, level = ?, style = ?,
               promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?,
+              promo_allowed_langs = ?, promo_messages_quota = ?, promo_messages_used = ?, promo_hard_expire = ?,  -- >>> ADDED
               last_seen_at = ?, nudge_last_sent = ?,
               append_translation = ?, append_translation_lang = ?,
               premium_until = ?, premium_activated_at = ?, premium_source = ?
@@ -157,6 +174,7 @@ def save_user_profile(
                 updates["level"], updates["style"],
                 updates["promo_code_used"], updates["promo_type"],
                 updates["promo_activated_at"], updates["promo_days"],
+                updates["promo_allowed_langs"], updates["promo_messages_quota"], updates["promo_messages_used"], updates["promo_hard_expire"],  # >>> ADDED
                 updates["last_seen_at"], updates["nudge_last_sent"],
                 updates["append_translation"], updates["append_translation_lang"],
                 updates["premium_until"], updates["premium_activated_at"], updates["premium_source"],
@@ -169,10 +187,11 @@ def save_user_profile(
             INSERT INTO user_profiles (
               chat_id, name, interface_lang, target_lang, level, style,
               promo_code_used, promo_type, promo_activated_at, promo_days,
+              promo_allowed_langs, promo_messages_quota, promo_messages_used, promo_hard_expire,  -- >>> ADDED
               last_seen_at, nudge_last_sent,
               append_translation, append_translation_lang,
               premium_until, premium_activated_at, premium_source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -180,6 +199,7 @@ def save_user_profile(
                 updates["level"], updates["style"],
                 updates["promo_code_used"], updates["promo_type"],
                 updates["promo_activated_at"], updates["promo_days"],
+                updates["promo_allowed_langs"], updates["promo_messages_quota"], updates["promo_messages_used"], updates["promo_hard_expire"],  # >>> ADDED
                 updates["last_seen_at"], updates["nudge_last_sent"],
                 updates["append_translation"], updates["append_translation_lang"],
                 updates["premium_until"], updates["premium_activated_at"], updates["premium_source"],
@@ -198,6 +218,10 @@ def set_user_promo(
     promo_type: Optional[str],
     activated_at: Optional[str],
     days: Optional[int],
+    *,                                         # >>> ADDED
+    allowed_langs_csv: Optional[str] = None,   # >>> ADDED
+    messages_quota: Optional[int] = None,      # >>> ADDED
+    hard_expire: Optional[str] = None,         # >>> ADDED
 ) -> None:
     """Сохраняет только поля промокода для пользователя (upsert)."""
     conn = sqlite3.connect(DB_PATH)
@@ -210,19 +234,23 @@ def set_user_promo(
         cur.execute(
             """
             UPDATE user_profiles SET
-              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?
+              promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?,
+              promo_allowed_langs = ?, promo_messages_quota = ?, 
+              promo_messages_used = COALESCE(promo_messages_used, 0),
+              promo_hard_expire = ?
             WHERE chat_id = ?
             """,
-            (code, promo_type, activated_at, days, chat_id),
+            (code, promo_type, activated_at, days, allowed_langs_csv, messages_quota, hard_expire, chat_id),  # >>> CHANGED
         )
     else:
         cur.execute(
             """
             INSERT INTO user_profiles (
-              chat_id, promo_code_used, promo_type, promo_activated_at, promo_days
-            ) VALUES (?, ?, ?, ?, ?)
+              chat_id, promo_code_used, promo_type, promo_activated_at, promo_days,
+              promo_allowed_langs, promo_messages_quota, promo_messages_used, promo_hard_expire
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
             """,
-            (chat_id, code, promo_type, activated_at, days),
+            (chat_id, code, promo_type, activated_at, days, allowed_langs_csv, messages_quota, hard_expire),  # >>> CHANGED
         )
 
     conn.commit()
