@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-python-telegram-bot==20.3  # или актуальная версия, если проект поддерживает
+python-telegram-bot==20.7
 openai
 python-dotenv
 requests
