@@ -49,11 +49,6 @@ from handlers.commands.privacy import privacy_command, delete_me_command
 from handlers.commands.db_info import db_info_command
 from handlers.commands.db_health import db_health_command
 
-# Новое: админы для ограничения /reset
-from components.admins import ADMIN_IDS
-from components.i18n import get_ui_lang  # для сообщений об ограничении
-from handlers.commands import admin_cmds
-
 # NEW: напоминания
 from components.reminders import run_nudges  # NEW
 
