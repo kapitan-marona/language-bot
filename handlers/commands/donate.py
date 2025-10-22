@@ -1,9 +1,8 @@
-# handlers/commands/donate.py
 from __future__ import annotations
 import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ApplicationHandlerStop
+from telegram.ext import ContextTypes
 from state.session import user_sessions
 from components.i18n import get_ui_lang
 from components.payments import send_donation_invoice
@@ -50,12 +49,12 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         amount = int(m_text.group(1))
         if MIN_DONATE <= amount <= MAX_DONATE:
             await send_donation_invoice(update, ctx, amount)
-            raise ApplicationHandlerStop  # блокируем дальнейшие хендлеры
+            return
         warn = (f"Сумма должна быть от {MIN_DONATE} до {MAX_DONATE}⭐"
                 if ui == "ru" else
                 f"Amount must be between {MIN_DONATE} and {MAX_DONATE}⭐")
         await update.message.reply_text(warn)
-        raise ApplicationHandlerStop
+        return
 
     # 2) Дальше — стандартный путь через ctx.args (на случай, если выше не сработало)
     args = getattr(ctx, "args", None) or []
@@ -66,16 +65,16 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                     if ui == "ru" else
                     "Provide the amount as a number, e.g.: /donate 50")
             await update.message.reply_text(text)
-            raise ApplicationHandlerStop
+            return
         amount = int(m.group(1))
         if amount < MIN_DONATE or amount > MAX_DONATE:
             text = (f"Сумма должна быть от {MIN_DONATE} до {MAX_DONATE}⭐"
                     if ui == "ru" else
                     f"Amount must be between {MIN_DONATE} and {MAX_DONATE}⭐")
             await update.message.reply_text(text)
-            raise ApplicationHandlerStop
+            return
         await send_donation_invoice(update, ctx, amount)
-        raise ApplicationHandlerStop
+        return
 
     # 3) Иначе — показываем пресеты
     text = ("Поддержи проект любой суммой в звёздах ⭐\n\n"
@@ -83,8 +82,6 @@ async def donate_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             "Support the project with any amount of Stars ⭐\n\n"
             "Pick an amount or enter a custom one.")
     await update.message.reply_text(text, reply_markup=_donate_keyboard(ui))
-    raise ApplicationHandlerStop  # чтобы это сообщение не пошло дальше в чат-бот
-        
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -171,7 +168,7 @@ async def on_amount_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
                 if ui == "ru" else
                 "Provide the amount as a number, e.g. 50. Or /donate 50.")
         await update.message.reply_text(warn)
-        raise ApplicationHandlerStop  # блокируем чат-хендлер
+        return
 
     amount = int(m.group(1))
     if amount < MIN_DONATE or amount > MAX_DONATE:
@@ -179,9 +176,8 @@ async def on_amount_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
                 if ui == "ru" else
                 f"Amount must be between {MIN_DONATE} and {MAX_DONATE}⭐")
         await update.message.reply_text(warn)
-        raise ApplicationHandlerStop
+        return
 
     # Снимаем флаг ожидания и отправляем инвойс
     sess.pop("donate_waiting_amount", None)
     await send_donation_invoice(update, ctx, amount)
-    raise ApplicationHandlerStop

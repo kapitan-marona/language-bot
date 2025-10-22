@@ -1,4 +1,3 @@
-# handlers/middleware/usage_gate.py
 from __future__ import annotations
 from telegram import Update
 from telegram.ext import ContextTypes, ApplicationHandlerStop
@@ -6,25 +5,30 @@ from telegram.constants import MessageEntityType
 from components.access import has_access
 from components.usage_db import get_usage, increment_usage
 from components.offer_texts import OFFER
-from components.promo import is_promo_valid
-from components.profile_db import get_user_profile, save_user_profile       # >>> CHANGED (save_user_profile уже есть у тебя)
-from components.i18n import get_ui_lang
-from state.session import user_sessions
+from components.promo import is_promo_valid          # ✅ проверка активного промо по профилю
+from components.profile_db import get_user_profile   # ✅ берём профиль пользователя
+from components.i18n import get_ui_lang              # NEW
+from state.session import user_sessions              # NEW
+
+# >>> ADDED: импорт для автосоздания профиля
+from components.profile_db import save_user_profile  # >>> ADDED
 
 FREE_DAILY_LIMIT = 15
 REMIND_AFTER = 10
 
-def _offer_text(key: str, lang: str) -> str:
+def _offer_text(key: str, lang: str) -> str:        # NEW: безопасное извлечение из OFFER
     d = OFFER.get(key) if isinstance(OFFER, dict) else None
     if not isinstance(d, dict):
         return ""
     if lang in d:
         return d[lang]
+    # Фолбэк: сначала en, потом ru, потом любая доступная
     return d.get("en") or d.get("ru") or next(iter(d.values()), "")
 
-def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:
+def _ui_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> str:  # CHANGED: через общий резолвер
     try:
-        return get_ui_lang(update, ctx)
+        lang = get_ui_lang(update, ctx)  # учитывает user_data / онбординг / профиль
+        return lang
     except Exception:
         return (ctx.user_data or {}).get("ui_lang", "en")
 
@@ -42,36 +46,28 @@ def _is_countable_message(update: Update) -> bool:
                 return False
     return bool(msg.text or msg.voice or msg.audio)
 
-async def _ensure_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    u = update.effective_user
-    if not u:
-        return
-    try:
-        if not get_user_profile(u.id):
-            save_user_profile(
-                u.id,
-                name=(u.full_name or u.username or ""),
-                interface_lang=(getattr(u, "language_code", None) or "en"),
-            )
-    except Exception:
-        import logging
-        logging.getLogger(__name__).debug("ensure_profile failed", exc_info=True)
+# >>> ADDED: создаём профиль, если его ещё нет (важно для /broadcast и Users(DB))
+async def _ensure_profile(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:  # >>> ADDED
+    u = update.effective_user                                                         # >>> ADDED
+    if not u:                                                                         # >>> ADDED
+        return                                                                        # >>> ADDED
+    try:                                                                              # >>> ADDED
+        if not get_user_profile(u.id):                                                # >>> ADDED
+            save_user_profile(                                                        # >>> ADDED
+                u.id,                                                                 # >>> ADDED
+                name=(u.full_name or u.username or ""),                               # >>> ADDED
+                interface_lang=(getattr(u, "language_code", None) or "en"),           # >>> ADDED
+            )                                                                         # >>> ADDED
+    except Exception:                                                                 # >>> ADDED
+        import logging                                                                # >>> ADDED
+        logging.getLogger(__name__).debug("ensure_profile failed", exc_info=True)     # >>> ADDED
 
 async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_countable_message(update):
         return
 
-    # >>> NEW: не мешаемся, если сейчас идёт сценарий доната
-    try:
-        chat_id = update.effective_chat.id
-        sess = user_sessions.get(chat_id, {}) or {}
-        if sess.get("donate_waiting_amount") or (ctx.user_data or {}).get("donate_wait_amount"):
-            return  # просто пропускаем — донат обрабатывается своими хендлерами
-    except Exception:
-        pass
-
-    # сохраняем профиль до любых лимитов
-    await _ensure_profile(update, ctx)
+    # >>> ADDED: гарантируем запись пользователя в БД до любых лимитов
+    await _ensure_profile(update, ctx)  # >>> ADDED
 
     # NEW: не считаем и не блокируем ввод промокода на онбординге
     try:
@@ -95,14 +91,15 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # 3) Счётчик бесплатных сообщений
     used = get_usage(user_id)
-    lang = _ui_lang(update, ctx)
+    lang = _ui_lang(update, ctx)  # CHANGED
 
+    # Достаем тексты OFFER безопасно
     limit_text = _offer_text("limit_reached", lang) or (
         "Лимит пробного дня достигнут." if lang == "ru" else "You’ve hit the daily trial limit."
-    )
+    )  # NEW
     reminder_text = _offer_text("reminder_after_10", lang) or (
         "Осталось 5 сообщений в пробном периоде." if lang == "ru" else "You’ve got 5 messages left on the trial."
-    )
+    )  # NEW
 
     if used >= FREE_DAILY_LIMIT:
         hint = ("\n\n💡 Введите /promo для активации промокода и продолжения."
@@ -114,6 +111,7 @@ async def usage_gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     used = increment_usage(user_id)
 
     if used == REMIND_AFTER:
+        # NEW: добавим мягкий хинт про /promo и тут тоже
         hint = ("\n\n💡 Есть промокод? Введите /promo <код>."
                 if lang == "ru"
                 else "\n\n💡 Have a promo code? Use /promo <code>.")
