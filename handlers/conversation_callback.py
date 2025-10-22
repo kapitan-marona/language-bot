@@ -12,7 +12,7 @@ from components.onboarding import (
 from handlers.mode import get_mode_keyboard
 from state.session import user_sessions
 from components.profile_db import get_user_profile
-from handlers.commands.promo import format_promo_status_for_user
+from components.promo import format_promo_status_for_user
 
 # безопасность и логирование
 import logging
