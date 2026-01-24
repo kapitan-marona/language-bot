@@ -1,7 +1,8 @@
+# english_bot.py
 from __future__ import annotations
 import os
 import logging
-import asyncio  # неблокирующая обработка апдейтов
+import asyncio
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -50,20 +51,19 @@ from handlers.commands.db_health import db_health_command
 
 # Новое: админы для ограничения /reset
 from components.admins import ADMIN_IDS
-from components.i18n import get_ui_lang  # для сообщений об ограничении
+from components.i18n import get_ui_lang
 from handlers.commands import admin_cmds
 
-# NEW: напоминания
-from components.reminders import run_nudges  # NEW
+# напоминания
+from components.reminders import run_nudges
 
-# >>> ADDED: админ-панель (кнопки) и текстовые вводы для промо/цен
-from handlers.admin.menu import admin_menu, admin_callback  # >>> ADDED
-from handlers.admin.promo_adm import promo_text_handler     # >>> ADDED
-from handlers.admin.price_adm import price_text_handler     # >>> ADDED
+# админ-панель (кнопки) и текстовые вводы для промо/цен
+from handlers.admin.menu import admin_menu, admin_callback
+from handlers.admin.promo_adm import promo_text_handler
+from handlers.admin.price_adm import price_text_handler
 
-# >>> ADDED: скрытая команда теста языков (есть твой файл handlers/admin/test_lang.py)
-from handlers.admin.test_lang import test_lang_command      # >>> ADDED
-
+# скрытая команда теста языков
+from handlers.admin.test_lang import test_lang_command
 
 # -------------------------------------------------------------------------
 # Инициализация
@@ -81,11 +81,11 @@ if not WEBHOOK_SECRET_PATH:
 PUBLIC_URL = os.getenv("PUBLIC_URL")
 TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN")
 
-# Новое: защита внутренних ручек и режим окружения
+# защита внутренних ручек и режим окружения
 ADMIN_PANEL_TOKEN = os.getenv("ADMIN_PANEL_TOKEN")
 ENV = os.getenv("ENV", "dev")
 
-# ===== ЛОГИРОВАНИЕ (DEBUG + полезные каналы) =====
+# ===== ЛОГИРОВАНИЕ =====
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.INFO)
 logging.getLogger("telegram").setLevel(logging.INFO)
@@ -96,12 +96,10 @@ logger = logging.getLogger("english-bot")
 app = FastAPI(title="English Talking Bot")
 bot_app: Application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-
 # -------------------------------------------------------------------------
 # Утилиты
 # -------------------------------------------------------------------------
 def fire_and_forget(coro, *, name: str = "task"):
-    """Безопасный запуск фоновой задачи с логированием исключения."""
     task = asyncio.create_task(coro, name=name)
 
     def _done(t: asyncio.Task):
@@ -115,14 +113,11 @@ def fire_and_forget(coro, *, name: str = "task"):
     task.add_done_callback(_done)
     return task
 
-
 def _check_admin_token(req: Request) -> bool:
-    """Проверка секрета для внутренних эндпоинтов (обязательна в prod)."""
     if ENV == "prod":
         token = req.headers.get("X-Admin-Token") or req.query_params.get("token")
         return bool(token and ADMIN_PANEL_TOKEN and token == ADMIN_PANEL_TOKEN)
-    return True  # в dev разрешаем без токена
-
+    return True
 
 # -------------------------------------------------------------------------
 # Ошибки
@@ -130,14 +125,12 @@ def _check_admin_token(req: Request) -> bool:
 async def on_error(update: Optional[Update], context):
     logger.exception("Unhandled error: %s", context.error)
 
-
 # -------------------------------------------------------------------------
 # Роуты
 # -------------------------------------------------------------------------
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
-
 
 @app.post(f"/{WEBHOOK_SECRET_PATH}")
 async def telegram_webhook(req: Request):
@@ -162,7 +155,6 @@ async def telegram_webhook(req: Request):
 
     return {"ok": True}
 
-
 @app.get("/set_webhook")
 async def set_webhook(request: Request, url: Optional[str] = Query(default=None)):
     if not _check_admin_token(request):
@@ -181,22 +173,19 @@ async def set_webhook(request: Request, url: Optional[str] = Query(default=None)
     )
     return {"ok": ok, "url": target}
 
-
-# NEW: ручной/крон-запуск напоминаний (защищённый)
 @app.get("/run_nudges")
 async def run_nudges_route(request: Request, limit: int = 500, dry_run: bool = Query(default=False)):
     if not _check_admin_token(request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
 
     try:
-        chat_ids = get_all_chat_ids()[:max(1, int(limit))]
+        chat_ids = get_all_chat_ids()[: max(1, int(limit))]
     except Exception as e:
         logger.exception("get_all_chat_ids failed: %s", e)
         return JSONResponse({"ok": False, "error": "no_chat_ids"}, status_code=500)
 
     processed, sent = await run_nudges(bot_app.bot, chat_ids, dry_run=dry_run)
     return {"ok": True, "processed": processed, "sent": sent, "dry_run": dry_run}
-
 
 # -------------------------------------------------------------------------
 # Хендлеры
@@ -211,10 +200,8 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("promo", promo_command))
     app_.add_handler(CommandHandler("donate", donate_command))
 
-    # /settings (единое инлайн-меню)
+    # /settings + алиасы
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
-
-    # Алиасы (быстрое меню Telegram): /voice /text /translation /chat
     app_.add_handler(CommandHandler("voice", settings.cmd_voice))
     app_.add_handler(CommandHandler("text", settings.cmd_text))
     app_.add_handler(CommandHandler("translation", settings.cmd_translation))
@@ -226,7 +213,6 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("translator_off", translator_off_command))
 
     # === Пользовательские команды ===
-    # (оставляем — потом уберём, когда новый /settings стабилен)
     app_.add_handler(CommandHandler("language", language_command))
     app_.add_handler(CommandHandler("level", level_command))
     app_.add_handler(CommandHandler("style", style_command))
@@ -235,7 +221,7 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(PreCheckoutQueryHandler(precheckout_ok))
     app_.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, on_successful_payment))
 
-    # === Новые админские команды ===
+    # === Админские команды ===
     app_.add_handler(CommandHandler("adm_help", admin_cmds.adm_help_command))
     app_.add_handler(CommandHandler("adm_promo", admin_cmds.adm_promo_command))
     app_.add_handler(CommandHandler("adm_stars", admin_cmds.adm_stars_command))
@@ -246,16 +232,16 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("db_info", db_info_command))
     app_.add_handler(CommandHandler("db_health", db_health_command))
 
-    # >>> ADDED: админ-панель и скрытая команда теста языка
+    # админ-панель + скрытая команда теста языка
     app_.add_handler(CommandHandler("admin", admin_menu))
     app_.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^ADM:", block=True))
     app_.add_handler(CommandHandler("test_lang1025", test_lang_command))
 
-    # >>> ADDED: обработчики «ввода одной строкой» для админки — стоят РАНЬШЕ usage_gate
+    # вводы для админки (раньше usage_gate)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, promo_text_handler), group=0)
     app_.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, price_text_handler), group=0)
 
-    # === DONATE: числовой ввод (блокирует остальные хендлеры) ===
+    # DONATE: числовой ввод
     from handlers.commands import donate as donate_handlers
     app_.add_handler(
         MessageHandler(filters.Regex(r"^\s*\d{1,5}\s*$"), donate_handlers.on_amount_message, block=True),
@@ -264,28 +250,26 @@ def setup_handlers(app_: "Application"):
 
     # === Callback’и меню и настроек ===
     app_.add_handler(CallbackQueryHandler(menu_router, pattern=r"^open:", block=True))
-    app_.add_handler(CallbackQueryHandler(append_tr_callback, pattern=r'^append_tr:(yes|no)$'))
+    app_.add_handler(CallbackQueryHandler(append_tr_callback, pattern=r"^append_tr:(yes|no)$"))
 
-    # NEW settings callbacks: S:
-    # (оставляем также старые SETTINGS:/SET: чтобы ничего не сломать в тестах)
+    # settings: новый файл работает на S: (и мы оставляем старые SETTINGS/SET на всякий случай)
     app_.add_handler(CallbackQueryHandler(settings.on_callback, pattern=r"^(S:|SETTINGS:|SET:)", block=True))
 
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_entry, pattern=r"^htp_start$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_how, pattern=r"^htp_how$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_exit, pattern=r"^htp_exit$", block=True))
     app_.add_handler(CallbackQueryHandler(how_to_pay_game.how_to_pay_go_buy, pattern=r"^htp_buy$", block=True))
-
     app_.add_handler(CallbackQueryHandler(language_on_callback, pattern=r"^CMD:LANG:", block=True))
     app_.add_handler(CallbackQueryHandler(level_on_callback, pattern=r"^CMD:LEVEL:", block=True))
     app_.add_handler(CallbackQueryHandler(style_on_callback, pattern=r"^CMD:STYLE:", block=True))
     app_.add_handler(CallbackQueryHandler(donate_handlers.on_callback, pattern=r"^DONATE:", block=True))
     app_.add_handler(CallbackQueryHandler(handle_translator_callback, pattern=r"^TR:", block=True))
 
-    # === Универсальный роутер callback’ов онбординга/режимов ===
+    # Универсальный роутер callback’ов онбординга/режимов
     app_.add_handler(
         CallbackQueryHandler(
             handle_callback_query,
-            pattern=r"^(?!(open:|S:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TR:|append_tr:|ADM:))",
+            pattern=r"^(?!(open:|S:|SETTINGS:|SET:|CMD:(LANG|LEVEL|STYLE):|htp_|DONATE:|TR:|append_tr:))",
         ),
         group=1,
     )
@@ -300,14 +284,12 @@ def setup_handlers(app_: "Application"):
         group=1,
     )
 
-
 # -------------------------------------------------------------------------
 # Инициализация
 # -------------------------------------------------------------------------
 def init_databases():
     init_profiles_db()
     init_usage_db()
-
 
 @app.on_event("startup")
 async def on_startup():
@@ -317,13 +299,11 @@ async def on_startup():
     await bot_app.start()
     logger.info("Bot application is ready")
 
-
 @app.on_event("shutdown")
 async def on_shutdown():
     await bot_app.stop()
     await bot_app.shutdown()
     logger.info("Bot application is stopped")
-
 
 @app.get("/")
 async def root():

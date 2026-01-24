@@ -1,6 +1,8 @@
+# handlers/settings.py
 from __future__ import annotations
-from typing import List, Tuple
+
 import logging
+from typing import Dict, Any, List, Tuple, Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -10,12 +12,12 @@ from components.promo import restrict_target_languages_if_needed, is_promo_valid
 from components.i18n import get_ui_lang
 from state.session import user_sessions
 
-# Переводчик (для входа по кнопке)
+# Переводчик: вход/выход и дефолты
 from handlers.translator_mode import enter_translator, exit_translator, ensure_tr_defaults  # type: ignore
 
 logger = logging.getLogger(__name__)
 
-# Языки (флаг + название)
+# --- данные для выбора языка (как раньше) ---
 LANGS: List[Tuple[str, str]] = [
     ("🇷🇺 Русский", "ru"),
     ("🇬🇧 English", "en"),
@@ -26,18 +28,20 @@ LANGS: List[Tuple[str, str]] = [
     ("🇫🇮 Suomi", "fi"),
 ]
 
-# Уровни
-LEVELS_ROW1 = ["A0", "A1", "A2", "B1"]
-LEVELS_ROW2 = ["B2", "C1", "C2"]
+LEVELS_ROW1 = ["A0", "A1", "A2"]
+LEVELS_ROW2 = ["B1", "B2", "C1", "C2"]
 
 STYLE_TITLES = {
-    "casual":   {"ru": "😎 Разговорный", "en": "😎 Casual"},
-    "business": {"ru": "🤓 Деловой",     "en": "🤓 Business"},
+    "casual": {"ru": "😎 Разговорный", "en": "😎 Casual"},
+    "business": {"ru": "🤓 Деловой", "en": "🤓 Business"},
 }
 STYLE_ORDER = ["casual", "business"]
 
+# --- callbacks prefix ---
+# ВАЖНО: всё меню settings — только через "S:" чтобы не пересекаться с онбордингом/прочими.
+CB = "S:"
 
-# -------------------- helpers --------------------
+# --- helpers ---
 
 def _name_for_lang(code: str) -> str:
     for title, c in LANGS:
@@ -49,253 +53,239 @@ def _name_for_style(code: str, ui: str) -> str:
     d = STYLE_TITLES.get(code, {})
     return d.get(ui, d.get("ru", code))
 
-def _get_state(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> dict:
-    """Единый снимок настроек: profile_db + user_sessions."""
+def _bool_title(ui: str, v: bool, on_ru="Вкл", off_ru="Выкл", on_en="On", off_en="Off") -> str:
+    if ui == "ru":
+        return on_ru if v else off_ru
+    return on_en if v else off_en
+
+def _get_state(chat_id: int, ctx: ContextTypes.DEFAULT_TYPE) -> Dict[str, Any]:
+    """
+    Единая точка правды для /settings.
+    Берём значения из профиля (если есть), иначе — из session/user_data, иначе дефолты.
+    """
     prof = get_user_profile(chat_id) or {}
     sess = user_sessions.setdefault(chat_id, {})
+    ensure_tr_defaults(sess)
 
-    ui = sess.get("interface_lang") or prof.get("interface_lang") or get_ui_lang(None, context)  # type: ignore
     # target language
-    tgt = (sess.get("target_lang") or prof.get("target_lang") or "en")
-    level = (sess.get("level") or prof.get("level") or "B1")
-    style = (sess.get("style") or prof.get("style") or "casual")
+    target = prof.get("target_lang") or sess.get("target_lang") or (ctx.user_data or {}).get("language") or "en"
+    # level
+    level = prof.get("level") or sess.get("level") or (ctx.user_data or {}).get("level") or "B1"
+    # style
+    style = prof.get("style") or sess.get("style") or (ctx.user_data or {}).get("style") or "casual"
 
-    # ответ: voice/text (в твоём коде используется sess["mode"])
+    # reply format: voice/text -> sess["mode"] (как уже у тебя используется)
     out_mode = sess.get("mode") or "text"
+    if out_mode not in ("text", "voice"):
+        out_mode = "text"
 
     # task_mode: chat/translator
     task_mode = sess.get("task_mode") or "chat"
+    if task_mode not in ("chat", "translator"):
+        task_mode = "chat"
 
-    # дублирование (по твоей текущей логике — актуально для A0/A1)
-    append_tr = bool(prof.get("append_translation")) if level in ("A0", "A1") else False
+    # append_translation (только A0/A1 по твоей логике)
+    append_tr = bool(prof.get("append_translation")) if str(level) in ("A0", "A1") else False
 
     english_only_note = (prof.get("promo_type") == "english_only" and is_promo_valid(prof))
 
     return {
-        "ui": ui if ui in ("ru", "en") else "en",
-        "tgt": tgt,
-        "level": level,
-        "style": style,
-        "out_mode": out_mode if out_mode in ("text", "voice") else "text",
-        "task_mode": task_mode if task_mode in ("chat", "translator") else "chat",
-        "append_tr": append_tr,
-        "english_only_note": english_only_note,
         "prof": prof,
         "sess": sess,
+        "target": str(target),
+        "level": str(level),
+        "style": str(style),
+        "out_mode": out_mode,
+        "task_mode": task_mode,
+        "append_tr": append_tr,
+        "english_only_note": bool(english_only_note),
     }
 
-def _main_text(ui: str, lang_name: str, level: str, style_name: str, out_mode: str, task_mode: str, append_tr: bool, english_only_note: bool) -> str:
-    out_title = ("Аудио" if ui == "ru" else "Voice") if out_mode == "voice" else ("Текст" if ui == "ru" else "Text")
-    mode_title = ("Переводчик" if ui == "ru" else "Translator") if task_mode == "translator" else ("Диалог" if ui == "ru" else "Chat")
+async def _edit_or_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE, text: str, kb: InlineKeyboardMarkup) -> None:
+    q = getattr(update, "callback_query", None)
+    if q and q.message:
+        await q.edit_message_text(text, reply_markup=kb)
+        try:
+            await q.answer()
+        except Exception:
+            pass
+        return
+    await ctx.bot.send_message(update.effective_chat.id, text, reply_markup=kb)
 
-    base_ru = (
-        "⚙️ Настройки\n\n"
-        f"• Язык: {lang_name}\n"
-        f"• Уровень: {level}\n"
-        f"• Стиль: {style_name}\n"
-        f"• Формат ответа: {out_title}\n"
-        f"• Режим: {mode_title}\n"
-        f"• Дублирование: {'Вкл' if append_tr else 'Выкл'}\n\n"
-        "Что хочешь поменять?"
-    )
-    base_en = (
+# --- UI texts ---
+
+def _main_text(ui: str, lang_name: str, level: str, style_name: str, out_mode: str, task_mode: str, append_tr: bool, english_only_note: bool) -> str:
+    fmt = "🔊 Аудио" if out_mode == "voice" else "⌨️ Текст"
+    mode_title = ("🌍 Переводчик" if ui == "ru" else "🌍 Translator") if task_mode == "translator" else ("💬 Диалог" if ui == "ru" else "💬 Chat")
+
+    if ui == "ru":
+        text = (
+            "⚙️ Настройки\n\n"
+            f"Выбранный язык: {lang_name}\n"
+            f"Установленный уровень: {level}\n"
+            f"Стиль: {style_name}\n"
+            f"Формат ответа Метта: {fmt}\n"
+            f"Режим: {mode_title}\n"
+            f"Дублирование: {_bool_title(ui, append_tr, on_ru='Вкл', off_ru='Выкл')}\n\n"
+            "Что хочешь поменять?"
+        )
+        if english_only_note:
+            text += "\n\n❗ Промокод бессрочный, действует только для английского языка"
+        return text
+
+    text = (
         "⚙️ Settings\n\n"
-        f"• Language: {lang_name}\n"
-        f"• Level: {level}\n"
-        f"• Style: {style_name}\n"
-        f"• Reply format: {out_title}\n"
-        f"• Mode: {mode_title}\n"
-        f"• Native duplicates: {'On' if append_tr else 'Off'}\n\n"
+        f"Selected language: {lang_name}\n"
+        f"Current level: {level}\n"
+        f"Style: {style_name}\n"
+        f"Matt’s reply format: {'🔊 Voice' if out_mode == 'voice' else '⌨️ Text'}\n"
+        f"Mode: {mode_title}\n"
+        f"Native duplication: {_bool_title(ui, append_tr, on_en='On', off_en='Off')}\n\n"
         "What do you want to change?"
     )
-    text = base_ru if ui == "ru" else base_en
     if english_only_note:
-        text += (
-            "\n\n❗ Промокод бессрочный, действует только для английского языка"
-            if ui == "ru"
-            else "\n\n❗ Promo is permanent and limits learning to English only"
-        )
+        text += "\n\n❗ Promo is permanent and limits learning to English only"
     return text
 
+# --- keyboards (Variant 1 clean) ---
+
 def _kb_main(ui: str) -> InlineKeyboardMarkup:
+    # Вариант 1 (самый чистый)
+    # ⌨️ Текст | 🔊 Аудио
+    # 💬 Диалог | 🌍 Переводчик
+    # 🛠 Настройки | ⭐ Premium
+    btn_text = InlineKeyboardButton("⌨️ Текст" if ui == "ru" else "⌨️ Text", callback_data=f"{CB}FMT:text")
+    btn_voice = InlineKeyboardButton("🔊 Аудио" if ui == "ru" else "🔊 Voice", callback_data=f"{CB}FMT:voice")
+
+    btn_chat = InlineKeyboardButton("💬 Диалог" if ui == "ru" else "💬 Chat", callback_data=f"{CB}MODE:chat")
+    btn_tr = InlineKeyboardButton("🌍 Переводчик" if ui == "ru" else "🌍 Translator", callback_data=f"{CB}MODE:translator")
+
+    btn_settings = InlineKeyboardButton("🛠 Настройки" if ui == "ru" else "🛠 Settings", callback_data=f"{CB}OPEN:SETTINGS")
+    btn_premium = InlineKeyboardButton("⭐ Premium", callback_data=f"{CB}OPEN:PREMIUM")
+
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✍️/🎙 Формат ответа" if ui == "ru" else "✍️/🎙 Reply format", callback_data="S:OPEN:FORMAT"),
-        ],
-        [
-            InlineKeyboardButton("💬/🌍 Режим: диалог/переводчик" if ui == "ru" else "💬/🌍 Mode: chat/translator", callback_data="S:OPEN:MODE"),
-        ],
-        [
-            InlineKeyboardButton("🛠 Настройки" if ui == "ru" else "🛠 Settings", callback_data="S:OPEN:SETTINGS"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Премиум" if ui == "ru" else "⭐ Premium", callback_data="S:OPEN:PREMIUM"),
-        ],
+        [btn_text, btn_voice],
+        [btn_chat, btn_tr],
+        [btn_settings, btn_premium],
     ])
 
-def _kb_back(ui: str, to: str = "MAIN") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"S:BACK:{to}")]
-    ])
+def _kb_settings_sub(ui: str, append_tr: bool) -> InlineKeyboardMarkup:
+    btn_lang = InlineKeyboardButton("Язык" if ui == "ru" else "Language", callback_data=f"{CB}OPEN:LANG")
+    btn_level = InlineKeyboardButton("Уровень" if ui == "ru" else "Level", callback_data=f"{CB}OPEN:LEVEL")
+    btn_style = InlineKeyboardButton("Стиль" if ui == "ru" else "Style", callback_data=f"{CB}OPEN:STYLE")
 
-def _kb_format(ui: str, current: str) -> InlineKeyboardMarkup:
-    t = "✅ Текст" if ui == "ru" else "✅ Text"
-    v = "✅ Аудио" if ui == "ru" else "✅ Voice"
-    btn_text = t if current == "text" else ("Текст" if ui == "ru" else "Text")
-    btn_voice = v if current == "voice" else ("Аудио" if ui == "ru" else "Voice")
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(btn_text, callback_data="S:FORMAT:text"),
-            InlineKeyboardButton(btn_voice, callback_data="S:FORMAT:voice"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:MAIN")]
-    ])
+    lbl_tr = ("Дублирование: Вкл" if ui == "ru" else "Native: On") if append_tr else ("Дублирование: Выкл" if ui == "ru" else "Native: Off")
+    btn_tr = InlineKeyboardButton(lbl_tr, callback_data=f"{CB}TOGGLE:APPEND_TR")
 
-def _kb_mode(ui: str, current: str) -> InlineKeyboardMarkup:
-    btn_chat = ("✅ Диалог" if ui == "ru" else "✅ Chat") if current == "chat" else ("Диалог" if ui == "ru" else "Chat")
-    btn_tr = ("✅ Переводчик" if ui == "ru" else "✅ Translator") if current == "translator" else ("Переводчик" if ui == "ru" else "Translator")
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(btn_chat, callback_data="S:MODE:chat"),
-            InlineKeyboardButton(btn_tr, callback_data="S:MODE:translator"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:MAIN")]
-    ])
+    btn_back = InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}BACK:MAIN")
 
-def _kb_settings(ui: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Язык" if ui == "ru" else "Language", callback_data="S:OPEN:LANG"),
-            InlineKeyboardButton("Уровень" if ui == "ru" else "Level", callback_data="S:OPEN:LEVEL"),
-        ],
-        [
-            InlineKeyboardButton("Стиль" if ui == "ru" else "Style", callback_data="S:OPEN:STYLE"),
-        ],
-        [
-            InlineKeyboardButton("Дублирование" if ui == "ru" else "Duplicates", callback_data="S:OPEN:DUP"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:MAIN")]
+        [btn_lang, btn_level],
+        [btn_style],
+        [btn_tr],
+        [btn_back],
     ])
 
 def _langs_keyboard(chat_id: int, ui: str) -> InlineKeyboardMarkup:
     prof = get_user_profile(chat_id) or {}
     lang_map = {code: title for title, code in LANGS}
     lang_map = restrict_target_languages_if_needed(prof, lang_map)
-    items = [(title, code) for code, title in lang_map.items()]
 
+    items = [(title, code) for code, title in lang_map.items()]
     rows = []
     for i in range(0, len(items), 2):
         chunk = items[i:i+2]
-        rows.append([InlineKeyboardButton(t, callback_data=f"S:LANG:{c}") for (t, c) in chunk])
+        rows.append([InlineKeyboardButton(t, callback_data=f"{CB}SET:LANG:{c}") for (t, c) in chunk])
 
-    rows.append([InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:SETTINGS")])
+    rows.append([InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}BACK:SETTINGS")])
     return InlineKeyboardMarkup(rows)
 
 def _levels_keyboard(ui: str) -> InlineKeyboardMarkup:
-    row1 = [InlineKeyboardButton(x, callback_data=f"S:LEVEL:{x}") for x in LEVELS_ROW1]
-    row2 = [InlineKeyboardButton(x, callback_data=f"S:LEVEL:{x}") for x in LEVELS_ROW2]
-    back = [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:SETTINGS")]
-    return InlineKeyboardMarkup([row1, row2, back])
+    row1 = [InlineKeyboardButton(x, callback_data=f"{CB}SET:LEVEL:{x}") for x in LEVELS_ROW1]
+    row2 = [InlineKeyboardButton(x, callback_data=f"{CB}SET:LEVEL:{x}") for x in LEVELS_ROW2]
+
+    # Гайд по уровням — как на онбординге, но callback свой (чтобы не ломать онбординг)
+    guide = InlineKeyboardButton("📘 Гайд по уровням" if ui == "ru" else "📘 Level guide", callback_data=f"{CB}LEVEL:GUIDE")
+    back = InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}BACK:SETTINGS")
+
+    return InlineKeyboardMarkup([row1, row2, [guide], [back]])
 
 def _styles_keyboard(ui: str) -> InlineKeyboardMarkup:
     rows = []
     for code in STYLE_ORDER:
         title = _name_for_style(code, ui)
-        rows.append([InlineKeyboardButton(title, callback_data=f"S:STYLE:{code}")])
-    rows.append([InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:SETTINGS")])
+        rows.append([InlineKeyboardButton(title, callback_data=f"{CB}SET:STYLE:{code}")])
+    rows.append([InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}BACK:SETTINGS")])
     return InlineKeyboardMarkup(rows)
 
-def _kb_duplicates(ui: str, enabled: bool, level: str) -> InlineKeyboardMarkup:
-    # По твоей логике — включаем только A0/A1. На остальных — показываем, но делаем понятное сообщение.
-    if level in ("A0", "A1"):
-        label = ("✅ Вкл" if ui == "ru" else "✅ On") if enabled else ("❌ Выкл" if ui == "ru" else "❌ Off")
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton(label, callback_data="S:DUP:TOGGLE")],
-            [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:SETTINGS")]
-        ])
-    else:
-        msg = "Доступно только для A0–A1" if ui == "ru" else "Available for A0–A1 only"
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton(msg, callback_data="S:DUP:INFO")],
-            [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:SETTINGS")]
-        ])
-
-def _kb_premium(ui: str) -> InlineKeyboardMarkup:
-    # "Как оплатить" — через существующий htp_start (у тебя уже есть handler)
+def _kb_level_guide(ui: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Купить" if ui == "ru" else "Buy", callback_data="S:PREM:BUY"),
-            InlineKeyboardButton("Донат" if ui == "ru" else "Donate", callback_data="S:PREM:DONATE"),
-        ],
-        [
-            InlineKeyboardButton("Как оплатить" if ui == "ru" else "How to pay", callback_data="htp_start"),
-        ],
-        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data="S:BACK:MAIN")]
+        [InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}LEVEL:GUIDE:CLOSE")]
     ])
 
+def _kb_premium(ui: str) -> InlineKeyboardMarkup:
+    buy = InlineKeyboardButton("Купить" if ui == "ru" else "Buy", callback_data=f"{CB}PREM:BUY")
+    donate = InlineKeyboardButton("Донат" if ui == "ru" else "Donate", callback_data=f"{CB}PREM:DONATE")
+    how = InlineKeyboardButton("Как оплатить" if ui == "ru" else "How to pay", callback_data=f"{CB}PREM:HOW")
+    back = InlineKeyboardButton("⬅️ Назад" if ui == "ru" else "⬅️ Back", callback_data=f"{CB}BACK:MAIN")
+    return InlineKeyboardMarkup([
+        [buy, donate],
+        [how],
+        [back],
+    ])
 
-async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, kb: InlineKeyboardMarkup):
-    q = getattr(update, "callback_query", None)
-    if q and q.message:
-        await q.edit_message_text(text=text, reply_markup=kb)
-        try:
-            await q.answer()
-        except Exception:
-            pass
-        return
-    await context.bot.send_message(update.effective_chat.id, text, reply_markup=kb)
-
-
-# -------------------- public: commands --------------------
+# --- public entry ---
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ui = get_ui_lang(update, context)
     chat_id = update.effective_chat.id
     st = _get_state(chat_id, context)
 
     text = _main_text(
-        st["ui"],
-        _name_for_lang(st["tgt"]),
-        st["level"],
-        _name_for_style(st["style"], st["ui"]),
-        st["out_mode"],
-        st["task_mode"],
-        st["append_tr"],
-        st["english_only_note"],
+        ui=ui,
+        lang_name=_name_for_lang(st["target"]),
+        level=st["level"],
+        style_name=_name_for_style(st["style"], ui),
+        out_mode=st["out_mode"],
+        task_mode=st["task_mode"],
+        append_tr=st["append_tr"],
+        english_only_note=st["english_only_note"],
     )
-    await _edit_or_send(update, context, text, _kb_main(st["ui"]))
+    await _edit_or_send(update, context, text, _kb_main(ui))
 
-# Алиасы (команды из меню Telegram)
+# --- alias commands (как вы хотели) ---
+
 async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    st = _get_state(chat_id, context)
-    sess = st["sess"]
+    sess = user_sessions.setdefault(chat_id, {})
     sess["mode"] = "voice"
-    msg = "🎙 Теперь отвечаю голосом." if st["ui"] == "ru" else "🎙 Now I reply with voice."
-    await update.effective_message.reply_text(msg)
+    await cmd_settings(update, context)
 
 async def cmd_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    st = _get_state(chat_id, context)
-    sess = st["sess"]
+    sess = user_sessions.setdefault(chat_id, {})
     sess["mode"] = "text"
-    msg = "⌨️ Теперь отвечаю текстом." if st["ui"] == "ru" else "⌨️ Now I reply with text."
-    await update.effective_message.reply_text(msg)
+    await cmd_settings(update, context)
 
 async def cmd_translation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    st = _get_state(chat_id, context)
-    sess = st["sess"]
-    # Вход в режим переводчика (покажет инструкцию + одну кнопку направления внутри)
+    sess = user_sessions.setdefault(chat_id, {})
+    sess["task_mode"] = "translator"
+    ensure_tr_defaults(sess)
+    # покажем инструкцию переводчика (отдельным сообщением)
     await enter_translator(update, context, sess)
+    # и обновим /settings (чтобы режим был виден)
+    await cmd_settings(update, context)
 
 async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
-    st = _get_state(chat_id, context)
-    sess = st["sess"]
-    await exit_translator(update, context, sess)
+    sess = user_sessions.setdefault(chat_id, {})
+    if sess.get("task_mode") == "translator":
+        await exit_translator(update, context, sess)
+    sess["task_mode"] = "chat"
+    await cmd_settings(update, context)
 
-
-# -------------------- callbacks --------------------
+# --- callback router for settings ---
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -303,177 +293,174 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     data = q.data
+    if not data.startswith(CB):
+        return
+
+    ui = get_ui_lang(update, context)
     chat_id = q.message.chat.id
     st = _get_state(chat_id, context)
-    ui = st["ui"]
     sess = st["sess"]
     prof = st["prof"]
 
-    # --- поддержка старых префиксов (чтобы во время теста ничего не ломать) ---
-    # если прилетели SETTINGS:/SET: — просто откроем новое /settings
-    if data.startswith("SETTINGS:") or data.startswith("SET:"):
+    # ---------- navigation ----------
+    if data == f"{CB}BACK:MAIN":
         await cmd_settings(update, context)
         return
 
-    # -------------------- BACK --------------------
-    if data.startswith("S:BACK:"):
-        to = data.split(":", 2)[-1]
-        if to == "MAIN":
-            await cmd_settings(update, context)
-            return
-        if to == "SETTINGS":
-            text = "🛠 Настройки" if ui == "ru" else "🛠 Settings"
-            await _edit_or_send(update, context, text, _kb_settings(ui))
-            return
-        # fallback
+    if data == f"{CB}BACK:SETTINGS":
+        # открыть подменю настроек
+        txt = "🛠 Настройки" if ui == "ru" else "🛠 Settings"
+        await _edit_or_send(update, context, txt, _kb_settings_sub(ui, st["append_tr"]))
+        return
+
+    if data == f"{CB}OPEN:SETTINGS":
+        txt = "🛠 Настройки" if ui == "ru" else "🛠 Settings"
+        await _edit_or_send(update, context, txt, _kb_settings_sub(ui, st["append_tr"]))
+        return
+
+    if data == f"{CB}OPEN:PREMIUM":
+        txt = "⭐ Premium" if ui != "ru" else "⭐ Премиум"
+        await _edit_or_send(update, context, txt, _kb_premium(ui))
+        return
+
+    # ---------- premium actions (без изменения бизнес-логики) ----------
+    # Здесь мы не реализуем оплату внутри settings: просто мягко направляем на команды,
+    # чтобы не ломать существующие pay flows.
+    if data == f"{CB}PREM:BUY":
+        await q.answer()
+        await context.bot.send_message(chat_id, "Ок! Открой /buy" if ui == "ru" else "Ok! Use /buy")
+        return
+
+    if data == f"{CB}PREM:DONATE":
+        await q.answer()
+        await context.bot.send_message(chat_id, "Ок! Открой /donate" if ui == "ru" else "Ok! Use /donate")
+        return
+
+    if data == f"{CB}PREM:HOW":
+        await q.answer()
+        # у тебя уже есть how_to_pay_game через меню, поэтому просто подскажем /buy или кнопку в оплате
+        await context.bot.send_message(chat_id, "Смотри /buy → «Как оплатить»" if ui == "ru" else "Open /buy → “How to pay”")
+        return
+
+    # ---------- open screens ----------
+    if data == f"{CB}OPEN:LANG":
+        await q.edit_message_text("Выбери язык:" if ui == "ru" else "Choose a language:", reply_markup=_langs_keyboard(chat_id, ui))
+        await q.answer()
+        return
+
+    if data == f"{CB}OPEN:LEVEL":
+        await q.edit_message_text("Выбери уровень:" if ui == "ru" else "Choose your level:", reply_markup=_levels_keyboard(ui))
+        await q.answer()
+        return
+
+    if data == f"{CB}OPEN:STYLE":
+        await q.edit_message_text("Выбери стиль:" if ui == "ru" else "Choose a style:", reply_markup=_styles_keyboard(ui))
+        await q.answer()
+        return
+
+    # ---------- level guide ----------
+    if data == f"{CB}LEVEL:GUIDE":
+        guide_text = None
+        try:
+            from handlers.chat.levels_text import get_level_guide  # type: ignore
+            guide_text = get_level_guide(ui)
+        except Exception:
+            guide_text = None
+
+        text = guide_text or ("Гайд временно недоступен." if ui == "ru" else "Guide is temporarily unavailable.")
+        await q.edit_message_text(text=text, reply_markup=_kb_level_guide(ui), parse_mode="Markdown")
+        await q.answer()
+        return
+
+    if data == f"{CB}LEVEL:GUIDE:CLOSE":
+        await q.edit_message_text("Выбери уровень:" if ui == "ru" else "Choose your level:", reply_markup=_levels_keyboard(ui))
+        await q.answer()
+        return
+
+    # ---------- toggles main (Variant 1) ----------
+    if data.startswith(f"{CB}FMT:"):
+        _, val = data.split(":", 1)
+        if val in ("text", "voice"):
+            sess["mode"] = val
         await cmd_settings(update, context)
         return
 
-    # -------------------- OPEN screens --------------------
-    if data == "S:OPEN:FORMAT":
-        text = "Выбери формат ответа:" if ui == "ru" else "Choose reply format:"
-        await _edit_or_send(update, context, text, _kb_format(ui, st["out_mode"]))
-        return
-
-    if data == "S:OPEN:MODE":
-        text = "Выбери режим:" if ui == "ru" else "Choose mode:"
-        await _edit_or_send(update, context, text, _kb_mode(ui, st["task_mode"]))
-        return
-
-    if data == "S:OPEN:SETTINGS":
-        text = "🛠 Настройки" if ui == "ru" else "🛠 Settings"
-        await _edit_or_send(update, context, text, _kb_settings(ui))
-        return
-
-    if data == "S:OPEN:PREMIUM":
-        text = "⭐ Премиум" if ui == "ru" else "⭐ Premium"
-        await _edit_or_send(update, context, text, _kb_premium(ui))
-        return
-
-    if data == "S:OPEN:LANG":
-        text = "Выбери язык:" if ui == "ru" else "Choose a language:"
-        await _edit_or_send(update, context, text, _langs_keyboard(chat_id, ui))
-        return
-
-    if data == "S:OPEN:LEVEL":
-        text = "Выбери уровень:" if ui == "ru" else "Choose your level:"
-        await _edit_or_send(update, context, text, _levels_keyboard(ui))
-        return
-
-    if data == "S:OPEN:STYLE":
-        text = "Выбери стиль:" if ui == "ru" else "Choose style:"
-        await _edit_or_send(update, context, text, _styles_keyboard(ui))
-        return
-
-    if data == "S:OPEN:DUP":
-        level = st["level"]
-        enabled = bool(prof.get("append_translation")) if level in ("A0", "A1") else False
-        text = (
-            "Дублирование на языке интерфейса (A0–A1):"
-            if ui == "ru" else
-            "Native duplicates (A0–A1):"
-        )
-        await _edit_or_send(update, context, text, _kb_duplicates(ui, enabled, level))
-        return
-
-    # -------------------- APPLY format/mode --------------------
-    if data.startswith("S:FORMAT:"):
-        val = data.split(":", 2)[-1]
-        sess["mode"] = "voice" if val == "voice" else "text"
-        text = "Выбери формат ответа:" if ui == "ru" else "Choose reply format:"
-        await _edit_or_send(update, context, text, _kb_format(ui, sess["mode"]))
-        return
-
-    if data.startswith("S:MODE:"):
-        val = data.split(":", 2)[-1]
+    if data.startswith(f"{CB}MODE:"):
+        _, val = data.split(":", 1)
         if val == "translator":
-            # сразу входим и показываем инструкцию/кнопку направления в переводчике
+            sess["task_mode"] = "translator"
+            ensure_tr_defaults(sess)
+            # ВАЖНО: отправим инструкцию переводчика отдельным сообщением, как у тебя сейчас сделано
             await enter_translator(update, context, sess)
-            return
         else:
             # chat
+            if sess.get("task_mode") == "translator":
+                await exit_translator(update, context, sess)
             sess["task_mode"] = "chat"
-            msg = "💬 Режим диалога включён." if ui == "ru" else "💬 Chat mode is ON."
-            await q.answer("✅")
-            await context.bot.send_message(chat_id, msg)
+
+        await cmd_settings(update, context)
+        return
+
+    # ---------- settings sub toggles ----------
+    if data == f"{CB}TOGGLE:APPEND_TR":
+        level = st["level"]
+        if level not in ("A0", "A1"):
+            await q.answer("Недоступно для вашего уровня" if ui == "ru" else "Unavailable for your level", show_alert=True)
             return
 
-    # -------------------- SETTINGS values --------------------
-    if data.startswith("S:LANG:"):
-        code = data.split(":", 2)[-1]
+        new_val = not bool(prof.get("append_translation"))
+        try:
+            save_user_profile(chat_id, append_translation=new_val, append_translation_lang=(prof.get("interface_lang") or "en"))
+        except Exception:
+            logger.debug("append_translation save failed", exc_info=True)
+
+        # обновим экран настроек (подменю)
+        st2 = _get_state(chat_id, context)
+        txt = "🛠 Настройки" if ui == "ru" else "🛠 Settings"
+        await q.edit_message_text(txt, reply_markup=_kb_settings_sub(ui, st2["append_tr"]))
+        await q.answer("✅")
+        return
+
+    # ---------- apply specific choices ----------
+    if data.startswith(f"{CB}SET:LANG:"):
+        code = data.split(":", 3)[-1]
+        # в активную сессию
         sess["target_lang"] = code
+        (context.user_data or {})["language"] = code
         try:
             save_user_profile(chat_id, target_lang=code)
         except Exception:
-            logger.debug("save_user_profile(target_lang) failed", exc_info=True)
+            logger.debug("save target_lang failed", exc_info=True)
+
         await q.answer("✅")
-        # возвращаемся в общий /settings
         await cmd_settings(update, context)
         return
 
-    if data.startswith("S:LEVEL:"):
-        level = data.split(":", 2)[-1]
-        sess["level"] = level
+    if data.startswith(f"{CB}SET:LEVEL:"):
+        lev = data.split(":", 3)[-1]
+        sess["level"] = lev
+        (context.user_data or {})["level"] = lev
         try:
-            save_user_profile(chat_id, level=level)
+            save_user_profile(chat_id, level=lev)
         except Exception:
-            logger.debug("save_user_profile(level) failed", exc_info=True)
+            logger.debug("save level failed", exc_info=True)
+
         await q.answer("✅")
         await cmd_settings(update, context)
         return
 
-    if data.startswith("S:STYLE:"):
-        style = data.split(":", 2)[-1]
+    if data.startswith(f"{CB}SET:STYLE:"):
+        style = data.split(":", 3)[-1]
         sess["style"] = style
+        (context.user_data or {})["style"] = style
         try:
             save_user_profile(chat_id, style=style)
         except Exception:
-            logger.debug("save_user_profile(style) failed", exc_info=True)
+            logger.debug("save style failed", exc_info=True)
+
         await q.answer("✅")
         await cmd_settings(update, context)
         return
 
-    # duplicates
-    if data == "S:DUP:TOGGLE":
-        level = st["level"]
-        if level in ("A0", "A1"):
-            new_val = not bool(prof.get("append_translation"))
-            try:
-                save_user_profile(chat_id, append_translation=new_val, append_translation_lang=(prof.get("interface_lang") or "en"))
-            except Exception:
-                logger.debug("save_user_profile(append_translation) failed", exc_info=True)
-            await q.answer("✅")
-            await cmd_settings(update, context)
-            return
-        await q.answer("Недоступно" if ui == "ru" else "Unavailable", show_alert=True)
-        return
-
-    if data == "S:DUP:INFO":
-        await q.answer("Доступно только для A0–A1" if ui == "ru" else "Available for A0–A1 only", show_alert=True)
-        return
-
-    # -------------------- PREMIUM actions --------------------
-    if data == "S:PREM:BUY":
-        await q.answer("⭐")
-        try:
-            from handlers.commands.payments import buy_command
-            await buy_command(update, context)
-        except Exception:
-            logger.exception("buy_command failed")
-        return
-
-    if data == "S:PREM:DONATE":
-        await q.answer("❤️")
-        try:
-            from handlers.commands.donate import donate_command
-            await donate_command(update, context)
-        except Exception:
-            logger.exception("donate_command failed")
-        return
-
-    # fallback
-    logger.warning("Unhandled settings callback: %r", data)
-    try:
-        await q.answer()
-    except Exception:
-        pass
+    # если что-то неизвестное
+    await q.answer()
