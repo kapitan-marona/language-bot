@@ -9,7 +9,10 @@ LANG_CODES = {
     "Finnish": "fi",
     "Norwegian": "no",
     "Swedish": "sv",
-    "Russian": "ru"
+
+    # ✅ Both variants supported (UI uses "Русский")
+    "Russian": "ru",
+    "Русский": "ru"
 }
 
 # 🧠 Whisper-supported languages (ISO codes)

@@ -117,6 +117,19 @@ _LANG_TO_VOICE = {
     "fi": "echo",   # мужской
 }
 
+# -------------------- инструкции произношения (только для gpt-4o-mini-tts) --------------------
+
+_LANG_TO_TTS_INSTRUCTIONS = {
+    "sv": (
+        "Speak in Swedish (Sweden) with natural Swedish pronunciation and intonation. "
+        "Clear consonants, natural pacing. Do not sound like an English accent."
+    ),
+    "fi": (
+        "Speak in Finnish with natural Finnish pronunciation and intonation. "
+        "Pronounce double vowels and double consonants clearly. Natural pacing."
+    ),
+}
+
 # -------------------- основная функция TTS --------------------
 
 def synthesize_voice(text: str, language_code: str, style: str = "casual", level: str = "A2") -> str:
@@ -139,6 +152,9 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
     lang_code = (language_code or "en").split("-")[0].lower()
     voice = _LANG_TO_VOICE.get(lang_code, "alloy")
 
+    # NEW: инструкции произношения для сложных языков (fi/sv)
+    instructions = _LANG_TO_TTS_INSTRUCTIONS.get(lang_code, "")
+
     logger.info("TTS: voice=%s lang=%s style=%s level=%s", voice, language_code, style, level)
 
     tmp_path = None
@@ -146,9 +162,10 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
     try:
         # 1) Прямо просим OGG/Opus — это правильный формат для send_voice
         resp = client.audio.speech.create(
-            model="tts-1",
+            model="gpt-4o-mini-tts",
             voice=voice,
             input=prepared,
+            instructions=instructions or None,
             response_format="opus",   # FIX: новый параметр
         )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as out_file:
@@ -173,9 +190,10 @@ def synthesize_voice(text: str, language_code: str, style: str = "casual", level
     # 2) Фолбэк: mp3 → при наличии ffmpeg перекодируем в OGG/Opus
     try:
         resp = client.audio.speech.create(
-            model="tts-1",
+            model="gpt-4o-mini-tts",
             voice=voice,
             input=prepared,
+            instructions=instructions or None,
             response_format="mp3",     # FIX: новый параметр
         )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as out_mp3:
