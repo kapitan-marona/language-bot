@@ -199,12 +199,28 @@ async def _edit_or_send(update: Update, context: ContextTypes.DEFAULT_TYPE, text
 
 async def _hide_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = getattr(update, "callback_query", None)
-    if q and q.message:
+    if not q or not q.message:
+        return
+
+    chat_id = q.message.chat.id
+    msg_id = q.message.message_id
+
+    # 1) Пытаемся удалить целиком (лучший вариант)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        return
+    except Exception:
+        pass
+
+    # 2) Фолбэк: если удалить нельзя — хотя бы "схлопнем" в точку без клавиатуры
+    try:
+        await q.edit_message_text(" ", reply_markup=None)
+    except Exception:
         try:
-            # прячем клавиатуру, сообщение остаётся
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
+
 
 # -------------------- команды-алиасы (не открывают меню) --------------------
 
