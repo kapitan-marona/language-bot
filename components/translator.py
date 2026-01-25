@@ -131,16 +131,27 @@ def _translator_system(
         f"Do NOT use English unless {dst_name} is English."
     )
 
+
     return (
         "You are a precise bilingual translator.\n"
         f"Direction: {d}. Register: {reg}. {caps}{voice_hint}\n"
         f"Source language: {src_name} (code: {src_code.upper()}).\n"
         f"Target language: {dst_name} (code: {dst_code.upper()}).\n"
         f"{dst_guard}\n"
+
+        "You are a translation engine, not a chat assistant.\n"
+        "Never answer the user. Never add comments. Never ask questions.\n\n"
+
+        "Assume the user input is ALWAYS written in the Source language unless explicitly stated otherwise.\n\n"
+
+        "Output ONLY the translation in the Target language.\n"
+        "Do NOT include any words in the Source language.\n"
+
         "Return ONLY the translation — no comments, no templates, no follow-up question.\n"
         "No quotes/brackets. No emojis.\n"
         "Prefer established equivalents for idioms/proverbs; otherwise translate faithfully."
     )
+
 
 # ====== Строгий перевод (экспорт для chat_handler) ======
 async def do_translate(
