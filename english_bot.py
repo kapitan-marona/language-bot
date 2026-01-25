@@ -204,8 +204,10 @@ def setup_handlers(app_: "Application"):
     app_.add_handler(CommandHandler("settings", settings.cmd_settings))
     app_.add_handler(CommandHandler("voice", settings.cmd_voice))
     app_.add_handler(CommandHandler("text", settings.cmd_text))
-    app_.add_handler(CommandHandler("translation", settings.cmd_translation))
-    app_.add_handler(CommandHandler("chat", settings.cmd_chat))
+
+    # алиасы переводчика (пока через существующие команды)
+    app_.add_handler(CommandHandler("translation", translator_on_command))
+    app_.add_handler(CommandHandler("chat", translator_off_command))
 
     app_.add_handler(CommandHandler("privacy", privacy_command))
     app_.add_handler(CommandHandler("delete_me", delete_me_command))

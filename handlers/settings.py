@@ -1,3 +1,4 @@
+# handlers/settings.py
 from __future__ import annotations
 
 import logging
@@ -10,8 +11,6 @@ from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
 from components.i18n import get_ui_lang
 from state.session import user_sessions
-
-from handlers.translator_mode import enter_translator, exit_translator, ensure_tr_defaults  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +62,7 @@ def _state_from(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Dict[str,
     level = prof.get("level") or sess.get("level") or "B1"
     style = prof.get("style") or sess.get("style") or "casual"
 
-    out_mode = sess.get("mode") or "text"          # text | voice
-    task_mode = sess.get("task_mode") or "chat"    # chat | translator
-    if task_mode not in ("chat", "translator"):
-        task_mode = "chat"
+    out_mode = sess.get("mode") or "text"  # text | voice
 
     append_tr = False
     if (level or "").upper() in ("A0", "A1"):
@@ -83,7 +79,6 @@ def _state_from(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Dict[str,
         "level": level,
         "style": style,
         "out_mode": out_mode,
-        "task_mode": task_mode,
         "append_tr": append_tr,
         "english_only_note": english_only_note,
     }
@@ -94,15 +89,11 @@ def _main_text(
     level: str,
     style_name: str,
     out_mode: str,
-    task_mode: str,
     append_tr: bool,
     english_only_note: bool,
 ) -> str:
     out_title = ("🔊 Аудио" if ui == "ru" else "🔊 Voice") if out_mode == "voice" else ("⌨️ Текст" if ui == "ru" else "⌨️ Text")
-    mode_title = ("🌍 Переводчик" if ui == "ru" else "🌍 Translator") if task_mode == "translator" else ("💬 Диалог" if ui == "ru" else "💬 Chat")
 
-    # Делаем сообщение чуть длиннее — кнопки выглядят шире/аккуратнее
-    # (Telegram реально лучше раскладывает клавиатуру, когда над ней есть “тело” текста)
     if ui == "ru":
         text = (
             "⚙️ Настройки\n\n"
@@ -110,7 +101,6 @@ def _main_text(
             f"Установленный уровень: {level}\n"
             f"Стиль: {style_name}\n"
             f"Формат ответа Мэтта: {out_title}\n"
-            f"Режим: {mode_title}\n"
             f"Дублирование: {'Вкл' if append_tr else 'Выкл'}\n\n"
             "Выбери, что поменять ↓"
         )
@@ -124,7 +114,6 @@ def _main_text(
         f"Level: {level}\n"
         f"Style: {style_name}\n"
         f"Matt's output: {out_title}\n"
-        f"Mode: {mode_title}\n"
         f"Native hints: {'On' if append_tr else 'Off'}\n\n"
         "Choose what to change ↓"
     )
@@ -133,27 +122,19 @@ def _main_text(
     return text
 
 def _pill(label: str, active: bool) -> str:
-    # одинаковая ширина: только меняем ●/○
     return f"{DOT_ON if active else DOT_OFF} {label}"
 
-def _kb_main(ui: str, out_mode: str, task_mode: str) -> InlineKeyboardMarkup:
+def _kb_main(ui: str, out_mode: str) -> InlineKeyboardMarkup:
     # 1 строка: Текст / Аудио
     b_text = _pill("⌨️ Текст" if ui == "ru" else "⌨️ Text", out_mode == "text")
     b_voice = _pill("🔊 Аудио" if ui == "ru" else "🔊 Voice", out_mode == "voice")
 
-    # 2 строка: Диалог / Переводчик
-    b_chat = _pill("💬 Диалог" if ui == "ru" else "💬 Chat", task_mode == "chat")
-    b_tr = _pill("🌍 Переводчик" if ui == "ru" else "🌍 Translator", task_mode == "translator")
-
-    # 3 строка: Настройки / Premium
+    # 2 строка: Настройки / Premium
+    # 3 строка: Готово
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(b_text, callback_data="S:FORMAT:text"),
             InlineKeyboardButton(b_voice, callback_data="S:FORMAT:voice"),
-        ],
-        [
-            InlineKeyboardButton(b_chat, callback_data="S:MODE:chat"),
-            InlineKeyboardButton(b_tr, callback_data="S:MODE:translator"),
         ],
         [
             InlineKeyboardButton("🛠 Настройки" if ui == "ru" else "🛠 Settings", callback_data="S:OPEN:SETTINGS"),
@@ -220,11 +201,12 @@ async def _hide_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = getattr(update, "callback_query", None)
     if q and q.message:
         try:
+            # прячем клавиатуру, сообщение остаётся
             await q.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
 
-# -------------------- команды-алиасы (ВАЖНО: НЕ ОТКРЫВАЮТ МЕНЮ) --------------------
+# -------------------- команды-алиасы (не открывают меню) --------------------
 
 async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
@@ -240,17 +222,6 @@ async def cmd_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ui = get_ui_lang(update, context)
     await update.effective_message.reply_text("⌨️ Теперь отвечаю текстом." if ui == "ru" else "⌨️ Now I'll reply with text.")
 
-async def cmd_translation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
-    sess = user_sessions.setdefault(chat_id, {})
-    ensure_tr_defaults(sess)
-    await enter_translator(update, context, sess)
-
-async def cmd_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
-    sess = user_sessions.setdefault(chat_id, {})
-    await exit_translator(update, context, sess)
-
 # -------------------- публичные хендлеры --------------------
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -262,11 +233,10 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         level=st["level"],
         style_name=_name_for_style(st["style"], ui),
         out_mode=st["out_mode"],
-        task_mode=st["task_mode"],
         append_tr=st["append_tr"],
         english_only_note=st["english_only_note"],
     )
-    await _edit_or_send(update, context, text, _kb_main(ui, st["out_mode"], st["task_mode"]))
+    await _edit_or_send(update, context, text, _kb_main(ui, st["out_mode"]))
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
@@ -280,7 +250,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     sess: Dict[str, Any] = st["sess"]
     prof: Dict[str, Any] = st["prof"]
 
-    # Всегда отвечаем, чтобы не “крутилось”
     try:
         await q.answer()
     except Exception:
@@ -295,13 +264,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "S:OPEN:SETTINGS":
         level_now = (prof.get("level") or sess.get("level") or "B1").upper()
         append_tr = bool(prof.get("append_translation")) if level_now in ("A0", "A1") else False
+
         text = _main_text(
             ui=ui,
             lang_name=_name_for_lang(prof.get("target_lang") or sess.get("target_lang") or "en"),
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
@@ -315,13 +284,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "S:BACK:SETTINGS":
         level_now = (prof.get("level") or sess.get("level") or "B1").upper()
         append_tr = bool(prof.get("append_translation")) if level_now in ("A0", "A1") else False
+
         text = _main_text(
             ui=ui,
             lang_name=_name_for_lang(prof.get("target_lang") or sess.get("target_lang") or "en"),
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
@@ -330,11 +299,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Подменю: Язык / Уровень / Стиль
     if data == "S:OPEN:LANG":
-        await q.edit_message_text("Выбери язык:" if ui == "ru" else "Choose a language:", reply_markup=_langs_keyboard(chat_id, ui))
+        await q.edit_message_text(
+            "Выбери язык:" if ui == "ru" else "Choose a language:",
+            reply_markup=_langs_keyboard(chat_id, ui),
+        )
         return
 
     if data == "S:OPEN:LEVEL":
-        await q.edit_message_text("Выбери уровень:" if ui == "ru" else "Choose your level:", reply_markup=_levels_keyboard(ui))
+        await q.edit_message_text(
+            "Выбери уровень:" if ui == "ru" else "Choose your level:",
+            reply_markup=_levels_keyboard(ui),
+        )
         return
 
     if data == "S:OPEN:LEVEL_GUIDE":
@@ -346,9 +321,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             guide = None
 
         if not guide:
-            guide = ("A0–A1: очень просто\nA2: базово\nB1: средне\nB2+: свободнее"
-                     if ui == "ru" else
-                     "A0–A1: very simple\nA2: basic\nB1: intermediate\nB2+: advanced")
+            guide = (
+                "A0–A1: очень просто\nA2: базово\nB1: средне\nB2+: свободнее"
+                if ui == "ru"
+                else
+                "A0–A1: very simple\nA2: basic\nB1: intermediate\nB2+: advanced"
+            )
 
         await q.edit_message_text(
             guide,
@@ -359,7 +337,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if data == "S:OPEN:STYLE":
-        await q.edit_message_text("Выбери стиль:" if ui == "ru" else "Choose a style:", reply_markup=_styles_keyboard(ui))
+        await q.edit_message_text(
+            "Выбери стиль:" if ui == "ru" else "Choose a style:",
+            reply_markup=_styles_keyboard(ui),
+        )
         return
 
     # Тумблер дублирования (только A0–A1)
@@ -387,7 +368,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
@@ -399,42 +379,19 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         val = data.split(":", 2)[-1]
         sess["mode"] = "voice" if val == "voice" else "text"
 
+        level_now = (prof.get("level") or sess.get("level") or "B1").upper()
+        append_tr = bool(prof.get("append_translation")) if level_now in ("A0", "A1") else False
+
         text = _main_text(
             ui=ui,
             lang_name=_name_for_lang(prof.get("target_lang") or sess.get("target_lang") or "en"),
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess["mode"],
-            task_mode=sess.get("task_mode") or "chat",
-            append_tr=st["append_tr"],
+            append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
-        await q.edit_message_text(text, reply_markup=_kb_main(ui, sess["mode"], sess.get("task_mode") or "chat"))
-        return
-
-    # Режим (chat/translator) — перерисуем ГЛАВНОЕ меню с ●/○
-    if data.startswith("S:MODE:"):
-        val = data.split(":", 2)[-1]
-
-        if val == "translator":
-            sess["task_mode"] = "translator"
-            ensure_tr_defaults(sess)
-            await enter_translator(update, context, sess)
-        else:
-            sess["task_mode"] = "chat"
-            await exit_translator(update, context, sess)
-
-        text = _main_text(
-            ui=ui,
-            lang_name=_name_for_lang(prof.get("target_lang") or sess.get("target_lang") or "en"),
-            level=prof.get("level") or sess.get("level") or "B1",
-            style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
-            out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
-            append_tr=st["append_tr"],
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
-        )
-        await q.edit_message_text(text, reply_markup=_kb_main(ui, sess.get("mode") or "text", sess.get("task_mode") or "chat"))
+        await q.edit_message_text(text, reply_markup=_kb_main(ui, sess["mode"]))
         return
 
     # Выбор языка
@@ -456,7 +413,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
@@ -481,7 +437,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             level=level,
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
@@ -507,7 +462,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             level=prof.get("level") or sess.get("level") or "B1",
             style_name=_name_for_style(style, ui),
             out_mode=sess.get("mode") or "text",
-            task_mode=sess.get("task_mode") or "chat",
             append_tr=append_tr,
             english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
         )
