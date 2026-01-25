@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Literal, Dict, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -39,34 +40,37 @@ LANG_NAMES = {
     "fi": "Finnish",
 }
 
+
 def flag(code: str) -> str:
     return FLAGS.get((code or "en").lower(), "🏳️")
+
 
 def short(code: str) -> str:
     return SHORT.get((code or "en").lower(), (code or "EN").upper())
 
+
 def target_lang_title(code: str) -> str:
     return LANG_TITLES.get((code or "en").lower(), (code or "EN").upper())
 
-# ——— Текст-инструкция для переводчика (без примеров про "почки")
+
+# ——— Текст-инструкция для переводчика (без примера про почки)
 ONBOARDING = {
     "ru": [
         "🧩 Режим переводчика включён.",
-        "Я не веду диалог — я перевожу то, что ты отправляешь.",
-        "Если ты уточняешь смысл (например, добавляешь пояснение в скобках) — я учту это при переводе.",
+        "Я перевожу всё, что ты отправишь — без лишних обсуждений и вопросов.",
+        "Кнопка ниже меняет направление перевода.",
         "",
-        "⬅️ Вернуться в обычный режим: /translator_off",
-        "🔁 Направление перевода можно менять кнопкой ниже.",
+        "Вернуться в обычный режим: /translator_off",
     ],
     "en": [
         "🧩 Translator mode is ON.",
-        "I don’t chat here — I translate what you send.",
-        "If you add a clarification (e.g., in parentheses), I’ll use it to choose the right meaning.",
+        "I translate everything you send — no extra chatter.",
+        "Use the button below to switch translation direction.",
         "",
-        "⬅️ Back to chat mode: /translator_off",
-        "🔁 You can toggle direction with the button below.",
+        "Back to chat mode: /translator_off",
     ],
 }
+
 
 def dir_compact_label(ui_code: str, direction: Direction, tgt_code: str) -> str:
     ui_flag, ui_short = flag(ui_code), short(ui_code)
@@ -75,17 +79,23 @@ def dir_compact_label(ui_code: str, direction: Direction, tgt_code: str) -> str:
         return f"{ui_flag} {ui_short} → {tg_flag} {tg_short}"
     return f"{tg_flag} {tg_short} → {ui_flag} {ui_short}"
 
+
 def translator_status_text(ui: str, tgt_title: str, cfg: Dict[str, Any]) -> str:
     parts = ONBOARDING["ru"] if ui == "ru" else ONBOARDING["en"]
     return "\n".join(parts)
 
+
 def get_translator_keyboard(ui: str, cfg: Dict[str, Any], tgt_code: str) -> InlineKeyboardMarkup:
-    # ✅ Оставляем только одну кнопку: направление
+    """
+    По договорённости: в режиме переводчика оставляем ОДНУ кнопку — переключатель направления.
+    Остальные настройки — только в главном меню (/settings).
+    """
     btn_dir = InlineKeyboardButton(
         dir_compact_label(ui_code=ui, direction=cfg["direction"], tgt_code=tgt_code),
         callback_data="TR:TOGGLE:DIR",
     )
     return InlineKeyboardMarkup([[btn_dir]])
+
 
 # === Вспомогательное: «сжатие» по уровню ===
 def _cap_for_level(level: str) -> str:
@@ -100,9 +110,11 @@ def _cap_for_level(level: str) -> str:
         return "Max 2–4 sentences."
     return "Max 2–5 sentences."  # B2–C2
 
+
 def _lang_name(code: str) -> str:
     c = (code or "en").lower()
     return LANG_NAMES.get(c, c.upper())
+
 
 def _translator_system(
     *,
@@ -114,23 +126,20 @@ def _translator_system(
     voice: bool,
 ) -> str:
     """
-    Жёстко фиксируем языки, чтобы модель не уезжала в английский по умолчанию.
+    Жёстко фиксируем исходный и целевой языки, чтобы модель не «скатывалась» в дефолт.
     """
     d = "UI→TARGET" if (direction or "ui→target") == "ui→target" else "TARGET→UI"
     reg = "casual, idiomatic" if (style or "casual") == "casual" else "business, neutral, concise"
     caps = _cap_for_level(level)
     voice_hint = " Keep sentences short and well-paced for voice." if voice else ""
 
+    # Источник/назначение
     src_code = interface_lang if d == "UI→TARGET" else target_lang
     dst_code = target_lang if d == "UI→TARGET" else interface_lang
     src_name = _lang_name(src_code)
     dst_name = _lang_name(dst_code)
 
-    dst_guard = (
-        f"Output MUST be in {dst_name} only. "
-        f"Do NOT use English unless {dst_name} is English."
-    )
-
+    dst_guard = f"Output MUST be in {dst_name} only. Do NOT use English unless {dst_name} is English."
 
     return (
         "You are a precise bilingual translator.\n"
@@ -138,22 +147,36 @@ def _translator_system(
         f"Source language: {src_name} (code: {src_code.upper()}).\n"
         f"Target language: {dst_name} (code: {dst_code.upper()}).\n"
         f"{dst_guard}\n"
-
-        "You are a translation engine, not a chat assistant.\n"
-        "Never answer the user. Never add comments. Never ask questions.\n\n"
-
-        "Assume the user input is ALWAYS written in the Source language unless explicitly stated otherwise.\n\n"
-
-        "Output ONLY the translation in the Target language.\n"
-        "Do NOT include any words in the Source language.\n"
-
         "Return ONLY the translation — no comments, no templates, no follow-up question.\n"
         "No quotes/brackets. No emojis.\n"
         "Prefer established equivalents for idioms/proverbs; otherwise translate faithfully."
     )
 
 
-# ====== Строгий перевод (экспорт для chat_handler) ======
+# ====== Вариант A: base переводим, hint в хвосте (в скобках) — только подсказка смысла ======
+_PARENS_TAIL = re.compile(r"^(?P<base>.*?)(?:\s*\((?P<hint>[^()]*)\)\s*)$")
+
+
+def _split_base_and_hint(text: str) -> tuple[str, str | None]:
+    """
+    Разбираем ввод вида:
+      "Почки (внутренний орган)" -> base="Почки", hint="внутренний орган"
+    Важно: hint НЕ переводим и НЕ включаем в output; он только для выбора значения.
+    """
+    t = (text or "").strip()
+    m = _PARENS_TAIL.match(t)
+    if not m:
+        return t, None
+    base = (m.group("base") or "").strip()
+    hint = (m.group("hint") or "").strip()
+    if not base:
+        return t, None
+    if not hint:
+        return base, None
+    return base, hint
+
+
+# ====== Строгий детерминированный перевод (экспорт для chat_handler) ======
 async def do_translate(
     text: str,
     *,
@@ -168,6 +191,10 @@ async def do_translate(
     """
     Строгий и быстрый перевод: учитывает направление, стиль, уровень, формат (voice/text).
     Возвращает ТОЛЬКО перевод — без кавычек, скобок, эмодзи и пояснений.
+
+    Вариант A:
+      - если есть хвост в скобках ( ... (hint) ), переводим только base,
+        а hint используем как DISAMBIGUATION (не переводить, не включать в вывод).
     """
     if not text:
         return ""
@@ -175,17 +202,22 @@ async def do_translate(
     ui = (interface_lang or "en").lower()
     tgt = (target_lang or "en").lower()
 
-    import re
-
-    # Если пользователь ввёл "переведи ..." / "translate ..." — берём текст после ключевых слов
+    # 1️⃣ Если пользователь дал вводку вроде "переведи ..." или "translate ..."
+    #    — берём только текст после этих слов
     pattern = r"(?:(?:translate|переведи|как будет|что значит|meaning of)\s*[:,\-–]?\s*)[\"“”']?(.*?)[\"“”']?$"
-    m = re.search(pattern, text.strip(), re.IGNORECASE)
+    m = re.search(pattern, (text or "").strip(), re.IGNORECASE)
     if m and len(m.group(1)) > 1:
         text = m.group(1).strip()
 
-    # Если текст выглядит как вопрос — заставляем перевести вопрос, а не отвечать
-    if re.match(r"^(what|how|can|is|are|do|does|did|where|who|when|why)\b", text.lower()):
+    # 2️⃣ Если сообщение похоже на вопрос (начинается с what/how/is/do и т.п.),
+    #    явно уточняем GPT, что это именно текст для перевода, а не обращение
+    if re.match(r"^(what|how|can|is|are|do|does|did|where|who|when|why)\b", (text or "").lower()):
         text = f"Translate this question only, do not answer it: {text}"
+
+    # 3️⃣ Вариант A: split base + hint (хвост в скобках)
+    base_text, hint = _split_base_and_hint(text)
+    if not base_text:
+        base_text = (text or "").strip()
 
     sys = _translator_system(
         direction=direction,
@@ -196,26 +228,47 @@ async def do_translate(
         voice=(output == "voice"),
     )
 
+    user_payload = base_text
+    if hint:
+        user_payload = (
+            f"{base_text}\n\n"
+            f"DISAMBIGUATION (do not translate, do not include in output): {hint}"
+        )
+
     messages = [
-        {"role": "system", "content": sys},
-        {"role": "user", "content": text},
+        {
+            "role": "system",
+            "content": (
+                sys
+                + "\nIf DISAMBIGUATION is provided, use it only to choose meaning. "
+                  "Translate ONLY the first line of the user message."
+            ),
+        },
+        {"role": "user", "content": user_payload},
     ]
 
     logger.debug(
         "[TR] call: dir=%s style=%s lvl=%s out=%s ui=%s tgt=%s text_len=%d",
-        direction, style, level, output, ui, tgt, len(text or "")
+        direction,
+        style,
+        level,
+        output,
+        ui,
+        tgt,
+        len(base_text or ""),
     )
 
     async def _call():
+        # мини-модель: быстрее и дешевле для переводов
         return await ask_gpt(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=180)
 
     try:
         out = await asyncio.wait_for(_call(), timeout=timeout)
     except asyncio.TimeoutError:
         logger.error("[TR] do_translate timeout")
-        return text.strip()
+        return base_text.strip()
     except TypeError as e:
-        # если ask_gpt в твоей версии без именованных параметров — подстрахуемся
+        # если обёртка ask_gpt пока без именованных параметров
         logger.error("[TR] do_translate error (TypeError): %s", e)
         out = await ask_gpt(messages, model="gpt-4o-mini")
 
