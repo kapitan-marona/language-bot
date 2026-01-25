@@ -10,7 +10,13 @@ from telegram.ext import ContextTypes
 from telegram.error import RetryAfter, Forbidden, BadRequest, TimedOut, NetworkError
 
 from components.admins import ADMIN_IDS
-from components.profile_db import get_all_chat_ids, delete_user
+from components.profile_db import (
+    get_all_chat_ids,
+    delete_user,
+    get_chat_ids_by_interface_lang,
+    get_chat_ids_active_last_days,
+    get_chat_ids_active_last_days_by_interface_lang,
+)
 from components.promo import PROMO_CODES
 from state.session import user_sessions
 
@@ -49,6 +55,50 @@ async def _out(
             await update.message.reply_text(text, reply_markup=reply_markup)
 
 
+def _audience_label(flt: dict | None) -> str:
+    if not flt:
+        return "All users"
+    mode = flt.get("mode")
+    if mode == "ALL":
+        return "All users"
+    if mode == "LANG":
+        return f"UI lang: {flt.get('lang')}"
+    if mode == "ACTIVE":
+        return f"Active last {flt.get('days', 7)} days"
+    if mode == "ACTIVE_LANG":
+        return f"Active last {flt.get('days', 7)} days + {flt.get('lang')}"
+    return "All users"
+
+
+def _resolve_audience(flt: dict | None) -> list[int]:
+    """Возвращает список chat_id по выбранному фильтру админки."""
+    if not flt:
+        return get_all_chat_ids()
+
+    mode = flt.get("mode")
+    if mode == "ALL":
+        return get_all_chat_ids()
+
+    if mode == "LANG":
+        lang = str(flt.get("lang") or "").strip()
+        return get_chat_ids_by_interface_lang(lang) if lang else get_all_chat_ids()
+
+    if mode == "ACTIVE":
+        days = int(flt.get("days") or 7)
+        return get_chat_ids_active_last_days(days)
+
+    if mode == "ACTIVE_LANG":
+        days = int(flt.get("days") or 7)
+        lang = str(flt.get("lang") or "").strip()
+        return (
+            get_chat_ids_active_last_days_by_interface_lang(days=days, interface_lang=lang)
+            if lang
+            else get_chat_ids_active_last_days(days)
+        )
+
+    return get_all_chat_ids()
+
+
 # === /adm_help ===
 async def adm_help_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
@@ -78,16 +128,15 @@ async def adm_promo_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         total_codes = len(PROMO_CODES)
         types = {}
-        for code, info in PROMO_CODES.items():
+        for _, info in PROMO_CODES.items():
             t = info.get("type", "unknown")
             types[t] = types.get(t, 0) + 1
 
-        text = ["📊 <b>Промокоды</b>"]
-        text.append(f"Всего кодов: {total_codes}")
+        lines = ["📊 <b>Промокоды</b>", f"Всего кодов: {total_codes}"]
         for t, n in types.items():
-            text.append(f"• {t}: {n}")
+            lines.append(f"• {t}: {n}")
 
-        await update.message.reply_html("\n".join(text))
+        await update.message.reply_html("\n".join(lines))
     except Exception as e:
         await update.message.reply_text(f"⚠️ Ошибка при получении статистики: {e}")
 
@@ -101,6 +150,10 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     - авто-чистка базы, если пользователь заблокировал/недоступен
     - прогресс админу
     - защита от параллельных рассылок
+
+    Audience:
+    - если в админке выбран фильтр (ctx.user_data['adm_broadcast_filter']),
+      рассылаем только по нему.
     """
     if not _check_admin(update):
         if update.message:
@@ -108,7 +161,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if not update.message:
-        # команда должна приходить из чата, не из callback
         return
 
     # ---- lock: не даём запустить 2 рассылки одновременно
@@ -117,30 +169,35 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     ctx.application.bot_data["broadcast_running"] = True
 
+    # выбранная аудитория из админки (если есть)
+    flt = ctx.user_data.get("adm_broadcast_filter")
+
     try:
         text = " ".join(ctx.args).strip() if ctx.args else ""
         if not text and update.message.reply_to_message:
-            # оставляем текущую логику: если reply, берём только текст
             text = (update.message.reply_to_message.text or "").strip()
 
         if not text:
-            await update.message.reply_text("📝 Введите текст после команды или сделайте reply на текстовое сообщение.")
+            await update.message.reply_text(
+                "📝 Введите текст после команды или сделайте reply на текстовое сообщение."
+            )
             return
 
         try:
-            chat_ids = get_all_chat_ids()
+            chat_ids = _resolve_audience(flt)
         except Exception:
-            await update.message.reply_text("⚠️ Не удалось получить список пользователей.")
+            await update.message.reply_text("⚠️ Не удалось получить список пользователей по выбранной аудитории.")
             return
 
         total = len(chat_ids)
         if total == 0:
-            await update.message.reply_text("Пользователей в базе нет.")
+            await update.message.reply_text("По выбранной аудитории пользователей не найдено.")
             return
 
-        # сообщение прогресса
+        audience_title = _audience_label(flt)
         progress_msg = await update.message.reply_text(
-            f"📣 Тихая рассылка началась.\n"
+            f"📣 Тихая рассылка началась\n"
+            f"Аудитория: {audience_title}\n"
             f"Получателей: {total}\n"
             f"Отправлено: 0\nОшибок: 0\nУдалено из базы: 0"
         )
@@ -151,7 +208,7 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         last_edit_ts = time.time()
         EDIT_EVERY_SEC = 2.5
-        THROTTLE_SEC = 0.05  # базовый троттлинг
+        THROTTLE_SEC = 0.05
 
         async def update_progress(force: bool = False) -> None:
             nonlocal last_edit_ts
@@ -162,13 +219,13 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             try:
                 await progress_msg.edit_text(
                     f"📣 Тихая рассылка идёт…\n"
+                    f"Аудитория: {audience_title}\n"
                     f"Получателей: {total}\n"
                     f"Отправлено: {sent}\n"
                     f"Ошибок: {failed}\n"
                     f"Удалено из базы: {deleted}"
                 )
             except Exception:
-                # если не смогли отредактировать — не падаем
                 pass
 
         def should_delete_on_bad_request(err_text: str) -> bool:
@@ -181,7 +238,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
 
         for chat_id in chat_ids:
-            # отправка всегда тихая
             try:
                 await ctx.bot.send_message(
                     chat_id=chat_id,
@@ -191,7 +247,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 sent += 1
 
             except RetryAfter as e:
-                # Telegram просит подождать — ждём и пробуем ещё раз один раз
                 wait_s = float(getattr(e, "retry_after", 1.0)) + 0.5
                 await asyncio.sleep(wait_s)
                 try:
@@ -203,7 +258,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     sent += 1
                 except (Forbidden, BadRequest) as e2:
                     failed += 1
-                    # авто-чистка
                     err_text = str(e2)
                     if isinstance(e2, Forbidden) or should_delete_on_bad_request(err_text):
                         try:
@@ -214,9 +268,8 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     failed += 1
 
-            except Forbidden as e:
+            except Forbidden:
                 failed += 1
-                # пользователь заблокировал бота → чистим
                 try:
                     delete_user(chat_id)
                     deleted += 1
@@ -225,7 +278,6 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
             except BadRequest as e:
                 failed += 1
-                # некоторые badrequest тоже означают недоступность
                 if should_delete_on_bad_request(str(e)):
                     try:
                         delete_user(chat_id)
@@ -234,42 +286,40 @@ async def broadcast_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         pass
 
             except (TimedOut, NetworkError):
-                # сетевые — не удаляем, просто считаем ошибкой и продолжаем
                 failed += 1
 
             except Exception:
                 failed += 1
 
-            # прогресс раз в несколько секунд
             await update_progress(force=False)
             await asyncio.sleep(THROTTLE_SEC)
 
         await update_progress(force=True)
 
-        # финал
+        final_text = (
+            f"✅ Тихая рассылка завершена\n"
+            f"Аудитория: {audience_title}\n"
+            f"Получателей: {total}\n"
+            f"Отправлено: {sent}\n"
+            f"Ошибок: {failed}\n"
+            f"Удалено из базы: {deleted}"
+        )
         try:
-            await progress_msg.edit_text(
-                f"✅ Тихая рассылка завершена\n"
-                f"Получателей: {total}\n"
-                f"Отправлено: {sent}\n"
-                f"Ошибок: {failed}\n"
-                f"Удалено из базы: {deleted}"
-            )
+            await progress_msg.edit_text(final_text)
         except Exception:
-            await update.message.reply_text(
-                f"✅ Тихая рассылка завершена\n"
-                f"Получателей: {total}\n"
-                f"Отправлено: {sent}\n"
-                f"Ошибок: {failed}\n"
-                f"Удалено из базы: {deleted}"
-            )
+            await update.message.reply_text(final_text)
 
     finally:
         ctx.application.bot_data["broadcast_running"] = False
+        # сбрасываем фильтр после попытки рассылки, чтобы не применять случайно повторно
+        if "adm_broadcast_filter" in ctx.user_data:
+            ctx.user_data.pop("adm_broadcast_filter", None)
 
 
 # === /test ===
 START_TS = time.time()
+
+
 async def test_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _check_admin(update):
         await update.message.reply_text("⛔️")
@@ -292,7 +342,11 @@ async def users_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=_nav_kb() if update.callback_query else None,
         )
     except Exception:
-        await _out(update, "⚠️ Не удалось получить количество пользователей.", reply_markup=_nav_kb() if update.callback_query else None)
+        await _out(
+            update,
+            "⚠️ Не удалось получить количество пользователей.",
+            reply_markup=_nav_kb() if update.callback_query else None,
+        )
 
 
 # === /stats ===
@@ -311,6 +365,7 @@ async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         con, cur = usage_connect()
         from datetime import datetime, timezone
+
         today = datetime.now(timezone.utc).date().isoformat()
         cur.execute("SELECT SUM(used_count) FROM user_usage WHERE date_utc=?", (today,))
         row = cur.fetchone()
@@ -335,6 +390,7 @@ async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # === /adm_stars ===
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
 
 async def adm_stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Показывает реальный баланс звёзд бота через Telegram API."""
@@ -366,7 +422,6 @@ async def adm_stars_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         stars_float = amount + (nano / 1_000_000_000)
         euros = stars_float * 0.01  # 1 Star ≈ €0.01
 
-        # красивый вывод
         if nano:
             frac = f"{nano:09d}".rstrip("0")
             stars_text = f"{amount}.{frac}"
