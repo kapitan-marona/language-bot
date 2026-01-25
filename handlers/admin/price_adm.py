@@ -1,37 +1,70 @@
 from __future__ import annotations
-import sqlite3, os, time
+
+import sqlite3
+import time
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+
 from components.admins import ADMIN_IDS
 from components.config_store import set_kv, get_kv  # KV-хранилище цен (JSON)
 from components.profile_db import DB_PATH as PROFILES_DB_PATH
+
 
 def _is_admin(update: Update) -> bool:
     u = update.effective_user
     return bool(u and u.id in ADMIN_IDS)
 
+
 def _kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ Balance (Stars)", callback_data="ADM:PRICE:STARS")],
-        [InlineKeyboardButton("🧾 Subs count", callback_data="ADM:PRICE:SUBS")],
-        [InlineKeyboardButton("💶 Change price (Stars)", callback_data="ADM:PRICE:SET_STARS")],
-        [InlineKeyboardButton("₽ Change price (RUB)", callback_data="ADM:PRICE:SET_RUB")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="ADM:BACK")],
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("⭐ Balance (Stars)", callback_data="ADM:PRICE:STARS")],
+            [InlineKeyboardButton("🧾 Subs count", callback_data="ADM:PRICE:SUBS")],
+            [InlineKeyboardButton("💶 Change price (Stars)", callback_data="ADM:PRICE:SET_STARS")],
+            [InlineKeyboardButton("₽ Change price (RUB)", callback_data="ADM:PRICE:SET_RUB")],
+            [
+                InlineKeyboardButton("🏠 Home", callback_data="ADM:HOME"),
+                InlineKeyboardButton("⬅️ Back", callback_data="ADM:BACK"),
+            ],
+        ]
+    )
+
 
 async def price_entry(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    await q.edit_message_text("💰 Price / Billing", reply_markup=_kb())
+    if q:
+        await q.answer()
+
+    if not _is_admin(update):
+        if q:
+            await q.edit_message_text("⛔️")
+        elif update.message:
+            await update.message.reply_text("⛔️")
+        return
+
+    text = "💰 <b>Price / Billing</b>"
+    if q:
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=_kb())
+    elif update.message:
+        await update.message.reply_html(text, reply_markup=_kb())
+
 
 async def price_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    if not q:
+        return
     await q.answer()
-    data = q.data
+    data = q.data or ""
+
+    if not _is_admin(update):
+        await q.edit_message_text("⛔️")
+        return
 
     if data == "ADM:PRICE:STARS":
         # переиспользуем готовую команду (выводит баланс звёзд/€)
         from handlers.commands.admin_cmds import adm_stars_command
+
         await adm_stars_command(update, ctx)
         return
 
@@ -41,31 +74,43 @@ async def price_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         conn = sqlite3.connect(PROFILES_DB_PATH)
         cur = conn.cursor()
         try:
-            cur.execute("SELECT COUNT(*) FROM user_profiles WHERE premium_until IS NOT NULL AND premium_until >= ?", (now_iso,))
+            cur.execute(
+                "SELECT COUNT(*) FROM user_profiles WHERE premium_until IS NOT NULL AND premium_until >= ?",
+                (now_iso,),
+            )
             n = cur.fetchone()[0] or 0
         except Exception:
             n = "n/a"
         finally:
             conn.close()
-        await q.edit_message_text(f"Активных подписок: {n}", reply_markup=_kb())
+        await q.edit_message_text(f"🧾 <b>Subs</b>\nАктивных подписок: {n}", parse_mode="HTML", reply_markup=_kb())
         return
 
     if data == "ADM:PRICE:SET_STARS":
         ctx.user_data["adm_price_mode"] = "SET_STARS"
         current = get_kv("PRICE_STARS") or "—"
-        await q.edit_message_text(f"Текущая цена в Stars: {current}\nОтправь новую в чат, напр.: <code>PRICE_STARS 499</code>",
-                                  parse_mode="HTML", reply_markup=_kb())
+        await q.edit_message_text(
+            f"💶 <b>Change price (Stars)</b>\nТекущая цена: <b>{current}</b>\n\n"
+            "Отправь новую в чат, напр.: <code>PRICE_STARS 499</code>",
+            parse_mode="HTML",
+            reply_markup=_kb(),
+        )
         return
 
     if data == "ADM:PRICE:SET_RUB":
         ctx.user_data["adm_price_mode"] = "SET_RUB"
         current = get_kv("PRICE_RUB") or "—"
-        await q.edit_message_text(f"Текущая цена в RUB: {current}\nОтправь новую в чат, напр.: <code>PRICE_RUB 399</code>",
-                                  parse_mode="HTML", reply_markup=_kb())
+        await q.edit_message_text(
+            f"₽ <b>Change price (RUB)</b>\nТекущая цена: <b>{current}</b>\n\n"
+            "Отправь новую в чат, напр.: <code>PRICE_RUB 399</code>",
+            parse_mode="HTML",
+            reply_markup=_kb(),
+        )
         return
 
-    # back/refresh
+    # refresh / fallback
     await price_entry(update, ctx)
+
 
 # Ловим следующую текстовую реплику от админа (зарегистрировано в english_bot.py)
 async def price_text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -79,6 +124,7 @@ async def price_text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         key, val = txt.split()
         val_int = int(val)
+
         if mode == "SET_STARS" and key.upper() == "PRICE_STARS":
             set_kv("PRICE_STARS", val_int)
             await update.message.reply_text(f"✅ PRICE_STARS = {val_int}")

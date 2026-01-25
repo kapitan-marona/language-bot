@@ -1,29 +1,40 @@
 from __future__ import annotations
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+
 from components.admins import ADMIN_IDS
 from components.promo_store import list_codes, upsert_code, delete_code
+
 
 def _is_admin(update: Update) -> bool:
     u = update.effective_user
     return bool(u and u.id in ADMIN_IDS)
 
+
 def _kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Add/Update", callback_data="ADM:PROMO:ADD")],
-        [InlineKeyboardButton("🗑 Delete", callback_data="ADM:PROMO:DEL")],
-        [InlineKeyboardButton("🔁 Refresh", callback_data="ADM:PROMO")],
-        [InlineKeyboardButton("⬅️ Back", callback_data="ADM:BACK")],
-    ])
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("➕ Add/Update", callback_data="ADM:PROMO:ADD")],
+            [InlineKeyboardButton("🗑 Delete", callback_data="ADM:PROMO:DEL")],
+            [InlineKeyboardButton("🔁 Refresh", callback_data="ADM:PROMO")],
+            [
+                InlineKeyboardButton("🏠 Home", callback_data="ADM:HOME"),
+                InlineKeyboardButton("⬅️ Back", callback_data="ADM:BACK"),
+            ],
+        ]
+    )
+
 
 async def promo_entry(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if q:
         await q.answer()
+
     if not _is_admin(update):
         if q:
             await q.edit_message_text("⛔️")
-        else:
+        elif update.message:
             await update.message.reply_text("⛔️")
         return
 
@@ -33,17 +44,23 @@ async def promo_entry(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     for c in codes[:50]:
         exp = c.get("expires_at") or "-"
         langs = ",".join(c.get("langs", [])) or "-"
-        lines.append(f"• <b>{c['code']}</b> — {c.get('type')}/{c.get('value')} | langs:{langs} | exp:{exp} | {'ON' if c.get('active') else 'off'}")
+        lines.append(
+            f"• <b>{c['code']}</b> — {c.get('type')}/{c.get('value')} | langs:{langs} | exp:{exp} | {'ON' if c.get('active') else 'off'}"
+        )
     text = "\n".join(lines) if codes else "Промокодов нет."
 
     if q:
         await q.edit_message_text(text, parse_mode="HTML", reply_markup=_kb())
-    else:
+    elif update.message:
         await update.message.reply_html(text, reply_markup=_kb())
+
 
 async def promo_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    if not q:
+        return
     await q.answer()
+
     if q.data == "ADM:PROMO:ADD":
         ctx.user_data["adm_promo_mode"] = "ADD"
         await q.edit_message_text(
@@ -52,13 +69,18 @@ async def promo_router(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "Пример: <code>BF25;percent;25;0;en,de,fr</code>\n"
             "TYPE: percent|fixed|days|messages",
             parse_mode="HTML",
-            reply_markup=_kb()
+            reply_markup=_kb(),
         )
     elif q.data == "ADM:PROMO:DEL":
         ctx.user_data["adm_promo_mode"] = "DEL"
-        await q.edit_message_text("Удаление: отправьте в чат:\n<code>DEL CODE</code>", parse_mode="HTML", reply_markup=_kb())
+        await q.edit_message_text(
+            "Удаление: отправьте в чат:\n<code>DEL CODE</code>",
+            parse_mode="HTML",
+            reply_markup=_kb(),
+        )
     else:
         await promo_entry(update, ctx)
+
 
 # Ловим следующую текстовую реплику от админа (зарегистрировано в english_bot.py)
 async def promo_text_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
