@@ -2,10 +2,11 @@ from __future__ import annotations
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from state.session import user_sessions
-from components.profile_db import save_user_profile
+from components.profile_db import save_user_profile, get_user_profile
 from components.i18n import get_ui_lang
+from components.access import enforce_and_set_active_language, ensure_access_defaults
+import json
 
-# Поддерживаемые коды/надписи (короткий локальный справочник)
 _LANG_NAMES = {
     "en": "English",  "ru": "Русский", "es": "Español",
     "de": "Deutsch",  "fr": "Français", "sv": "Svenska",
@@ -43,10 +44,29 @@ async def language_on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     sess = user_sessions.setdefault(chat_id, {})
     sess["target_lang"] = code
+
+    # NEW: enforce access rules (english_only, slots) + store active langs
+    prof = get_user_profile(chat_id) or {"chat_id": chat_id}
+    ensure_access_defaults(prof)
+    ok, reason, active = enforce_and_set_active_language(prof, code)
+
+    if not ok:
+        ui = get_ui_lang(update, ctx)
+        msg = "⛔️ Доступно только English по вашему промокоду." if (ui == "ru" and reason == "english_only") else (
+            "⛔️ Only English is available with your promo." if reason == "english_only" else (
+                "⛔️ Нельзя выбрать этот язык сейчас." if ui == "ru" else "⛔️ This language is not available right now."
+            )
+        )
+        await q.edit_message_text(msg)
+        return
+
     try:
-        save_user_profile(chat_id, target_lang=code)
+        save_user_profile(chat_id, target_lang=code, access_active_langs_json=json.dumps(active, ensure_ascii=False))
     except Exception:
-        pass
+        try:
+            save_user_profile(chat_id, target_lang=code)
+        except Exception:
+            pass
 
     ui = get_ui_lang(update, ctx)
     await q.edit_message_text(_ok_text(ui) + _LANG_NAMES.get(code, code))

@@ -52,10 +52,34 @@ def init_db() -> None:
         "premium_until": "TEXT",          # ISO-8601 (UTC) — до какого момента активна подписка
         "premium_activated_at": "TEXT",   # ISO-8601 (UTC)
         "premium_source": "TEXT",         # payment|promo|gift...
+        # доступ по языкам/пакетам (promo-based access)
+        "access_plan": "TEXT",
+        "access_expires_at": "TEXT",
+        "access_lang_policy": "TEXT",
+        "access_lang_slots": "INTEGER",
+        "access_active_langs_json": "TEXT",
     }
     for col, coltype in required_cols.items():
         if col not in existing:
             cur.execute(f"ALTER TABLE user_profiles ADD COLUMN {col} {coltype}")
+
+    # Таблица промокодов (SQLite), чтобы поддерживать одноразовые коды без JSON
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            days INTEGER,
+            lang_policy TEXT NOT NULL,
+            lang_slots INTEGER NOT NULL,
+            is_single_use INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            notes TEXT,
+            redeemed_by INTEGER,
+            redeemed_at TEXT
+        )
+        """
+    )
 
     # История сообщений (контекст для восстановления после ребута)
     cur.execute(
@@ -69,15 +93,13 @@ def init_db() -> None:
         )
         """
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages (chat_id, ts)")
 
     conn.commit()
     conn.close()
 
 
-# === Утилиты чтения/записи профиля ===
-
 def get_user_profile(chat_id: int) -> Optional[Dict[str, Any]]:
+    """Получить профиль пользователя как dict или None."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -110,6 +132,12 @@ def save_user_profile(
     premium_until: Optional[str] = None,
     premium_activated_at: Optional[str] = None,
     premium_source: Optional[str] = None,
+    # Доступ по языкам/пакетам
+    access_plan: Optional[str] = None,
+    access_expires_at: Optional[str] = None,
+    access_lang_policy: Optional[str] = None,
+    access_lang_slots: Optional[int] = None,
+    access_active_langs_json: Optional[str] = None,
 ) -> None:
     """Обновляет/создаёт профиль пользователя частично (upsert)."""
     current = get_user_profile(chat_id) or {"chat_id": chat_id}
@@ -132,6 +160,11 @@ def save_user_profile(
         "premium_until": premium_until if premium_until is not None else current.get("premium_until"),
         "premium_activated_at": premium_activated_at if premium_activated_at is not None else current.get("premium_activated_at"),
         "premium_source": premium_source if premium_source is not None else current.get("premium_source"),
+        "access_plan": access_plan if access_plan is not None else current.get("access_plan"),
+        "access_expires_at": access_expires_at if access_expires_at is not None else current.get("access_expires_at"),
+        "access_lang_policy": access_lang_policy if access_lang_policy is not None else current.get("access_lang_policy"),
+        "access_lang_slots": access_lang_slots if access_lang_slots is not None else current.get("access_lang_slots"),
+        "access_active_langs_json": access_active_langs_json if access_active_langs_json is not None else current.get("access_active_langs_json"),
     }
 
     conn = sqlite3.connect(DB_PATH)
@@ -149,7 +182,8 @@ def save_user_profile(
               promo_code_used = ?, promo_type = ?, promo_activated_at = ?, promo_days = ?,
               last_seen_at = ?, nudge_last_sent = ?,
               append_translation = ?, append_translation_lang = ?,
-              premium_until = ?, premium_activated_at = ?, premium_source = ?
+              premium_until = ?, premium_activated_at = ?, premium_source = ?,
+              access_plan = ?, access_expires_at = ?, access_lang_policy = ?, access_lang_slots = ?, access_active_langs_json = ?
             WHERE chat_id = ?
             """,
             (
@@ -160,6 +194,7 @@ def save_user_profile(
                 updates["last_seen_at"], updates["nudge_last_sent"],
                 updates["append_translation"], updates["append_translation_lang"],
                 updates["premium_until"], updates["premium_activated_at"], updates["premium_source"],
+                updates["access_plan"], updates["access_expires_at"], updates["access_lang_policy"], updates["access_lang_slots"], updates["access_active_langs_json"],
                 chat_id,
             ),
         )
@@ -171,8 +206,9 @@ def save_user_profile(
               promo_code_used, promo_type, promo_activated_at, promo_days,
               last_seen_at, nudge_last_sent,
               append_translation, append_translation_lang,
-              premium_until, premium_activated_at, premium_source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              premium_until, premium_activated_at, premium_source,
+              access_plan, access_expires_at, access_lang_policy, access_lang_slots, access_active_langs_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -183,6 +219,7 @@ def save_user_profile(
                 updates["last_seen_at"], updates["nudge_last_sent"],
                 updates["append_translation"], updates["append_translation_lang"],
                 updates["premium_until"], updates["premium_activated_at"], updates["premium_source"],
+                updates["access_plan"], updates["access_expires_at"], updates["access_lang_policy"], updates["access_lang_slots"], updates["access_active_langs_json"],
             ),
         )
 

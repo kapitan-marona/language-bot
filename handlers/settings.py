@@ -1,6 +1,7 @@
 # handlers/settings.py
 from __future__ import annotations
 
+import json
 import logging
 from typing import Dict, Any, List, Tuple
 
@@ -11,6 +12,8 @@ from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
 from components.i18n import get_ui_lang
 from state.session import user_sessions
+from components.access import enforce_and_set_active_language, ensure_access_defaults
+
 
 logger = logging.getLogger(__name__)
 
@@ -413,13 +416,29 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Выбор языка
     if data.startswith("S:SET:LANG:"):
         code = data.split(":", 3)[-1]
+
+        # NEW: enforce access rules (english_only, slots) + store active langs
+        cur_prof = get_user_profile(chat_id) or {}
+        ensure_access_defaults(cur_prof)
+        ok, reason, active = enforce_and_set_active_language(cur_prof, code)
+        if not ok:
+            msg = "⛔️ Доступно только English по вашему промокоду." if (ui == "ru" and reason == "english_only") else (
+                "⛔️ Only English is available with your promo." if reason == "english_only" else (
+                    "⛔️ Нельзя выбрать этот язык сейчас." if ui == "ru" else "⛔️ This language is not available right now."
+                )
+            )
+            await q.edit_message_text(msg)
+            return
+
         try:
-            save_user_profile(chat_id, target_lang=code)
+            save_user_profile(chat_id, target_lang=code, access_active_langs_json=json.dumps(active, ensure_ascii=False))
         except Exception:
             logger.exception("Failed to save target_lang=%s", code)
+
         sess["target_lang"] = code
 
         prof = get_user_profile(chat_id) or prof
+
         level_now = (prof.get("level") or sess.get("level") or "B1").upper()
         append_tr = bool(prof.get("append_translation")) if level_now in ("A0", "A1") else False
 

@@ -12,6 +12,8 @@ from components.style import get_style_keyboard, STYLE_LABEL_PROMPT
 from handlers.chat.levels_text import get_level_guide, LEVEL_GUIDE_BUTTON, LEVEL_GUIDE_CLOSE_BUTTON
 from handlers.chat.prompt_templates import START_MESSAGE, MATT_INTRO
 from handlers.chat.prompt_templates import pick_intro_question
+from components.access import enforce_and_set_active_language, ensure_access_defaults
+
 
 # 🔽 Новое: берём id стикера напрямую из конфига, без импорта из chat_handler
 from components.stickers import STICKERS_CONFIG
@@ -19,6 +21,7 @@ from components.stickers import STICKERS_CONFIG
 import logging
 import re
 import random  # для вероятности отправки привет-стикера
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -213,9 +216,23 @@ async def target_language_callback(update: Update, context: ContextTypes.DEFAULT
     session = user_sessions.setdefault(chat_id, {})
     session["target_lang"] = lang_code
     session["onboarding_stage"] = "awaiting_level"
+    
+        # NEW: enforce access rules (english_only, slots) + store active langs
+    prof = get_user_profile(chat_id) or {"chat_id": chat_id}
+    ensure_access_defaults(prof)
+    ok, reason, active = enforce_and_set_active_language(prof, lang_code)
+    if not ok:
+        interface_lang = session.get("interface_lang", "ru")
+        msg = "⛔️ Доступно только English по вашему промокоду." if (interface_lang == "ru" and reason == "english_only") else (
+            "⛔️ Only English is available with your promo." if reason == "english_only" else (
+                "⛔️ Нельзя выбрать этот язык сейчас." if interface_lang == "ru" else "⛔️ This language is not available right now."
+            )
+        )
+        await query.edit_message_text(text=msg)
+        return
 
     try:
-        save_user_profile(chat_id, target_lang=lang_code)
+        save_user_profile(chat_id, target_lang=lang_code, access_active_langs_json=json.dumps(active, ensure_ascii=False))
     except Exception:
         logger.exception("Failed to save target_lang=%s for chat_id=%s", lang_code, chat_id)
 
