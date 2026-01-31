@@ -119,7 +119,10 @@ def _get_cfg(session: Dict) -> ChatCfg:
     cfg.level = (st.get("level") or "A2").upper()
     cfg.mode = (st.get("mode") or "text").lower()
     cfg.style = (st.get("style") or "casual").lower()
-    cfg.task_mode = (st.get("task_mode") or "chat").lower()
+
+    # ✅ FIX (Этап 1): task_mode — единый источник истины: session["task_mode"]
+    # fallback на settings оставляем только для совместимости со старым мусором
+    cfg.task_mode = ((session or {}).get("task_mode") or st.get("task_mode") or "chat").lower()
     return cfg
 
 def _hits_creator(user_text: str, ui_lang: str) -> bool:
@@ -154,10 +157,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
+    # ✅ FIX (Этап 1): единая сессия
+    # 1) пробуем по user_id
     session = user_sessions.get(user_id)
+    # 2) fallback на старый ключ chat_id (если где-то ещё создавали так)
     if not session:
-        session = {"settings": {}, "history": [], "usage": {}}
-        user_sessions[user_id] = session
+        legacy = user_sessions.get(chat_id)
+        if legacy:
+            session = legacy
+            user_sessions[user_id] = session
+        else:
+            session = {"settings": {}, "history": [], "usage": {}}
+            user_sessions[user_id] = session
+    # 3) алиас: chat_id -> та же ссылка на объект (чтобы не было "двух сессий")
+    if chat_id != user_id:
+        user_sessions[chat_id] = session
 
     cfg = _get_cfg(session)
 
