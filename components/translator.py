@@ -203,10 +203,10 @@ async def do_translate(
     tgt = (target_lang or "en").lower()
 
     # 1️⃣ Если пользователь дал вводку вроде "переведи ..." или "translate ..."
-    #    — берём только текст после этих слов
-    pattern = r"(?:(?:translate|переведи|как будет|что значит|meaning of)\s*[:,\-–]?\s*)[\"“”']?(.*?)[\"“”']?$"
-    m = re.search(pattern, (text or "").strip(), re.IGNORECASE)
-    if m and len(m.group(1)) > 1:
+    #    — берём только текст после этих слов (включая многострочный текст)
+    pattern = r"(?:(?:translate|переведи|как будет|что значит|meaning of)\s*[:,\-–]?\s*)[\"“”']?(.*)[\"“”']?$"
+    m = re.search(pattern, (text or "").strip(), flags=re.IGNORECASE | re.DOTALL)
+    if m and m.group(1) and len(m.group(1).strip()) > 1:
         text = m.group(1).strip()
 
     # 2️⃣ Если сообщение похоже на вопрос (начинается с what/how/is/do и т.п.),
@@ -230,9 +230,12 @@ async def do_translate(
 
     user_payload = base_text
     if hint:
+        # ЯВНО размечаем секции, чтобы модель переводила ВЕСЬ текст, а hint игнорировала в выводе
         user_payload = (
+            "TEXT:\n"
             f"{base_text}\n\n"
-            f"DISAMBIGUATION (do not translate, do not include in output): {hint}"
+            "DISAMBIGUATION (do not translate, do not include in output): "
+            f"{hint}"
         )
 
     messages = [
@@ -240,8 +243,8 @@ async def do_translate(
             "role": "system",
             "content": (
                 sys
-                + "\nIf DISAMBIGUATION is provided, use it only to choose meaning. "
-                  "Translate ONLY the first line of the user message."
+                + "\nIf DISAMBIGUATION is provided, use it only to choose meaning and IGNORE it in output. "
+                  "Translate the full TEXT section provided by the user."
             ),
         },
         {"role": "user", "content": user_payload},
@@ -260,7 +263,7 @@ async def do_translate(
 
     async def _call():
         # мини-модель: быстрее и дешевле для переводов
-        return await ask_gpt(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=180)
+        return await ask_gpt(messages, model="gpt-4o-mini", temperature=0.2, max_tokens=600)
 
     try:
         out = await asyncio.wait_for(_call(), timeout=timeout)
