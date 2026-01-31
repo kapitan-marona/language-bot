@@ -12,7 +12,7 @@ from components.profile_db import get_user_profile, save_user_profile
 from components.promo import restrict_target_languages_if_needed, is_promo_valid
 from components.i18n import get_ui_lang
 from state.session import user_sessions
-from components.access import enforce_and_set_active_language, ensure_access_defaults
+from components.access import enforce_and_set_active_language, ensure_access_defaults, is_access_active, get_lang_policy
 
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def _state_from(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Dict[str,
     if (level or "").upper() in ("A0", "A1"):
         append_tr = bool(prof.get("append_translation"))
 
-    english_only_note = (prof.get("promo_type") == "english_only" and is_promo_valid(prof))
+    english_only_note = (get_lang_policy(prof) == "english_only" and is_access_active(prof))
 
     return {
         "ui": ui,
@@ -291,7 +291,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return
@@ -311,7 +311,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return
@@ -388,7 +388,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return
@@ -408,7 +408,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess["mode"],
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_main(ui, sess["mode"]))
         return
@@ -449,7 +449,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return
@@ -473,7 +473,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(prof.get("style") or sess.get("style") or "casual", ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return
@@ -498,7 +498,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             style_name=_name_for_style(style, ui),
             out_mode=sess.get("mode") or "text",
             append_tr=append_tr,
-            english_only_note=(prof.get("promo_type") == "english_only" and is_promo_valid(prof)),
+            english_only_note=(get_lang_policy(prof) == "english_only" and is_access_active(prof)),
         )
         await q.edit_message_text(text, reply_markup=_kb_settings(ui, append_tr))
         return

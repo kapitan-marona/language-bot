@@ -157,26 +157,41 @@ def activate_promo(profile: Dict[str, Any], code: str) -> tuple[bool, str]:
 
     # plan name is used only for logic; keep simple & explicit
     if lang_policy == "english_only":
+        # WESTERN
         plan = "western"
         expires_at = None
         lang_slots = 1
         active_langs = ["en"]
-    elif isinstance(days, int):
-        # FRIEND 3D (one language, switchable)
-        plan = "friend"
-        expires_at = _extend_from(None, int(days))
-        active_langs = []
     else:
-        # 1709 permanent all
-        plan = "all"
-        expires_at = None
-        active_langs = []
-
-    # If later you add ALL_30D (timed all), we will extend from existing expiry:
-    if plan == "all" and isinstance(days, int):
-        expires_at = _extend_from(profile.get("access_expires_at"), int(days))
+        # Timed or permanent plans depend on slots:
+        #   slots==1  -> friend (shareable 3d) or other 1-slot promos
+        #   slots==2  -> duo
+        #   slots>=999 -> all
+        if isinstance(days, int):
+            if int(lang_slots) >= 999:
+                plan = "all"
+                expires_at = _extend_from(profile.get("access_expires_at"), int(days))
+            elif int(lang_slots) == 2:
+                plan = "duo"
+                expires_at = _extend_from(profile.get("access_expires_at"), int(days))
+            else:
+                plan = "friend"
+                # friend is per-user-once, but keep consistent extension rule
+                expires_at = _extend_from(profile.get("access_expires_at"), int(days))
+            active_langs = []
+        else:
+            # Permanent (e.g., 1709)
+            if int(lang_slots) >= 999:
+                plan = "all"
+            elif int(lang_slots) == 2:
+                plan = "duo"
+            else:
+                plan = "premium"
+            expires_at = None
+            active_langs = []
 
     profile["access_plan"] = plan
+
     profile["access_expires_at"] = expires_at
     profile["access_lang_policy"] = lang_policy
     profile["access_lang_slots"] = int(lang_slots)
