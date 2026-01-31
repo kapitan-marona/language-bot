@@ -179,11 +179,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # если пользователь пишет смешанным языком — перепишем в один (мягко)
     try:
-        user_input = await rewrite_mixed_input(user_input, cfg.interface_lang, cfg.target_lang)
+        rewritten, preface_html = await rewrite_mixed_input(
+            user_input, cfg.interface_lang, cfg.target_lang
+        )
+        if preface_html:
+            # коротко покажем пользователю, что мы поняли (не обязательно, но логика в code_switch именно для этого)
+            await update.message.reply_html(preface_html)
+        user_input = rewritten
     except Exception:
         pass
 
     msg_norm = _norm_cmd(user_input)
+
 
     # показать меню переключения режима
     if msg_norm in {"/mode", "mode", "режим"}:
