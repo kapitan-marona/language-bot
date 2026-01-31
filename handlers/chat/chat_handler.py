@@ -179,7 +179,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # если пользователь пишет смешанным языком — перепишем в один (мягко)
     try:
-        user_input = rewrite_mixed_input(user_input, cfg.interface_lang, cfg.target_lang)
+        user_input = await rewrite_mixed_input(user_input, cfg.interface_lang, cfg.target_lang)
     except Exception:
         pass
 
