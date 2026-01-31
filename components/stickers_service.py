@@ -37,6 +37,11 @@ async def maybe_send_thematic_sticker(context: ContextTypes.DEFAULT_TYPE, update
     Антифлуд: не больше 1 стикера в окне из 40 реплик истории.
     Вероятность: 30% при сработавшем триггере.
     """
+
+    # 🚫 Не отправляем стикеры в режиме переводчика
+    if (session or {}).get("task_mode") == "translator":
+        return
+
     last_idx = session.get("last_sticker_hist_idx")
     hist_len = len(history or [])
     if isinstance(last_idx, int) and (hist_len - last_idx) < 40:
