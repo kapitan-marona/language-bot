@@ -1,6 +1,7 @@
 # english_bot.py
 from __future__ import annotations
 import os
+import re
 import logging
 import asyncio
 from typing import Optional
@@ -86,10 +87,51 @@ ADMIN_PANEL_TOKEN = os.getenv("ADMIN_PANEL_TOKEN")
 ENV = os.getenv("ENV", "dev")
 
 # ===== ЛОГИРОВАНИЕ =====
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logging.getLogger("httpx").setLevel(logging.INFO)
+class RedactSecretsFilter(logging.Filter):
+    _tg_bot_url_re = re.compile(r"(https://api\.telegram\.org/bot)(\d+:[A-Za-z0-9_-]+)")
+
+    def __init__(self, telegram_token: str | None):
+        super().__init__()
+        self.telegram_token = telegram_token
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+
+        # 1) Redact Telegram bot token inside URL
+        msg2 = self._tg_bot_url_re.sub(r"\1<redacted>", msg)
+
+        # 2) Redact exact TELEGRAM_TOKEN if it appears anywhere
+        if self.telegram_token:
+            msg2 = msg2.replace(self.telegram_token, "<redacted>")
+
+        if msg2 != msg:
+            record.msg = msg2
+            record.args = ()
+
+        return True
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+# Silence noisy libs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.INFO)
 logging.getLogger("telegram.bot").setLevel(logging.INFO)
+
+# Redact secrets everywhere
+_redact_filter = RedactSecretsFilter(TELEGRAM_TOKEN)
+root_logger = logging.getLogger()
+root_logger.addFilter(_redact_filter)
+for h in root_logger.handlers:
+    h.addFilter(_redact_filter)
+
 
 logger = logging.getLogger("english-bot")
 
